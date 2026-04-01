@@ -13,6 +13,7 @@
 typedef struct {
     const char *name;
     const char *type_name;
+    size_t array_len;
     char ref_name[32];
 } LocalBinding;
 
@@ -56,6 +57,18 @@ static const char *llvm_type_name(const char *type_name) {
         return buffer[buffer_index];
     }
     return "i32";
+}
+
+static const char *llvm_storage_type_name(const char *type_name, size_t array_len) {
+    static char buffer[8][64];
+    static int buffer_index = 0;
+
+    if (strcmp(type_name, "int[]") == 0) {
+        buffer_index = (buffer_index + 1) % 8;
+        snprintf(buffer[buffer_index], sizeof(buffer[buffer_index]), "[%zu x i32]", array_len);
+        return buffer[buffer_index];
+    }
+    return llvm_type_name(type_name);
 }
 
 static const char *c_type_name(const char *type_name) {
@@ -303,6 +316,11 @@ static void emit_expr_llvm(FILE *out,
     if (expr->kind == DIRI_AST_IDENT_EXPR) {
         int local_index = find_local(ctx->locals, ctx->local_count, expr->as.ident_name);
         if (local_index >= 0) {
+            if (strcmp(ctx->locals[local_index].type_name, "int[]") == 0) {
+                snprintf(result_name, result_size, "%s", ctx->locals[local_index].ref_name);
+                *result_type = ctx->locals[local_index].type_name;
+                return;
+            }
             snprintf(result_name, result_size, "%%%d", ctx->temp_id++);
             fprintf(out, "  %s = load %s, %s* %s\n",
                     result_name,
@@ -344,6 +362,31 @@ static void emit_expr_llvm(FILE *out,
                     *result_type = expr->inferred_type;
                     return;
                 }
+            }
+        }
+    }
+
+    if (expr->kind == DIRI_AST_INDEX_EXPR) {
+        if (expr->as.index.base->kind == DIRI_AST_IDENT_EXPR) {
+            int local_index = find_local(ctx->locals, ctx->local_count, expr->as.index.base->as.ident_name);
+            if (local_index >= 0 && strcmp(ctx->locals[local_index].type_name, "int[]") == 0) {
+                char index_name[256];
+                char gep_name[256];
+                const char *index_type;
+                const char *array_storage_type = llvm_storage_type_name("int[]", ctx->locals[local_index].array_len);
+
+                emit_expr_llvm(out, expr->as.index.index, ctx, strings, string_count, index_name, sizeof(index_name), &index_type);
+                snprintf(gep_name, sizeof(gep_name), "%%%d", ctx->temp_id++);
+                fprintf(out, "  %s = getelementptr inbounds %s, %s* %s, i32 0, i32 %s\n",
+                        gep_name,
+                        array_storage_type,
+                        array_storage_type,
+                        ctx->locals[local_index].ref_name,
+                        index_name);
+                snprintf(result_name, result_size, "%%%d", ctx->temp_id++);
+                fprintf(out, "  %s = load i32, i32* %s\n", result_name, gep_name);
+                *result_type = "int";
+                return;
             }
         }
     }
@@ -466,13 +509,52 @@ static void emit_stmt_llvm(FILE *out, const DiriAstStmt *stmt, LlvmFuncContext *
         char value_name[256];
         const char *value_type;
 
-        emit_expr_llvm(out, stmt->as.let_stmt.value, ctx, strings, string_count, value_name, sizeof(value_name), &value_type);
         snprintf(ctx->locals[ctx->local_count].ref_name, sizeof(ctx->locals[ctx->local_count].ref_name), "%%slot%d", ctx->temp_id++);
         ctx->locals[ctx->local_count].name = stmt->as.let_stmt.name;
         ctx->locals[ctx->local_count].type_name = stmt->as.let_stmt.type.name;
+        ctx->locals[ctx->local_count].array_len = 0;
+
+        if (strcmp(stmt->as.let_stmt.type.name, "int[]") == 0 &&
+            stmt->as.let_stmt.value != NULL &&
+            stmt->as.let_stmt.value->kind == DIRI_AST_ARRAY_INIT_EXPR) {
+            size_t i;
+            size_t array_len = stmt->as.let_stmt.value->as.array_init.item_count;
+            const char *array_storage_type = llvm_storage_type_name("int[]", array_len);
+
+            ctx->locals[ctx->local_count].array_len = array_len;
+            fprintf(out, "  %s = alloca %s\n",
+                    ctx->locals[ctx->local_count].ref_name,
+                    array_storage_type);
+            for (i = 0; i < array_len; ++i) {
+                char item_name[256];
+                char gep_name[256];
+                const char *item_type;
+
+                emit_expr_llvm(out,
+                               stmt->as.let_stmt.value->as.array_init.items[i],
+                               ctx,
+                               strings,
+                               string_count,
+                               item_name,
+                               sizeof(item_name),
+                               &item_type);
+                snprintf(gep_name, sizeof(gep_name), "%%%d", ctx->temp_id++);
+                fprintf(out, "  %s = getelementptr inbounds %s, %s* %s, i32 0, i32 %zu\n",
+                        gep_name,
+                        array_storage_type,
+                        array_storage_type,
+                        ctx->locals[ctx->local_count].ref_name,
+                        i);
+                fprintf(out, "  store i32 %s, i32* %s\n", item_name, gep_name);
+            }
+            ctx->local_count++;
+            return;
+        }
+
+        emit_expr_llvm(out, stmt->as.let_stmt.value, ctx, strings, string_count, value_name, sizeof(value_name), &value_type);
         fprintf(out, "  %s = alloca %s\n",
                 ctx->locals[ctx->local_count].ref_name,
-                llvm_type_name(ctx->locals[ctx->local_count].type_name));
+                llvm_storage_type_name(ctx->locals[ctx->local_count].type_name, 0));
         fprintf(out, "  store %s %s, %s* %s\n",
                 llvm_type_name(ctx->locals[ctx->local_count].type_name),
                 value_name,
@@ -725,12 +807,13 @@ int diri_codegen_emit_llvm_ir(const DiriAstProgram *program, const char *input_p
             ctx.locals[ctx.local_count].type_name = decl->params[j].type.name;
             fprintf(out, "  %s = alloca %s\n",
                     ctx.locals[ctx.local_count].ref_name,
-                    llvm_type_name(ctx.locals[ctx.local_count].type_name));
+                    llvm_storage_type_name(ctx.locals[ctx.local_count].type_name, 0));
             fprintf(out, "  store %s %%%s, %s* %s\n",
                     llvm_type_name(ctx.locals[ctx.local_count].type_name),
                     decl->params[j].name,
                     llvm_type_name(ctx.locals[ctx.local_count].type_name),
                     ctx.locals[ctx.local_count].ref_name);
+            ctx.locals[ctx.local_count].array_len = 0;
             ctx.local_count++;
         }
 

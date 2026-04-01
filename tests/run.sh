@@ -80,6 +80,29 @@ assert_error_contains() {
     fi
 }
 
+assert_ir_contains() {
+    file_path=$1
+    needle=$2
+    output_file="${TEST_ROOT}/command.out"
+    ir_path="${TEST_ROOT}/out.ll"
+
+    if ! diri emit-ir "${file_path}" >"${output_file}" 2>&1; then
+        sed -n '1,120p' "${output_file}" >&2
+        fail "command failed: diri emit-ir ${file_path}"
+    fi
+
+    ir_path="${ROOT_DIR}/build/$(printf '%s' "${file_path}" | sed 's#[/\\]#_#g; s#\..*$##').ll"
+    if ! [ -f "${ir_path}" ]; then
+        fail "expected LLVM IR output at ${ir_path}"
+    fi
+
+    if ! grep -F "${needle}" "${ir_path}" >/dev/null; then
+        printf '[test:error] expected to find "%s" in IR for %s\n' "${needle}" "${file_path}" >&2
+        sed -n '1,160p' "${ir_path}" >&2
+        exit 1
+    fi
+}
+
 log "installing diri into temporary home"
 HOME="${HOME_DIR}" sh "${ROOT_DIR}/scripts/install.sh" >"${TEST_ROOT}/install.out" 2>&1 || {
     sed -n '1,120p' "${TEST_ROOT}/install.out" >&2
@@ -106,6 +129,10 @@ log "checking AST smoke output"
 assert_contains "${ROOT_DIR}/examples/hello.di" "Program"
 assert_contains "${ROOT_DIR}/examples/hello.di" "Let(x: int)"
 assert_contains "${ROOT_DIR}/examples/hello.di" "Call(print_int)"
+
+log "checking LLVM IR smoke output"
+assert_ir_contains "${ROOT_DIR}/examples/loop.di" "br label %whilecond"
+assert_ir_contains "${ROOT_DIR}/examples/arrays.di" "getelementptr inbounds [4 x i32]"
 
 log "checking semantic failure cases"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.di" "duplicate declaration of 'x' in the same scope"

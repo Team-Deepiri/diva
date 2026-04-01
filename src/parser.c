@@ -199,7 +199,10 @@ static DiriAstExpr *parse_primary(DiriParser *parser) {
     if (parser->current.kind == DIRI_TOKEN_IDENT) {
         name = parser_take_text(parser);
         parser_advance(parser);
-        if (parser_match(parser, DIRI_TOKEN_LBRACE)) {
+        if (parser->current.kind == DIRI_TOKEN_LBRACE &&
+            (parser_peek_kind(parser) == DIRI_TOKEN_IDENT ||
+             parser_peek_kind(parser) == DIRI_TOKEN_RBRACE)) {
+            parser_advance(parser);
             expr = diri_ast_expr_new(DIRI_AST_STRUCT_INIT_EXPR);
             if (expr == NULL) return NULL;
             expr->as.struct_init.type_name = name;
