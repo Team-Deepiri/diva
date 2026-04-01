@@ -1,0 +1,7 @@
+extern func print_int(x: int): void;
+
+func main(): int {
+    let nums: int[] = [3, 6, 9, 12];
+    print_int(nums[2]);
+    return 0;
+}

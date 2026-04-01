@@ -1,0 +1,92 @@
+{
+  "Main Function": {
+    "prefix": "main",
+    "body": [
+      "func main(): int {",
+      "    $0",
+      "    return 0;",
+      "}"
+    ],
+    "description": "Create a Diri main function"
+  },
+  "Extern Print Int": {
+    "prefix": "printint",
+    "body": [
+      "extern func print_int(x: int): void;"
+    ],
+    "description": "Declare print_int runtime function"
+  },
+  "Extern Print Str": {
+    "prefix": "printstr",
+    "body": [
+      "extern func print_str(x: str): void;"
+    ],
+    "description": "Declare print_str runtime function"
+  },
+  "Function": {
+    "prefix": "func",
+    "body": [
+      "func ${1:name}(${2:x}: ${3:int}): ${4:int} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Create a Diri function"
+  },
+  "If Else": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "    $2",
+      "} else {",
+      "    $0",
+      "}"
+    ],
+    "description": "Create a Diri if/else block"
+  },
+  "While Loop": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Create a Diri while loop"
+  },
+  "Struct": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} {",
+      "    ${2:x}: ${3:int},",
+      "    ${4:y}: ${5:int},",
+      "}"
+    ],
+    "description": "Create a Diri struct declaration"
+  },
+  "Struct Literal": {
+    "prefix": "structlit",
+    "body": [
+      "${1:Point} { ${2:x}: ${3:1}, ${4:y}: ${5:2} }"
+    ],
+    "description": "Create a Diri struct literal"
+  },
+  "Int Array": {
+    "prefix": "intarray",
+    "body": [
+      "let ${1:values}: int[] = [${2:1}, ${3:2}, ${4:3}];"
+    ],
+    "description": "Create a Diri int array literal"
+  },
+  "Starter File": {
+    "prefix": "diri",
+    "body": [
+      "extern func print_str(x: str): void;",
+      "extern func print_int(x: int): void;",
+      "",
+      "func main(): int {",
+      "    $0",
+      "    return 0;",
+      "}"
+    ],
+    "description": "Create a Diri starter file"
+  }
+}

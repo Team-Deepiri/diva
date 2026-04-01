@@ -1,0 +1,43 @@
+# Diri Extension
+
+This extension registers the `diri` language for `.di` files.
+
+Included today:
+
+- `.di` file association
+- comment and bracket configuration
+- syntax highlighting for the current language surface
+- starter snippets for new files and common control flow
+
+## Local Install
+
+You can install it locally by copying this folder into your editor extensions directory, or by using the repository install scripts.
+
+VS Code example:
+
+- Linux: `~/.vscode/extensions/diri-lang`
+- Windows: `%USERPROFILE%\\.vscode\\extensions\\diri-lang`
+
+Cursor example:
+
+- Linux: `~/.cursor/extensions/diri-lang`
+- Windows: `%USERPROFILE%\\.cursor\\extensions\\diri-lang`
+
+## Covered Syntax
+
+The current grammar highlights:
+
+- `func`, `extern`, `struct`, `let`, `if`, `else`, `while`, `return`
+- primitive types like `int`, `bool`, `str`, `void`
+- function calls
+- struct fields via `.`
+- array indexing with `[]`
+- string and integer literals
+- arithmetic, assignment, and comparison operators
+
+## Scripted Install
+
+From the repository root:
+
+- Linux / WSL: `./scripts/install-extension.sh`
+- PowerShell: `./scripts/install-extension.ps1`
