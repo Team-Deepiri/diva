@@ -415,6 +415,14 @@ static DiriAstStmt *parse_stmt(DiriParser *parser) {
                 parser_expect(parser, DIRI_TOKEN_SEMI, "';'");
                 return stmt;
             }
+            if (target != NULL && target->kind == DIRI_AST_INDEX_EXPR) {
+                stmt = diri_ast_stmt_new(DIRI_AST_INDEX_ASSIGN_STMT);
+                if (stmt == NULL) return NULL;
+                stmt->as.index_assign_stmt.target = target;
+                stmt->as.index_assign_stmt.value = parse_expr(parser);
+                parser_expect(parser, DIRI_TOKEN_SEMI, "';'");
+                return stmt;
+            }
             diri_error("invalid assignment target");
             parser->had_error = 1;
             return NULL;

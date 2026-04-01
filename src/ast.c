@@ -263,6 +263,11 @@ static void dump_stmt(const DiriAstStmt *stmt, int indent) {
             dump_expr(stmt->as.field_assign_stmt.target, indent + 1);
             dump_expr(stmt->as.field_assign_stmt.value, indent + 1);
             break;
+        case DIRI_AST_INDEX_ASSIGN_STMT:
+            printf("IndexAssign\n");
+            dump_expr(stmt->as.index_assign_stmt.target, indent + 1);
+            dump_expr(stmt->as.index_assign_stmt.value, indent + 1);
+            break;
         case DIRI_AST_RETURN_STMT:
             printf("Return\n");
             dump_expr(stmt->as.return_stmt.value, indent + 1);
@@ -386,6 +391,9 @@ static void free_stmt(DiriAstStmt *stmt) {
     } else if (stmt->kind == DIRI_AST_FIELD_ASSIGN_STMT) {
         free_expr(stmt->as.field_assign_stmt.target);
         free_expr(stmt->as.field_assign_stmt.value);
+    } else if (stmt->kind == DIRI_AST_INDEX_ASSIGN_STMT) {
+        free_expr(stmt->as.index_assign_stmt.target);
+        free_expr(stmt->as.index_assign_stmt.value);
     } else if (stmt->kind == DIRI_AST_RETURN_STMT) {
         free_expr(stmt->as.return_stmt.value);
     } else if (stmt->kind == DIRI_AST_IF_STMT) {
@@ -450,6 +458,7 @@ const char *diri_ast_kind_name(DiriAstKind kind) {
         case DIRI_AST_LET_STMT: return "let_stmt";
         case DIRI_AST_ASSIGN_STMT: return "assign_stmt";
         case DIRI_AST_FIELD_ASSIGN_STMT: return "field_assign_stmt";
+        case DIRI_AST_INDEX_ASSIGN_STMT: return "index_assign_stmt";
         case DIRI_AST_RETURN_STMT: return "return_stmt";
         case DIRI_AST_EXPR_STMT: return "expr_stmt";
         case DIRI_AST_IF_STMT: return "if_stmt";

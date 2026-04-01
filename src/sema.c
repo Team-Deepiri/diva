@@ -389,6 +389,19 @@ static int check_stmt(const DiriAstProgram *program, DiriAstStmt *stmt, const Di
         return 0;
     }
 
+    if (stmt->kind == DIRI_AST_INDEX_ASSIGN_STMT) {
+        const char *target_type = check_expr(program, stmt->as.index_assign_stmt.target, decl, scopes);
+        const char *value_type = check_expr(program, stmt->as.index_assign_stmt.value, decl, scopes);
+        if (target_type == NULL || value_type == NULL) {
+            return 1;
+        }
+        if (!type_equals(target_type, value_type)) {
+            diri_error("array assignment has type %s, expected %s", value_type, target_type);
+            return 1;
+        }
+        return 0;
+    }
+
     if (stmt->kind == DIRI_AST_RETURN_STMT) {
         const char *value_type = check_expr(program, stmt->as.return_stmt.value, decl, scopes);
         if (value_type == NULL) {

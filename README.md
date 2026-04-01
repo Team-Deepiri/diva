@@ -108,9 +108,15 @@ PowerShell:
 These SDK scripts install:
 
 - the `diri` compiler into a local user bin directory
+- the `.di` Diri source file type association on the local machine
 - the local `.di` editor extension into Cursor by default
 
 If you only want the compiler, use `./scripts/install.sh` or `./scripts/install.ps1`.
+
+If you only want to register the Diri file type:
+
+- Linux / WSL: `./scripts/install-filetype.sh`
+- PowerShell: `./scripts/install-filetype.ps1`
 
 ## Editor Extension
 

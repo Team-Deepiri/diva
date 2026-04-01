@@ -124,6 +124,7 @@ assert_output_equals "${ROOT_DIR}/examples/structs.di" "18
 7"
 assert_output_equals "${ROOT_DIR}/examples/struct_mutation.di" "10"
 assert_output_equals "${ROOT_DIR}/examples/arrays.di" "9"
+assert_output_equals "${ROOT_DIR}/examples/array_mutation.di" "16"
 
 log "checking AST smoke output"
 assert_contains "${ROOT_DIR}/examples/hello.di" "Program"
@@ -133,6 +134,7 @@ assert_contains "${ROOT_DIR}/examples/hello.di" "Call(print_int)"
 log "checking LLVM IR smoke output"
 assert_ir_contains "${ROOT_DIR}/examples/loop.di" "br label %whilecond"
 assert_ir_contains "${ROOT_DIR}/examples/arrays.di" "getelementptr inbounds [4 x i32]"
+assert_ir_contains "${ROOT_DIR}/examples/array_mutation.di" "store i32"
 
 log "checking semantic failure cases"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.di" "duplicate declaration of 'x' in the same scope"

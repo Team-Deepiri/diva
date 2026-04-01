@@ -110,6 +110,15 @@ static int find_struct_field_index(const DiriAstDecl *decl, const char *field_na
     return -1;
 }
 
+static void emit_expr_llvm(FILE *out,
+                           const DiriAstExpr *expr,
+                           LlvmFuncContext *ctx,
+                           StringEntry *strings,
+                           size_t string_count,
+                           char *result_name,
+                           size_t result_size,
+                           const char **result_type);
+
 static int emit_field_pointer_llvm(FILE *out,
                                    const DiriAstExpr *target,
                                    LlvmFuncContext *ctx,
@@ -138,6 +147,36 @@ static int emit_field_pointer_llvm(FILE *out,
                 field_index);
         *field_type = target->inferred_type;
         return 1;
+    }
+    return 0;
+}
+
+static int emit_index_pointer_llvm(FILE *out,
+                                   const DiriAstExpr *target,
+                                   LlvmFuncContext *ctx,
+                                   StringEntry *strings,
+                                   size_t string_count,
+                                   char *pointer_name,
+                                   size_t pointer_size,
+                                   const char **item_type) {
+    if (target->kind == DIRI_AST_INDEX_EXPR && target->as.index.base->kind == DIRI_AST_IDENT_EXPR) {
+        int local_index = find_local(ctx->locals, ctx->local_count, target->as.index.base->as.ident_name);
+        if (local_index >= 0 && strcmp(ctx->locals[local_index].type_name, "int[]") == 0) {
+            char index_name[256];
+            const char *index_type;
+            const char *array_storage_type = llvm_storage_type_name("int[]", ctx->locals[local_index].array_len);
+
+            emit_expr_llvm(out, target->as.index.index, ctx, strings, string_count, index_name, sizeof(index_name), &index_type);
+            snprintf(pointer_name, pointer_size, "%%%d", ctx->temp_id++);
+            fprintf(out, "  %s = getelementptr inbounds %s, %s* %s, i32 0, i32 %s\n",
+                    pointer_name,
+                    array_storage_type,
+                    array_storage_type,
+                    ctx->locals[local_index].ref_name,
+                    index_name);
+            *item_type = target->inferred_type;
+            return 1;
+        }
     }
     return 0;
 }
@@ -367,27 +406,15 @@ static void emit_expr_llvm(FILE *out,
     }
 
     if (expr->kind == DIRI_AST_INDEX_EXPR) {
-        if (expr->as.index.base->kind == DIRI_AST_IDENT_EXPR) {
-            int local_index = find_local(ctx->locals, ctx->local_count, expr->as.index.base->as.ident_name);
-            if (local_index >= 0 && strcmp(ctx->locals[local_index].type_name, "int[]") == 0) {
-                char index_name[256];
-                char gep_name[256];
-                const char *index_type;
-                const char *array_storage_type = llvm_storage_type_name("int[]", ctx->locals[local_index].array_len);
-
-                emit_expr_llvm(out, expr->as.index.index, ctx, strings, string_count, index_name, sizeof(index_name), &index_type);
-                snprintf(gep_name, sizeof(gep_name), "%%%d", ctx->temp_id++);
-                fprintf(out, "  %s = getelementptr inbounds %s, %s* %s, i32 0, i32 %s\n",
-                        gep_name,
-                        array_storage_type,
-                        array_storage_type,
-                        ctx->locals[local_index].ref_name,
-                        index_name);
-                snprintf(result_name, result_size, "%%%d", ctx->temp_id++);
-                fprintf(out, "  %s = load i32, i32* %s\n", result_name, gep_name);
-                *result_type = "int";
-                return;
-            }
+        char gep_name[256];
+        if (emit_index_pointer_llvm(out, expr, ctx, strings, string_count, gep_name, sizeof(gep_name), result_type)) {
+            snprintf(result_name, result_size, "%%%d", ctx->temp_id++);
+            fprintf(out, "  %s = load %s, %s* %s\n",
+                    result_name,
+                    llvm_type_name(*result_type),
+                    llvm_type_name(*result_type),
+                    gep_name);
+            return;
         }
     }
 
@@ -595,6 +622,24 @@ static void emit_stmt_llvm(FILE *out, const DiriAstStmt *stmt, LlvmFuncContext *
                 llvm_type_name(field_type),
                 value_name,
                 llvm_type_name(field_type),
+                pointer_name);
+        return;
+    }
+
+    if (stmt->kind == DIRI_AST_INDEX_ASSIGN_STMT) {
+        char pointer_name[256];
+        char value_name[256];
+        const char *item_type;
+        const char *value_type;
+
+        if (!emit_index_pointer_llvm(out, stmt->as.index_assign_stmt.target, ctx, strings, string_count, pointer_name, sizeof(pointer_name), &item_type)) {
+            return;
+        }
+        emit_expr_llvm(out, stmt->as.index_assign_stmt.value, ctx, strings, string_count, value_name, sizeof(value_name), &value_type);
+        fprintf(out, "  store %s %s, %s* %s\n",
+                llvm_type_name(item_type),
+                value_name,
+                llvm_type_name(item_type),
                 pointer_name);
         return;
     }
@@ -958,6 +1003,15 @@ static void emit_stmt_c(FILE *out, const DiriAstProgram *program, const DiriAstS
         emit_expr_c(out, stmt->as.field_assign_stmt.target);
         fprintf(out, " = ");
         emit_expr_c(out, stmt->as.field_assign_stmt.value);
+        fprintf(out, ";\n");
+        return;
+    }
+
+    if (stmt->kind == DIRI_AST_INDEX_ASSIGN_STMT) {
+        emit_indent(out, indent);
+        emit_expr_c(out, stmt->as.index_assign_stmt.target);
+        fprintf(out, " = ");
+        emit_expr_c(out, stmt->as.index_assign_stmt.value);
         fprintf(out, ";\n");
         return;
     }

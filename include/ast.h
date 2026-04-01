@@ -11,6 +11,7 @@ typedef enum {
     DIRI_AST_LET_STMT,
     DIRI_AST_ASSIGN_STMT,
     DIRI_AST_FIELD_ASSIGN_STMT,
+    DIRI_AST_INDEX_ASSIGN_STMT,
     DIRI_AST_RETURN_STMT,
     DIRI_AST_EXPR_STMT,
     DIRI_AST_IF_STMT,
@@ -127,6 +128,10 @@ struct DiriAstStmt {
             DiriAstExpr *target;
             DiriAstExpr *value;
         } field_assign_stmt;
+        struct {
+            DiriAstExpr *target;
+            DiriAstExpr *value;
+        } index_assign_stmt;
         struct {
             DiriAstExpr *value;
         } return_stmt;
