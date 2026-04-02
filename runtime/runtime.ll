@@ -45,7 +45,7 @@ define dso_local nonnull ptr @di_runtime_argv(i32 noundef %0) local_unnamed_addr
   br i1 %8, label %9, label %15
 
 9:                                                ; preds = %1
-  %10 = zext nneg i32 %0 to i64
+  %10 = zext i32 %0 to i64
   %11 = getelementptr inbounds ptr, ptr %2, i64 %10
   %12 = load ptr, ptr %11, align 8, !tbaa !9
   %13 = icmp eq ptr %12, null
@@ -226,7 +226,7 @@ define dso_local i32 @di_runtime_str_byte(ptr noundef readonly %0, i32 noundef %
   br i1 %16, label %22, label %9
 
 17:                                               ; preds = %9
-  %18 = zext nneg i32 %1 to i64
+  %18 = zext i32 %1 to i64
   %19 = getelementptr inbounds i8, ptr %0, i64 %18
   %20 = load i8, ptr %19, align 1, !tbaa !16
   %21 = zext i8 %20 to i32
@@ -267,7 +267,7 @@ define dso_local noundef ptr @di_runtime_str_slice(ptr noundef readonly %0, i32 
   br i1 %22, label %37, label %23
 
 23:                                               ; preds = %17
-  %24 = zext nneg i32 %21 to i64
+  %24 = zext i32 %21 to i64
   %25 = add nuw nsw i64 %24, 1
   %26 = tail call noalias ptr @malloc(i64 noundef %25) #23
   %27 = icmp eq ptr %26, null
@@ -342,7 +342,7 @@ define dso_local i32 @di_runtime_int_vec_new() local_unnamed_addr #6 {
 
 3:                                                ; preds = %0
   %4 = load ptr, ptr @g_slots, align 8, !tbaa !9
-  %5 = zext nneg i32 %1 to i64
+  %5 = zext i32 %1 to i64
   br label %6
 
 6:                                                ; preds = %14, %3
@@ -394,7 +394,7 @@ define dso_local i32 @di_runtime_int_vec_len(i32 noundef %0) local_unnamed_addr 
   %4 = icmp slt i32 %3, %0
   %5 = select i1 %2, i1 true, i1 %4
   %6 = load ptr, ptr @g_slots, align 8
-  %7 = zext nneg i32 %0 to i64
+  %7 = zext i32 %0 to i64
   %8 = getelementptr %struct.DiSlot, ptr %6, i64 %7
   %9 = getelementptr %struct.DiSlot, ptr %8, i64 -1
   %10 = icmp eq ptr %9, null
@@ -432,7 +432,7 @@ define dso_local i32 @di_runtime_int_vec_get(i32 noundef %0, i32 noundef %1) loc
   %5 = icmp slt i32 %4, %0
   %6 = select i1 %3, i1 true, i1 %5
   %7 = load ptr, ptr @g_slots, align 8
-  %8 = zext nneg i32 %0 to i64
+  %8 = zext i32 %0 to i64
   %9 = getelementptr %struct.DiSlot, ptr %7, i64 %8
   %10 = getelementptr %struct.DiSlot, ptr %9, i64 -1
   %11 = icmp eq ptr %10, null
@@ -453,7 +453,7 @@ define dso_local i32 @di_runtime_int_vec_get(i32 noundef %0, i32 noundef %1) loc
   br i1 %21, label %32, label %22
 
 22:                                               ; preds = %17
-  %23 = zext nneg i32 %1 to i64
+  %23 = zext i32 %1 to i64
   %24 = getelementptr inbounds %struct.DiSlot, ptr %18, i64 0, i32 1, i32 0, i32 1
   %25 = load i64, ptr %24, align 8, !tbaa !16
   %26 = icmp ugt i64 %25, %23
@@ -478,7 +478,7 @@ define dso_local i32 @di_runtime_int_vec_push(i32 noundef %0, i32 noundef %1) lo
   %5 = icmp slt i32 %4, %0
   %6 = select i1 %3, i1 true, i1 %5
   %7 = load ptr, ptr @g_slots, align 8
-  %8 = zext nneg i32 %0 to i64
+  %8 = zext i32 %0 to i64
   %9 = getelementptr %struct.DiSlot, ptr %7, i64 %8
   %10 = getelementptr %struct.DiSlot, ptr %9, i64 -1
   %11 = icmp eq ptr %10, null
@@ -547,7 +547,7 @@ define dso_local void @di_runtime_int_vec_free(i32 noundef %0) local_unnamed_add
   %4 = icmp slt i32 %3, %0
   %5 = select i1 %2, i1 true, i1 %4
   %6 = load ptr, ptr @g_slots, align 8
-  %7 = zext nneg i32 %0 to i64
+  %7 = zext i32 %0 to i64
   %8 = getelementptr %struct.DiSlot, ptr %6, i64 %7
   %9 = getelementptr %struct.DiSlot, ptr %8, i64 -1
   %10 = icmp eq ptr %9, null
@@ -582,7 +582,7 @@ define dso_local i32 @di_runtime_str_builder_new() local_unnamed_addr #6 {
 
 3:                                                ; preds = %0
   %4 = load ptr, ptr @g_slots, align 8, !tbaa !9
-  %5 = zext nneg i32 %1 to i64
+  %5 = zext i32 %1 to i64
   br label %6
 
 6:                                                ; preds = %14, %3
@@ -634,7 +634,7 @@ define dso_local void @di_runtime_str_builder_append(i32 noundef %0, ptr noundef
   %5 = icmp slt i32 %4, %0
   %6 = select i1 %3, i1 true, i1 %5
   %7 = load ptr, ptr @g_slots, align 8
-  %8 = zext nneg i32 %0 to i64
+  %8 = zext i32 %0 to i64
   %9 = getelementptr %struct.DiSlot, ptr %7, i64 %8
   %10 = getelementptr %struct.DiSlot, ptr %9, i64 -1
   %11 = icmp eq ptr %10, null
@@ -718,7 +718,7 @@ define dso_local i32 @di_runtime_str_builder_len(i32 noundef %0) local_unnamed_a
   %4 = icmp slt i32 %3, %0
   %5 = select i1 %2, i1 true, i1 %4
   %6 = load ptr, ptr @g_slots, align 8
-  %7 = zext nneg i32 %0 to i64
+  %7 = zext i32 %0 to i64
   %8 = getelementptr %struct.DiSlot, ptr %6, i64 %7
   %9 = getelementptr %struct.DiSlot, ptr %8, i64 -1
   %10 = icmp eq ptr %9, null
@@ -756,7 +756,7 @@ define dso_local noundef ptr @di_runtime_str_builder_to_str(i32 noundef %0) loca
   %4 = icmp slt i32 %3, %0
   %5 = select i1 %2, i1 true, i1 %4
   %6 = load ptr, ptr @g_slots, align 8
-  %7 = zext nneg i32 %0 to i64
+  %7 = zext i32 %0 to i64
   %8 = getelementptr %struct.DiSlot, ptr %6, i64 %7
   %9 = getelementptr %struct.DiSlot, ptr %8, i64 -1
   %10 = icmp eq ptr %9, null
@@ -814,7 +814,7 @@ define dso_local void @di_runtime_str_builder_free(i32 noundef %0) local_unnamed
   %4 = icmp slt i32 %3, %0
   %5 = select i1 %2, i1 true, i1 %4
   %6 = load ptr, ptr @g_slots, align 8
-  %7 = zext nneg i32 %0 to i64
+  %7 = zext i32 %0 to i64
   %8 = getelementptr %struct.DiSlot, ptr %6, i64 %7
   %9 = getelementptr %struct.DiSlot, ptr %8, i64 -1
   %10 = icmp eq ptr %9, null
@@ -913,20 +913,20 @@ declare noalias ptr @getenv(ptr nocapture noundef readonly) local_unnamed_addr #
 declare i32 @system(ptr nocapture noundef readonly) local_unnamed_addr #5
 
 define dso_local ptr @di_runtime_getenv(ptr noundef %0) local_unnamed_addr #6 {
-  %1 = tail call ptr @getenv(ptr noundef nonnull %0)
-  %2 = icmp eq ptr %1, null
-  br i1 %2, label %3, label %4
+  %2 = tail call ptr @getenv(ptr noundef nonnull %0)
+  %3 = icmp eq ptr %2, null
+  br i1 %3, label %getenv_empty, label %getenv_ok
 
-3:
+getenv_empty:
   ret ptr @.str
 
-4:
-  ret ptr %1
+getenv_ok:
+  ret ptr %2
 }
 
 define dso_local i32 @di_runtime_system(ptr noundef %0) local_unnamed_addr #6 {
-  %1 = tail call i32 @system(ptr noundef %0)
-  ret i32 %1
+  %2 = tail call i32 @system(ptr noundef %0)
+  ret i32 %2
 }
 
 ; Function Attrs: mustprogress nocallback nofree nounwind willreturn memory(argmem: write)

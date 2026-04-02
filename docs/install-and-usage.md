@@ -14,7 +14,15 @@ There is **no compiler source tree** in this repository (only the bootstrap `di`
 
 ## Prerequisites
 
-- Linux / WSL: `cc` to link generated user code with the runtime object, and to merge `runtime/extra.c` with the bootstrap runtime object when `clang` is unavailable; optional `clang` to compile `runtime/runtime.ll` alone at install time (single full `runtime.o`).
+- Linux / WSL: `cc` as the **linker driver** for generated hosted programs (not compiling repo C sources — there are none). Optional `clang` to compile `runtime/runtime.ll` into `runtime.o` at install; otherwise install copies `bootstrap/runtime-linux-amd64.o`.
+
+### Linux and WSL matrix
+
+| Environment | Notes |
+|-------------|--------|
+| Ubuntu / Debian / Fedora / Arch | Supported: use `./scripts/install.sh`; ensure `cc` (gcc or clang as linker driver) is on `PATH`. |
+| WSL2 (Ubuntu, etc.) | Same as native Linux; paths under `/mnt/c/...` work but prefer repo under Linux filesystem for performance. |
+| `NO_CLANG=1` | Forces install to **never** invoke `clang` (see [`docs/no-clang-contract.md`](no-clang-contract.md)); copies `bootstrap/runtime-linux-amd64.o` only. |
 
 Do **not** use CMake here: it only prints instructions to run `./scripts/install.sh`.
 

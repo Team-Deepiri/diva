@@ -114,6 +114,14 @@ export HOME
 PATH="${BIN_DIR}:${PATH}"
 export PATH
 
+log "checking compiler stub packages (mir, backend, frontend)"
+for _pkg in mir backend frontend; do
+    if ! di check "${ROOT_DIR}/compiler/${_pkg}" >"${TEST_ROOT}/check-${_pkg}.out" 2>&1; then
+        sed -n '1,80p' "${TEST_ROOT}/check-${_pkg}.out" >&2
+        fail "di check compiler/${_pkg} failed"
+    fi
+done
+
 run_all_tests() {
     _stage=$1
     log "running integration tests (${_stage})"
@@ -307,5 +315,30 @@ cp "${SELFHOST_EXE}" "${BIN_DIR}/di"
 chmod +x "${BIN_DIR}/di"
 
 run_all_tests selfhost
+
+log "checking self-host convergence (stage3: compiler rebuilt with stage2 di)"
+BUILD3_OUT="${TEST_ROOT}/compiler-stage3-build.out"
+if ! DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
+    "${BIN_DIR}/di" build "${ROOT_DIR}/compiler" >"${BUILD3_OUT}" 2>&1
+then
+    sed -n '1,120p' "${BUILD3_OUT}" >&2
+    fail "failed to build compiler/ with stage2 di (stage3)"
+fi
+STAGE3_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD3_OUT}" | tail -n 1)
+if [ -z "${STAGE3_EXE}" ] || ! [ -x "${STAGE3_EXE}" ]; then
+    printf '[test:error] could not resolve stage3 executable from build output\n' >&2
+    sed -n '1,80p' "${BUILD3_OUT}" >&2
+    exit 1
+fi
+cp "${STAGE3_EXE}" "${BIN_DIR}/di"
+chmod +x "${BIN_DIR}/di"
+
+run_all_tests selfhost_stage3
+
+log "verifying NO_CLANG=1 install contract (scripts/verify-no-clang.sh)"
+if ! NO_CLANG=1 sh "${ROOT_DIR}/scripts/verify-no-clang.sh" >"${TEST_ROOT}/no-clang-verify.out" 2>&1; then
+    sed -n '1,120p' "${TEST_ROOT}/no-clang-verify.out" >&2
+    fail "NO_CLANG verify failed"
+fi
 
 log "all tests passed"

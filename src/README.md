@@ -1,1 +1,1 @@
-There is no C compiler source here. The `di` executable is shipped as `bootstrap/di-linux-amd64` (Linux x86-64). The hosted runtime is LLVM IR at `runtime/runtime.ll`, merged at install time with `runtime/extra.c` when `clang` is unavailable.
+There is no C compiler source here. The `di` executable is shipped as `bootstrap/di-linux-amd64` (Linux x86-64). The hosted runtime is LLVM IR at `runtime/runtime.ll`; install compiles it with `clang` when available, else copies `bootstrap/runtime-linux-amd64.o`.

@@ -8,7 +8,7 @@ This repository is **Di source only** (`.di` standard library, examples, tests, 
 
 - `bootstrap/` — prebuilt `di` (Linux x86-64) and `runtime-linux-amd64.o` fallback for installs without `clang`
 - `compiler/` — Di package that installs as `di` and forwards to the seed binary (`DI_BOOTSTRAP`); see `compiler/README.md`
-- `runtime/` — `runtime.ll` (LLVM IR), `extra.c` (tiny libc glue merged into the runtime object when `clang` is missing), optional `runtime.o` for local dev
+- `runtime/` — `runtime.ll` (LLVM IR hosted runtime; no C sources in-repo)
 - `stdlib/` — standard library `.di` modules
 - `docs/` — language and architecture notes
 - `examples/` — sample programs
@@ -16,7 +16,7 @@ This repository is **Di source only** (`.di` standard library, examples, tests, 
 
 ## Install (Linux / WSL)
 
-Needs `cc` for linking user programs and for merging `runtime/extra.c` into the runtime object when `clang` is missing. Optional `clang` to compile `runtime/runtime.ll` alone at install time (full runtime in one object).
+Needs `cc` only as the **system linker driver** for hosted executables (no C sources in this repository). Optional `clang` to compile `runtime/runtime.ll` at install time; otherwise install copies `bootstrap/runtime-linux-amd64.o`. Set `NO_CLANG=1` to forbid invoking `clang` during install (see `docs/no-clang-contract.md`).
 
 ```sh
 ./scripts/install.sh
@@ -37,6 +37,8 @@ Use **WSL** and `./scripts/install.sh`. Native Windows install scripts are not w
 - `docs/install-and-usage.md`
 - `docs/syntax-guide.md`
 - `docs/language-spec.md`
+- `docs/no-clang-contract.md` (bootstrap without `clang`)
+- `docs/mir-lir-layer.md`, `docs/backend-elf64-roadmap.md`, `docs/cross-platform-backend.md`
 
 ## Example
 
