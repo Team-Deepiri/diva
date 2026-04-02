@@ -10,6 +10,8 @@ Available modules:
 - `std/io.di`: `stdout`, `stderr`, `print_bool`, `panic`
 - `std/int.di`: `sign`, `is_even`, `is_odd`, `gcd`
 - `std/assert.di`: `assert_true`, `assert_eq_int`
+- `std/host.di`: `host_argc`, `host_argv`, `read_file`, `file_size`, `str_len`, `str_byte` (hosted runtime; see `docs/selfhost-bootstrap.md`)
+- `std/vec.di`: `int_vec_*`, `str_builder_*` (dynamic structures for self-hosting; see `docs/selfhost-bootstrap.md`)
 
 Usage:
 

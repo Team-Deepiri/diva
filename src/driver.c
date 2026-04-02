@@ -860,7 +860,7 @@ int di_driver_run(const DiOptions *options) {
             return 1;
         }
         if (package_kind == DI_PACKAGE_KERNEL) {
-            if (di_codegen_build_native(ir_program, resolved_target, 0, DI_CODEGEN_FREESTANDING) != 0) {
+            if (di_codegen_build_native(ir_program, resolved_target, 0, DI_CODEGEN_FREESTANDING, NULL, 0) != 0) {
                 di_ir_program_free(ir_program);
                 di_ast_program_free(program);
                 return 1;
@@ -874,7 +874,8 @@ int di_driver_run(const DiOptions *options) {
         return 0;
     }
 
-    if (di_codegen_build_native(ir_program, resolved_target, options->run_after_build, DI_CODEGEN_HOSTED) != 0) {
+    if (di_codegen_build_native(ir_program, resolved_target, options->run_after_build, DI_CODEGEN_HOSTED,
+                                options->run_argv, options->run_argc) != 0) {
         di_ir_program_free(ir_program);
         di_ast_program_free(program);
         return 1;

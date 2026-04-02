@@ -18,7 +18,7 @@ static void print_usage(void) {
     fprintf(stderr,
             "usage:\n"
             "  di <file.di|package-dir>\n"
-            "  di <build|run|emit-ir|check|watch> <file.di|package-dir> [--ast] [--tokens]\n"
+            "  di <build|run|emit-ir|check|watch> <file.di|package-dir> [--ast] [--tokens] [-- <program args...>]\n"
             "  di new <project-name> [--lib|--kernel]\n");
 }
 
@@ -241,14 +241,24 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    for (int i = 3; i < argc; ++i) {
-        if (strcmp(argv[i], "--ast") == 0) {
-            options.emit_ast = 1;
-        } else if (strcmp(argv[i], "--tokens") == 0) {
-            options.emit_tokens = 1;
-        } else {
-            di_error("unknown flag: %s", argv[i]);
-            return 1;
+    {
+        int i = 3;
+        while (i < argc) {
+            if (strcmp(argv[i], "--") == 0) {
+                i++;
+                options.run_argv = (const char **)&argv[i];
+                options.run_argc = argc - i;
+                break;
+            }
+            if (strcmp(argv[i], "--ast") == 0) {
+                options.emit_ast = 1;
+            } else if (strcmp(argv[i], "--tokens") == 0) {
+                options.emit_tokens = 1;
+            } else {
+                di_error("unknown flag: %s", argv[i]);
+                return 1;
+            }
+            i++;
         }
     }
 

@@ -32,6 +32,25 @@ static const char *map_runtime_symbol(const char *name) {
     if (strcmp(name, "write") == 0) return "di_runtime_write";
     if (strcmp(name, "exit") == 0) return "di_runtime_exit";
     if (strcmp(name, "abort") == 0) return "di_runtime_abort";
+    if (strcmp(name, "read_file") == 0) return "di_runtime_read_file";
+    if (strcmp(name, "file_size") == 0) return "di_runtime_file_size";
+    if (strcmp(name, "host_argc") == 0) return "di_runtime_argc";
+    if (strcmp(name, "host_argv") == 0) return "di_runtime_argv";
+    if (strcmp(name, "str_len") == 0) return "di_runtime_str_len";
+    if (strcmp(name, "str_byte") == 0) return "di_runtime_str_byte";
+    if (strcmp(name, "str_slice") == 0) return "di_runtime_str_slice";
+    if (strcmp(name, "str_eq") == 0) return "di_runtime_str_eq";
+    if (strcmp(name, "int_to_str") == 0) return "di_runtime_int_to_str";
+    if (strcmp(name, "int_vec_new") == 0) return "di_runtime_int_vec_new";
+    if (strcmp(name, "int_vec_push") == 0) return "di_runtime_int_vec_push";
+    if (strcmp(name, "int_vec_len") == 0) return "di_runtime_int_vec_len";
+    if (strcmp(name, "int_vec_get") == 0) return "di_runtime_int_vec_get";
+    if (strcmp(name, "int_vec_free") == 0) return "di_runtime_int_vec_free";
+    if (strcmp(name, "str_builder_new") == 0) return "di_runtime_str_builder_new";
+    if (strcmp(name, "str_builder_append") == 0) return "di_runtime_str_builder_append";
+    if (strcmp(name, "str_builder_len") == 0) return "di_runtime_str_builder_len";
+    if (strcmp(name, "str_builder_to_str") == 0) return "di_runtime_str_builder_to_str";
+    if (strcmp(name, "str_builder_free") == 0) return "di_runtime_str_builder_free";
     return name;
 }
 
@@ -466,7 +485,8 @@ int di_codegen_emit_llvm_ir(const DiIrProgram *program, const char *input_path) 
     return 0;
 }
 
-int di_codegen_build_native(const DiIrProgram *program, const char *input_path, int run_after_build, int codegen_mode) {
+int di_codegen_build_native(const DiIrProgram *program, const char *input_path, int run_after_build, int codegen_mode,
+                            const char **run_argv, int run_argc) {
     char output_base[256];
     char c_path[300];
     char exe_path[300];
@@ -498,7 +518,27 @@ int di_codegen_build_native(const DiIrProgram *program, const char *input_path, 
         fprintf(out, "extern void di_runtime_print_hex(int x);\n");
         fprintf(out, "extern int di_runtime_write(int fd, const char *x);\n");
         fprintf(out, "extern void di_runtime_exit(int status);\n");
-        fprintf(out, "extern void di_runtime_abort(void);\n\n");
+        fprintf(out, "extern void di_runtime_abort(void);\n");
+        fprintf(out, "extern void di_runtime_set_argv(int argc, char **argv);\n");
+        fprintf(out, "extern int di_runtime_argc(void);\n");
+        fprintf(out, "extern const char *di_runtime_argv(int index);\n");
+        fprintf(out, "extern const char *di_runtime_read_file(const char *path);\n");
+        fprintf(out, "extern int di_runtime_file_size(const char *path);\n");
+        fprintf(out, "extern int di_runtime_str_len(const char *s);\n");
+        fprintf(out, "extern int di_runtime_str_byte(const char *s, int index);\n");
+        fprintf(out, "extern const char *di_runtime_str_slice(const char *s, int start, int len);\n");
+        fprintf(out, "extern int di_runtime_str_eq(const char *a, const char *b);\n");
+        fprintf(out, "extern const char *di_runtime_int_to_str(int n);\n");
+        fprintf(out, "extern int di_runtime_int_vec_new(void);\n");
+        fprintf(out, "extern int di_runtime_int_vec_push(int handle, int value);\n");
+        fprintf(out, "extern int di_runtime_int_vec_len(int handle);\n");
+        fprintf(out, "extern int di_runtime_int_vec_get(int handle, int index);\n");
+        fprintf(out, "extern void di_runtime_int_vec_free(int handle);\n");
+        fprintf(out, "extern int di_runtime_str_builder_new(void);\n");
+        fprintf(out, "extern void di_runtime_str_builder_append(int handle, const char *chunk);\n");
+        fprintf(out, "extern int di_runtime_str_builder_len(int handle);\n");
+        fprintf(out, "extern const char *di_runtime_str_builder_to_str(int handle);\n");
+        fprintf(out, "extern void di_runtime_str_builder_free(int handle);\n\n");
     }
 
     for (i = 0; i < program->decl_count; ++i) {
@@ -550,6 +590,28 @@ int di_codegen_build_native(const DiIrProgram *program, const char *input_path, 
         fprintf(out, "}\n\n");
     }
 
+    if (codegen_mode == DI_CODEGEN_HOSTED) {
+        int has_user_main = 0;
+
+        for (i = 0; i < program->decl_count; ++i) {
+            const DiIrDecl *decl = &program->decls[i];
+
+            if (decl->kind != DI_IR_STRUCT_DECL &&
+                decl->symbol_name != NULL &&
+                strcmp(decl->symbol_name, "di_user_main") == 0) {
+                has_user_main = 1;
+                break;
+            }
+        }
+
+        if (has_user_main) {
+            fprintf(out, "int main(int argc, char **argv) {\n");
+            fprintf(out, "    di_runtime_set_argv(argc, argv);\n");
+            fprintf(out, "    return di_user_main();\n");
+            fprintf(out, "}\n");
+        }
+    }
+
     fclose(out);
 
     if (codegen_mode == DI_CODEGEN_FREESTANDING) {
@@ -570,7 +632,20 @@ int di_codegen_build_native(const DiIrProgram *program, const char *input_path, 
 
     di_info("built native executable at %s", exe_path);
     if (run_after_build) {
-        snprintf(command, sizeof(command), "\"%s\"", exe_path);
+        size_t off = 0;
+        int ai;
+
+        off += (size_t)snprintf(command + off, sizeof(command) - off, "\"%s\"", exe_path);
+        for (ai = 0; ai < run_argc; ++ai) {
+            if (run_argv == NULL) {
+                break;
+            }
+            off += (size_t)snprintf(command + off, sizeof(command) - off, " \"%s\"", run_argv[ai]);
+            if (off >= sizeof(command)) {
+                di_error("run command too long");
+                return 1;
+            }
+        }
         if (system(command) != 0) {
             di_error("failed to run executable: %s", exe_path);
             return 1;

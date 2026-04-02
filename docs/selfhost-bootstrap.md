@@ -1,0 +1,45 @@
+# Self-host bootstrap notes
+
+This document tracks what the hosted Di runtime exposes so a Di-implemented compiler can exist without growing the language surface first.
+
+## Process and file I/O
+
+Import `std/host.di`. The C runtime implements:
+
+- `host_argc` / `host_argv` — populated by the real C `main` before `di_user_main` runs.
+- `file_size` — returns the size in bytes of a regular file, or `-1` on failure.
+- `read_file` — reads an entire file into a nul-terminated `str` (heap-allocated in C). On failure returns `""`.
+
+## String scanning
+
+`str` values are C strings. For lexer-style access without a `byte` type in Di:
+
+- `str_len(s)` — length in bytes, excluding the nul terminator.
+- `str_byte(s, i)` — unsigned byte value at `i`, or `-1` if out of range.
+
+## Entry point naming
+
+The user still writes `func main(): int`. The compiler lowers this to a C symbol `di_user_main`, and the generated C file ends with `int main(int argc, char **argv)` that calls `di_runtime_set_argv` and then `di_user_main()`.
+
+Do not declare a top-level function named `di_user_main` in Di sources; it is reserved for codegen.
+
+## Dynamic data structures
+
+Import `std/vec.di`. Handles are opaque `int` ids into a small runtime slot table (implemented in C).
+
+**Int vector**
+
+- `int_vec_new(): int` — returns `0` on allocation failure.
+- `int_vec_push(handle, value): int` — new length, or `-1` on error.
+- `int_vec_len`, `int_vec_get` — `-1` on bad handle or out-of-range index for `get`.
+- `int_vec_free` — releases storage; handle must not be used again.
+
+**String builder**
+
+- `str_builder_new(): int` — `0` on failure.
+- `str_builder_append` — appends UTF-8 bytes from a `str` (nul-terminated C string); no separate `char` type required.
+- `str_builder_len` — byte length excluding the nul terminator of the accumulated buffer.
+- `str_builder_to_str` — returns a fresh heap `str` copy; builder remains valid.
+- `str_builder_free` — frees the builder buffer.
+
+Together with `read_file` and `str_byte`, a lexer can push token kinds / offsets into parallel `int_vec`s or build lexeme text in a `str_builder`.

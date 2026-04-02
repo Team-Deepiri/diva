@@ -114,6 +114,11 @@ export HOME PATH
 
 log "running example integration tests"
 assert_output_equals "${ROOT_DIR}/examples/hello.di" "10"
+assert_output_equals "${ROOT_DIR}/examples/host_argv.di" "1"
+assert_output_equals "${ROOT_DIR}/examples/vec_demo.di" "2
+20
+8
+hello di"
 assert_output_equals "${ROOT_DIR}/examples/branching.di" "running di
 20
 1"

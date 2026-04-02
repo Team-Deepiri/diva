@@ -19,6 +19,8 @@ typedef struct {
     int emit_ast;
     int emit_ir;
     int run_after_build;
+    const char **run_argv;
+    int run_argc;
 } DiOptions;
 
 int di_driver_run(const DiOptions *options);

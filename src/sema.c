@@ -203,7 +203,8 @@ static int is_reserved_c_identifier(const char *name) {
             return 1;
         }
     }
-    return same_name(name, "di_runtime_print_int") || same_name(name, "di_runtime_print_str");
+    return same_name(name, "di_runtime_print_int") || same_name(name, "di_runtime_print_str") ||
+           same_name(name, "di_user_main");
 }
 
 static int validate_identifier_name(const char *kind, const char *name, const char *context) {

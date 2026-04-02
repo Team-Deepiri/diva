@@ -91,6 +91,9 @@ static char *make_symbol_name(const DiAstDecl *decl,
         }
         return di_ir_strdup(buffer);
     }
+    if (decl->owner_type == NULL && strcmp(decl->name, "main") == 0) {
+        return di_ir_strdup("di_user_main");
+    }
     if (decl->owner_type == NULL) {
         return di_ir_strdup(map_runtime_symbol(decl->name));
     }

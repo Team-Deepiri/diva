@@ -103,6 +103,19 @@ Hosted runtime hooks currently exposed through `extern func` include:
 - `exit(status: int): void`
 - `abort(): void`
 
+Additional hosted hooks used for self-hosting (declared in `stdlib/std/host.di`, implemented in the C runtime) include:
+
+- `host_argc(): int`, `host_argv(index: int): str`
+- `file_size(path: str): int`, `read_file(path: str): str`
+- `str_len(s: str): int`, `str_byte(s: str, index: int): int`
+
+See `docs/selfhost-bootstrap.md`.
+
+Dynamic structures for self-hosting (`stdlib/std/vec.di`):
+
+- `int_vec_new`, `int_vec_push`, `int_vec_len`, `int_vec_get`, `int_vec_free`
+- `str_builder_new`, `str_builder_append`, `str_builder_len`, `str_builder_to_str`, `str_builder_free`
+
 ### Classes
 
 Classes contain `var` fields and `func` methods:
