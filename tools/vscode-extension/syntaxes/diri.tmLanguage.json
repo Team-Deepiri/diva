@@ -24,7 +24,7 @@
       "patterns": [
         {
           "name": "keyword.control.di",
-          "match": "\\b(func|extern|class|var|if|else|while|flux|in|return|true|false)\\b"
+          "match": "\\b(func|extern|class|var|if|else|while|flux|in|return|true|false|package|import)\\b"
         }
       ]
     },

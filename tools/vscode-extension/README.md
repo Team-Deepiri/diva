@@ -27,10 +27,10 @@ Cursor example:
 
 The current grammar highlights:
 
-- `func`, `extern`, `struct`, `let`, `if`, `else`, `while`, `return`
+- `func`, `extern`, `class`, `var`, `if`, `else`, `while`, `flux`, `in`, `return`, `true`, `false`, `package`, `import`
 - primitive types like `int`, `bool`, `str`, `void`
 - function calls
-- struct fields via `.`
+- field access via `.`
 - array indexing with `[]`
 - string and integer literals
 - arithmetic, assignment, and comparison operators

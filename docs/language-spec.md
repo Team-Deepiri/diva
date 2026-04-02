@@ -61,6 +61,7 @@ func main(): int {
 - `return`
 - `true`
 - `false`
+- `package`
 - `import`
 
 ## Types
@@ -219,13 +220,19 @@ values[1] = 9
 
 ## Imports
 
+Files may optionally declare a package at the top:
+
+```di
+package imports_demo
+```
+
 Top-level imports use relative `.di` file paths:
 
 ```di
 import "math.di"
 ```
 
-Imports are resolved before parsing into a single compilation unit.
+Imports are resolved as a file graph and merged into a single program for semantic analysis and code generation.
 
 ## Example
 
@@ -260,13 +267,13 @@ func main(): int {
 - field access and field mutation
 - array indexing and mutation
 - object literals
+- optional top-level `package` declarations
 - relative file imports
 
 ## Not Implemented Yet
 
 - generics
 - traits
-- packages
 - `@field` sugar for receiver access
 - custom packed-value runtime as the default representation
 - NaN boxing

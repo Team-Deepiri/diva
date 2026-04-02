@@ -36,12 +36,15 @@ The current repo already includes:
 - `if` / `else`
 - `while condition => update`
 - `flux item in iterable`
+- optional top-level `package` declarations
+- relative file imports
 - integer, boolean, and string literals
 - arithmetic, comparisons, and boolean operators
 - function and method calls
 - field access and field assignment
 - object literals
 - array literals and indexing
+- relative file imports
 - optional semicolons, with semicolon-free style preferred
 
 ## Example

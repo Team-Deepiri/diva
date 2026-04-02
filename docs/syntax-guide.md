@@ -30,6 +30,7 @@ func main(): int {
 - `return`
 - `true`
 - `false`
+- `package`
 - `import`
 
 ## Types
@@ -133,11 +134,17 @@ Supported forms include:
 
 ## Imports
 
+Optional package declaration:
+
+```di
+package imports_demo
+```
+
 ```di
 import "math.di"
 ```
 
-Imports are resolved before parsing into one compilation unit.
+Imports are resolved as a file graph before semantic analysis.
 
 ## Current Limits
 
@@ -145,4 +152,3 @@ Not implemented yet:
 
 - generics
 - traits
-- packages
