@@ -2,11 +2,13 @@
 
 This roadmap starts from the current Di MVP, not from zero.
 
+**Status:** The numbered phases below are **direction and sequencing**, not a promise that every bullet is done. What is **actually implemented** is spelled out in `docs/language-spec.md` under **Implemented Today** and **Not Implemented Yet**, and exercised by `tests/run.sh` on Linux/WSL. Phases **2–11** are largely **future work**; do not read them as “all finished.”
+
 Already present today:
 
 - compiler frontend with lexer, parser, AST, and semantic analysis
 - `di` CLI with `build`, `run`, `emit-ir`, `watch`, and `new`
-- generated-C native build path with LLVM IR text output
+- native build path (LLVM IR text output and hosted linking)
 - install scripts, examples, tests, and a local editor extension
 
 ## Phase 0: Re-Baseline
@@ -35,7 +37,7 @@ Already present today:
 
 - introduce an internal IR between semantic analysis and backend codegen
 - separate frontend, semantic, package, and backend stages more cleanly
-- keep generated-C as a fallback/debug path while clarifying the LLVM path
+- keep native glue output as a fallback/debug path while clarifying the LLVM path
 - add package-aware incremental compilation
 - make watch mode operate on dependency changes, not only a single file
 
@@ -59,7 +61,7 @@ Already present today:
 
 - grow stdlib only after packages and generics are usable
 - build `core`, `mem`, `io`, `str`, `math`, `collections`, `iter`, and `os` layers
-- keep low-level runtime hooks in C and assembly first where needed
+- keep low-level runtime hooks in native code (LLVM IR / assembly) first where needed
 - move higher-level library code into Di over time
 - establish stable stdlib package boundaries for SDK consumers
 
@@ -73,7 +75,7 @@ Already present today:
 
 ## Phase 8: Systems Programming Features
 
-- add stronger C FFI and ABI rules
+- add stronger foreign FFI and ABI rules
 - add syscall wrappers for supported platforms
 - add controlled inline assembly support
 - introduce freestanding mode and custom entrypoints

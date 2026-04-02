@@ -3,8 +3,8 @@ import "std/vec.di"
 
 extern func print_str(x: str): void
 
-class LexerState {
-    source: str
+class LexStep {
+    kind: int
     cursor: int
     line: int
     column: int
@@ -281,27 +281,34 @@ func dump_token_line(source: str, kind: int, tok_start: int, tok_len: int, line:
     str_builder_free(b)
 }
 
-func lexer_next(state: LexerState): int {
-    var slen = str_len(state.source)
+func lexer_step(source: str, cursor: int, line: int, column: int): LexStep {
+    var cur = cursor
+    var ln = line
+    var co = column
+    var slen = str_len(source)
+    var ts = 0
+    var tl = 0
+    var tln = 0
+    var tco = 0
     var done_skip = 0
 
-    while done_skip == 0 & state.cursor < slen {
-        var c = str_byte(state.source, state.cursor)
+    while done_skip == 0 & cur < slen {
+        var c = str_byte(source, cur)
         if c == 32 | c == 9 | c == 13 {
-            state.cursor = state.cursor + 1
-            state.column = state.column + 1
+            cur = cur + 1
+            co = co + 1
         } else {
             if c == 10 {
-                state.cursor = state.cursor + 1
-                state.line = state.line + 1
-                state.column = 1
+                cur = cur + 1
+                ln = ln + 1
+                co = 1
             } else {
-                if c == 47 & state.cursor + 1 < slen & str_byte(state.source, state.cursor + 1) == 47 {
-                    state.cursor = state.cursor + 2
-                    state.column = state.column + 2
-                    while state.cursor < slen & str_byte(state.source, state.cursor) != 10 {
-                        state.cursor = state.cursor + 1
-                        state.column = state.column + 1
+                if c == 47 & cur + 1 < slen & str_byte(source, cur + 1) == 47 {
+                    cur = cur + 2
+                    co = co + 2
+                    while cur < slen & str_byte(source, cur) != 10 {
+                        cur = cur + 1
+                        co = co + 1
                     }
                 } else {
                     done_skip = 1
@@ -310,308 +317,314 @@ func lexer_next(state: LexerState): int {
         }
     }
 
-    if state.cursor >= slen {
-        state.tok_start = state.cursor
-        state.tok_len = 0
-        state.tok_line = state.line
-        state.tok_col = state.column
-        return 0
+    if cur >= slen {
+        ts = cur
+        tl = 0
+        tln = ln
+        tco = co
+        return LexStep { kind: 0, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
 
-    var c2 = str_byte(state.source, state.cursor)
-    var line0 = state.line
-    var col0 = state.column
-    var start0 = state.cursor
+    var c2 = str_byte(source, cur)
+    var line0 = ln
+    var col0 = co
+    var start0 = cur
 
     if is_ident_start(c2) == 1 {
-        state.cursor = state.cursor + 1
-        state.column = state.column + 1
-        while state.cursor < slen & is_ident_continue(str_byte(state.source, state.cursor)) == 1 {
-            state.cursor = state.cursor + 1
-            state.column = state.column + 1
+        cur = cur + 1
+        co = co + 1
+        while cur < slen & is_ident_continue(str_byte(source, cur)) == 1 {
+            cur = cur + 1
+            co = co + 1
         }
-        state.tok_start = start0
-        state.tok_len = state.cursor - start0
-        state.tok_line = line0
-        state.tok_col = col0
-        return keyword_kind(str_slice(state.source, start0, state.cursor - start0))
+        ts = start0
+        tl = cur - start0
+        tln = line0
+        tco = col0
+        var kw = keyword_kind(str_slice(source, start0, cur - start0))
+        return LexStep { kind: kw, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
 
     if c2 >= 48 & c2 <= 57 {
-        state.cursor = state.cursor + 1
-        state.column = state.column + 1
+        cur = cur + 1
+        co = co + 1
         var still_num = 1
-        while state.cursor < slen & still_num == 1 {
-            var d = str_byte(state.source, state.cursor)
+        while cur < slen & still_num == 1 {
+            var d = str_byte(source, cur)
             if d >= 48 & d <= 57 {
-                state.cursor = state.cursor + 1
-                state.column = state.column + 1
+                cur = cur + 1
+                co = co + 1
             } else {
                 still_num = 0
             }
         }
-        state.tok_start = start0
-        state.tok_len = state.cursor - start0
-        state.tok_line = line0
-        state.tok_col = col0
-        return 3
+        ts = start0
+        tl = cur - start0
+        tln = line0
+        tco = col0
+        return LexStep { kind: 3, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
 
     if c2 == 34 {
-        state.cursor = state.cursor + 1
-        state.column = state.column + 1
-        while state.cursor < slen {
-            var ch = str_byte(state.source, state.cursor)
+        cur = cur + 1
+        co = co + 1
+        while cur < slen {
+            var ch = str_byte(source, cur)
             if ch == 34 {
-                state.cursor = state.cursor + 1
-                state.column = state.column + 1
-                state.tok_start = start0
-                state.tok_len = state.cursor - start0
-                state.tok_line = line0
-                state.tok_col = col0
-                return 4
+                cur = cur + 1
+                co = co + 1
+                ts = start0
+                tl = cur - start0
+                tln = line0
+                tco = col0
+                return LexStep { kind: 4, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
             } else {
                 if ch == 10 {
-                    state.cursor = state.cursor + 1
-                    state.line = state.line + 1
-                    state.column = 1
+                    cur = cur + 1
+                    ln = ln + 1
+                    co = 1
                 } else {
-                    state.cursor = state.cursor + 1
-                    state.column = state.column + 1
+                    cur = cur + 1
+                    co = co + 1
                 }
             }
         }
-        state.tok_start = start0
-        state.tok_len = state.cursor - start0
-        state.tok_line = line0
-        state.tok_col = col0
-        return 1
+        ts = start0
+        tl = cur - start0
+        tln = line0
+        tco = col0
+        return LexStep { kind: 1, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
 
-    state.cursor = state.cursor + 1
-    state.column = state.column + 1
+    cur = cur + 1
+    co = co + 1
 
     if c2 == 40 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 24
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 24, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 41 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 25
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 25, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 91 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 26
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 26, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 93 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 27
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 27, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 123 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 28
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 28, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 125 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 29
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 29, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 46 {
-        if state.cursor < slen & str_byte(state.source, state.cursor) == 46 {
-            state.cursor = state.cursor + 1
-            state.column = state.column + 1
-            state.tok_start = start0
-            state.tok_len = 2
-            state.tok_line = line0
-            state.tok_col = col0
-            return 31
+        if cur < slen & str_byte(source, cur) == 46 {
+            cur = cur + 1
+            co = co + 1
+            ts = start0
+            tl = 2
+            tln = line0
+            tco = col0
+        return LexStep { kind: 31, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
         }
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 30
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 30, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 58 {
-        if state.cursor < slen & str_byte(state.source, state.cursor) == 58 {
-            state.cursor = state.cursor + 1
-            state.column = state.column + 1
-            state.tok_start = start0
-            state.tok_len = 2
-            state.tok_line = line0
-            state.tok_col = col0
-            return 33
+        if cur < slen & str_byte(source, cur) == 58 {
+            cur = cur + 1
+            co = co + 1
+            ts = start0
+            tl = 2
+            tln = line0
+            tco = col0
+        return LexStep { kind: 33, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
         }
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 32
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 32, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 59 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 34
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 34, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 44 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 35
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 35, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 43 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 38
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 38, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 45 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 39
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 39, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 42 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 40
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 40, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 47 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 41
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 41, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 33 {
-        if state.cursor < slen & str_byte(state.source, state.cursor) == 61 {
-            state.cursor = state.cursor + 1
-            state.column = state.column + 1
-            state.tok_start = start0
-            state.tok_len = 2
-            state.tok_line = line0
-            state.tok_col = col0
-            return 46
+        if cur < slen & str_byte(source, cur) == 61 {
+            cur = cur + 1
+            co = co + 1
+            ts = start0
+            tl = 2
+            tln = line0
+            tco = col0
+        return LexStep { kind: 46, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
         }
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 42
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 42, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 38 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 43
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 43, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 124 {
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 44
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 44, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 60 {
-        if state.cursor < slen & str_byte(state.source, state.cursor) == 61 {
-            state.cursor = state.cursor + 1
-            state.column = state.column + 1
-            state.tok_start = start0
-            state.tok_len = 2
-            state.tok_line = line0
-            state.tok_col = col0
-            return 49
+        if cur < slen & str_byte(source, cur) == 61 {
+            cur = cur + 1
+            co = co + 1
+            ts = start0
+            tl = 2
+            tln = line0
+            tco = col0
+        return LexStep { kind: 49, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
         }
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 47
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 47, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 62 {
-        if state.cursor < slen & str_byte(state.source, state.cursor) == 61 {
-            state.cursor = state.cursor + 1
-            state.column = state.column + 1
-            state.tok_start = start0
-            state.tok_len = 2
-            state.tok_line = line0
-            state.tok_col = col0
-            return 50
+        if cur < slen & str_byte(source, cur) == 61 {
+            cur = cur + 1
+            co = co + 1
+            ts = start0
+            tl = 2
+            tln = line0
+            tco = col0
+        return LexStep { kind: 50, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
         }
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 48
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 48, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
     if c2 == 61 {
-        if state.cursor < slen & str_byte(state.source, state.cursor) == 61 {
-            state.cursor = state.cursor + 1
-            state.column = state.column + 1
-            state.tok_start = start0
-            state.tok_len = 2
-            state.tok_line = line0
-            state.tok_col = col0
-            return 45
+        if cur < slen & str_byte(source, cur) == 61 {
+            cur = cur + 1
+            co = co + 1
+            ts = start0
+            tl = 2
+            tln = line0
+            tco = col0
+        return LexStep { kind: 45, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
         }
-        if state.cursor < slen & str_byte(state.source, state.cursor) == 62 {
-            state.cursor = state.cursor + 1
-            state.column = state.column + 1
-            state.tok_start = start0
-            state.tok_len = 2
-            state.tok_line = line0
-            state.tok_col = col0
-            return 37
+        if cur < slen & str_byte(source, cur) == 62 {
+            cur = cur + 1
+            co = co + 1
+            ts = start0
+            tl = 2
+            tln = line0
+            tco = col0
+        return LexStep { kind: 37, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
         }
-        state.tok_start = start0
-        state.tok_len = 1
-        state.tok_line = line0
-        state.tok_col = col0
-        return 36
+        ts = start0
+        tl = 1
+        tln = line0
+        tco = col0
+        return LexStep { kind: 36, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
     }
 
-    state.tok_start = start0
-    state.tok_len = 1
-    state.tok_line = line0
-    state.tok_col = col0
-    return 1
+    ts = start0
+    tl = 1
+    tln = line0
+    tco = col0
+    return LexStep { kind: 1, cursor: cur, line: ln, column: co, tok_start: ts, tok_len: tl, tok_line: tln, tok_col: tco }
 }
 
 func run_lexer_on_source(source: str): void {
-    var state = LexerState { source: source, cursor: 0, line: 1, column: 1, tok_start: 0, tok_len: 0, tok_line: 1, tok_col: 1 }
+    var cur = 0
+    var ln = 1
+    var co = 1
     var more = 1
     while more == 1 {
-        var k = lexer_next(state)
-        dump_token_line(source, k, state.tok_start, state.tok_len, state.tok_line, state.tok_col)
-        if k == 0 {
+        var st = lexer_step(source, cur, ln, co)
+        dump_token_line(source, st.kind, st.tok_start, st.tok_len, st.tok_line, st.tok_col)
+        cur = st.cursor
+        ln = st.line
+        co = st.column
+        if st.kind == 0 {
             more = 0
         } else {
-            if k == 1 {
+            if st.kind == 1 {
                 more = 0
             } else {
                 more = 1

@@ -6,21 +6,17 @@ This guide shows how to install the `Di` compiler and start running `.di` progra
 
 The repository includes:
 
-- the `di` compiler
-- the runtime support files used by generated programs
-- install scripts for Linux / WSL and PowerShell
+- a **bootstrap** `di` compiler binary (Linux x86-64) and LLVM IR runtime under `runtime/`
+- install scripts for Linux / WSL (Windows: use WSL)
 - a local VS Code / Cursor extension for `.di` files
+
+There is **no compiler source tree** in this repository (only the bootstrap `di` binary and Di / LLVM IR artifacts).
 
 ## Prerequisites
 
-You need a working C compiler:
+- Linux / WSL: `cc` to link generated user code with the runtime object; optional `clang` to compile `runtime/runtime.ll` at install time (otherwise a prebuilt `runtime.o` is copied).
 
-- Linux / WSL: `cc`, `clang`, or `gcc`
-- Windows PowerShell: Visual Studio Build Tools or `gcc`
-
-Optional:
-
-- `cmake` if you want to build with the CMake project instead of the install script
+Do **not** use CMake here: it only prints instructions to run `./scripts/install.sh`.
 
 ## Quick Install
 
@@ -197,10 +193,11 @@ sh tests/run.sh
 - ensure the install directory is on your `PATH`
 - restart the shell after install if needed
 
-### No C compiler found
+### Link failures (`runtime.o` / `cc`)
 
-- install `clang`, `gcc`, or another `cc`-compatible compiler
-- on Windows, install Visual Studio Build Tools or `gcc`
+- ensure `./scripts/install.sh` completed and `~/.local/share/di/runtime/runtime.o` exists
+- install `cc` (typically `gcc` or `clang` as `/usr/bin/cc`) for linking user code with the runtime object
+- optional: install `clang` so the install script can compile `runtime/runtime.ll` instead of copying the prebuilt object
 
 ### Editor does not recognize `.di`
 

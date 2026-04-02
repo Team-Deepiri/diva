@@ -109,8 +109,10 @@ HOME="${HOME_DIR}" sh "${ROOT_DIR}/scripts/install.sh" >"${TEST_ROOT}/install.ou
     fail "install script failed"
 }
 
+HOME="${HOME_DIR}"
+export HOME
 PATH="${BIN_DIR}:${PATH}"
-export HOME PATH
+export PATH
 
 log "running example integration tests"
 assert_output_equals "${ROOT_DIR}/examples/hello.di" "10"

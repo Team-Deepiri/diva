@@ -103,7 +103,7 @@ Hosted runtime hooks currently exposed through `extern func` include:
 - `exit(status: int): void`
 - `abort(): void`
 
-Additional hosted hooks used for self-hosting (declared in `stdlib/std/host.di`, implemented in the C runtime) include:
+Additional hosted hooks used for self-hosting (declared in `stdlib/std/host.di`, implemented in the hosted native runtime — see `runtime/runtime.ll`) include:
 
 - `host_argc(): int`, `host_argv(index: int): str`
 - `file_size(path: str): int`, `read_file(path: str): str`

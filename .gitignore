@@ -1,4 +1,6 @@
 build/
-*.ll
+# No C sources or generated glue in this tree
 *.c
+*.ll
+!runtime/runtime.ll
 *.exe

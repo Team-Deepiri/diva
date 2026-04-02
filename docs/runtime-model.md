@@ -6,7 +6,7 @@ The first `Di` runtime model is intentionally conventional.
 
 - stack locals for primitive values
 - explicit primitive types
-- C runtime shims for I/O
+- native runtime shims for I/O (`runtime/runtime.ll`)
 - hosted runtime shims for `write`, `exit`, `abort`, and hex printing
 - LLVM manages low-level optimization and register allocation
 

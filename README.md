@@ -1,49 +1,41 @@
 # Di
+
 _A lightweight programming language for semantic analysis, textual IR emission, and native executable generation._
 
+This repository is **Di source only** (`.di` standard library, examples, tests, docs). The reference compiler ships as a **bootstrap Linux amd64** `di` binary under `bootstrap/`; the hosted runtime is **LLVM IR** (`runtime/runtime.ll` → `runtime.o`).
 
-## Repository Layout
+## Repository layout
 
-- `src/`: compiler driver and implementation modules
-- `include/`: public/internal headers shared by compiler modules
-- `runtime/`: runtime support implemented in C
-- `stdlib/`: early standard library surface and notes
-- `docs/`: language and architecture documents
-- `examples/`: small `Di` programs
-- `tests/`: focused compiler tests
+- `bootstrap/` — prebuilt `di` (Linux x86-64) and `runtime-linux-amd64.o` fallback for installs without `clang`
+- `runtime/` — `runtime.ll` (LLVM IR) and `runtime.o` (precompiled for local dev defaults)
+- `stdlib/` — standard library `.di` modules
+- `docs/` — language and architecture notes
+- `examples/` — sample programs
+- `tests/` — compiler integration tests (`tests/run.sh`)
+
+## Install (Linux / WSL)
+
+Needs `cc` for linking user programs. Optional `clang` to compile `runtime/runtime.ll` at install time; otherwise the script copies `bootstrap/runtime-linux-amd64.o`.
+
+```sh
+./scripts/install.sh
+```
+
+Then ensure your environment includes (the install script prints these):
+
+- `PATH` containing `~/.local/bin`
+- `DI_STDLIB_DIR` → `~/.local/share/di/stdlib` (optional if `HOME` is set — the compiler defaults to `~/.local/share/di/stdlib`)
+- `DI_RUNTIME_O` → `~/.local/share/di/runtime/runtime.o` (optional if `HOME` is set — defaults to `~/.local/share/di/runtime/runtime.o`)
+
+## Windows
+
+Use **WSL** and `./scripts/install.sh`. Native Windows install scripts are not wired to this layout.
 
 ## Guides
 
-- install and usage: `docs/install-and-usage.md`
-- syntax guide: `docs/syntax-guide.md`
-- language spec: `docs/language-spec.md`
-
-## Current Language Surface
-
-`Di` currently supports:
-
-- `func` and `extern func`
-- explicit generic functions via `func name[T](...)`
-- `class` declarations with methods
-- `trait` declarations and `impl Trait for Type` conformance checks
-- `var` declarations with optional `::` type annotations
-- `if` / `else`
-- `while condition => update`
-- `flux item in iterable`
-- optional top-level `package` declarations
-- package manifests via `di.mod` for app, lib, and kernel targets
-- relative file imports
-- shipped stdlib modules via `import "std/..."`
-- hosted system hooks via `extern func write`, `print_hex`, `exit`, and `abort`
-- utility stdlib modules for io, int helpers, ranges, logic, and assertions
-- integer, boolean, and string literals
-- arithmetic, comparisons, and boolean operators
-- function and method calls
-- field access and field assignment
-- object literals
-- array literals and indexing
-- relative file imports
-- optional semicolons, with semicolon-free style preferred
+- `docs/install-and-usage.md`
+- `docs/syntax-guide.md`
+- `docs/language-spec.md`
 
 ## Example
 
@@ -70,93 +62,14 @@ di new my-app
 di new my-lib --lib
 ```
 
-`.di` is the source extension for all `Di` files.
+## CMake
 
-## Build
+`cmake` is configured to **stop** with a pointer to `./scripts/install.sh` — there is no in-tree compiler build from sources here.
 
-The repository includes a simple C build path and can also be built with CMake.
+## Generated output
 
-```sh
-cmake -S . -B build
-cmake --build build
-```
+The bootstrap `di` may write ephemeral native glue and intermediates under `build/` (ignored by git; `*.c` is ignored repo-wide). To clear them: `./scripts/clean.sh` or `rm -rf build`.
 
-If you just want a working local compiler quickly:
+## Editor extension
 
-```sh
-./scripts/install.sh
-```
-
-## SDK Workflow
-
-After installation, the expected workflow is:
-
-```sh
-di new hello-di
-cd hello-di
-di run .
-di build .
-di check .
-di emit-ir .
-di watch .
-```
-
-`di new` now creates a package directory with `di.mod`, `src/`, `.gitignore`, and README.
-
-Package manifests can also declare local dependencies like `dep.math_lib = "../math_lib"`, and source files can import them with `import "pkg/math_lib"`.
-
-## Install
-
-Linux/WSL:
-
-```sh
-./scripts/install-sdk.sh
-```
-
-PowerShell:
-
-```powershell
-./scripts/install-sdk.ps1
-```
-
-These SDK scripts install:
-
-- the `di` compiler into a local user bin directory
-- the `.di` Di source file type association on the local machine
-- the local `.di` editor extension into Cursor by default
-
-If you only want the compiler, use `./scripts/install.sh` or `./scripts/install.ps1`.
-
-If you only want to register the Di file type:
-
-- Linux / WSL: `./scripts/install-filetype.sh`
-- PowerShell: `./scripts/install-filetype.ps1`
-
-## Editor Extension
-
-A local VS Code / Cursor extension for `.di` files lives in:
-
-- `tools/vscode-extension/`
-
-It registers the `Di` language and currently includes:
-
-- `.di` file association
-- comment, bracket, and auto-close configuration
-- syntax highlighting for functions, keywords, types, operators, fields, and arrays
-- starter snippets for common `Di` patterns
-
-Install it locally:
-
-Linux/WSL:
-
-```sh
-./scripts/install-extension.sh
-```
-
-PowerShell:
-
-```powershell
-./scripts/install-extension.ps1
-```
-
-By default these install into Cursor's extensions directory. You can pass a target path to install into VS Code instead.
+See `tools/vscode-extension/` and `./scripts/install-extension.sh`.

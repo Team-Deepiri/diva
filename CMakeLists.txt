@@ -1,41 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(di LANGUAGES C)
+project(di NONE)
 
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
-
-find_package(LLVM CONFIG QUIET)
-
-if(LLVM_FOUND)
-  message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
-  message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
-  include_directories(${LLVM_INCLUDE_DIRS})
-  add_definitions(${LLVM_DEFINITIONS})
-endif()
-
-include_directories(include)
-set(DI_STDLIB_DIR "${CMAKE_SOURCE_DIR}/stdlib")
-
-set(DI_SOURCES
-  src/main.c
-  src/driver.c
-  src/diag.c
-  src/token.c
-  src/lexer.c
-  src/ast.c
-  src/ir.c
-  src/parser.c
-  src/sema.c
-  src/codegen_llvm.c
+message(FATAL_ERROR
+  "The Di reference compiler is not built from C sources in this tree.\n"
+  "  Install the toolchain: ./scripts/install.sh\n"
+  "  (installs the bootstrap compiler from bootstrap/di-linux-amd64, LLVM IR runtime, and stdlib.)\n"
+  "  Requires: cc, and optionally clang (to compile runtime/runtime.ll to ~/.local/share/di/runtime/runtime.o)."
 )
-
-add_executable(di ${DI_SOURCES})
-target_compile_definitions(di PRIVATE DI_STDLIB_DIR=\"${DI_STDLIB_DIR}\")
-
-if(LLVM_FOUND)
-  if(TARGET LLVM)
-    target_link_libraries(di PRIVATE LLVM)
-  endif()
-endif()

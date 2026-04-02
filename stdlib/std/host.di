@@ -1,4 +1,4 @@
-// Hosted-process hooks: runtime/runtime.c — argv, file input, string scanning.
+// Hosted-process hooks: runtime/runtime.ll (linked as .o) — argv, file input, string scanning.
 
 extern func host_argc(): int
 extern func host_argv(index: int): str

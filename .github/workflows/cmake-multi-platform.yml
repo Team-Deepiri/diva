@@ -1,4 +1,4 @@
-name: CMake Build Matrix
+name: Integration tests
 
 on:
   push:
@@ -7,34 +7,10 @@ on:
     branches: ["main"]
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            build_type: Release
-            c_compiler: gcc
-          - os: ubuntu-latest
-            build_type: Release
-            c_compiler: clang
-          - os: windows-latest
-            build_type: Release
-            c_compiler: cl
-
+  test:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure CMake
-        run: >
-          cmake -S ${{ github.workspace }}
-          -B ${{ github.workspace }}/build
-          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-          -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
-
-      - name: Build
-        run: >
-          cmake --build ${{ github.workspace }}/build
-          --config ${{ matrix.build_type }}
+      - name: Run test suite
+        run: sh tests/run.sh

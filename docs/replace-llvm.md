@@ -5,7 +5,7 @@ This plan is the practical path to making `Di` independent from LLVM without der
 The core idea is:
 
 ```text
-Now:   Di source -> AST -> current IR -> LLVM IR / generated C -> native build
+Now:   Di source -> AST -> current IR -> LLVM IR text / native glue -> native build
 Later: Di source -> AST -> typed IR -> Di IR -> Di backend -> assembly -> machine code
 ```
 
@@ -34,7 +34,7 @@ Priorities:
 - keep building the frontend and semantic pipeline
 - make the compiler architecture clean enough to host itself
 - use LLVM as the codegen target for native output
-- keep the generated-C path as a debug and fallback backend if it remains useful
+- keep the native-glue path as a debug and fallback backend if it remains useful
 
 What to avoid:
 
