@@ -29,139 +29,62 @@ func clamp(x: int, low: int, high: int): int {
     return min(max(x, low), high)
 }
 
-func pulse(seed: int, step: int): int {
-    var wave = seed * (step + 3) - step * step
+func twist(seed: int, value: int, step: int): int {
+    var mixed = seed * (step + 1) + value * (step + 2)
 
-    if wave < 0 {
-        wave = abs(wave) + step * 7
+    if step == 0 {
+        mixed = mixed + 7
     } else {
-        if wave > 120 {
-            wave = 120 - (wave - 120)
+        if step == 1 {
+            mixed = mixed - seed / 2
         } else {
-            wave = wave + step
-        }
-    }
-
-    return wave
-}
-
-func balance(left: int, right: int, bias: int): int {
-    var delta = left - right
-    var energy = abs(delta) + bias
-
-    if delta > 0 {
-        return energy + left / 2
-    } else {
-        if delta < 0 {
-            return energy + right / 2
-        } else {
-            return energy + bias * 2
-        }
-    }
-}
-
-func shape_signal(values: int[], seed: int): int {
-    var total = seed
-    var i = 0
-
-    while i < 8 {
-        var current = values[i]
-        var wave = pulse(seed + total, i + 1)
-
-        if current > wave {
-            total = total + balance(current, wave, i + 2)
-        } else {
-            total = total - balance(wave, current, i + 1) / 2
-        }
-
-        if i == 2 {
-            total = total + current * (i + 1)
-        } else {
-            if i == 5 {
-                total = total + current * (i + 1)
+            if step == 2 {
+                mixed = mixed + value * 3
             } else {
-                if current < 0 {
-                    total = total + abs(current)
+                if step == 3 {
+                    mixed = mixed - abs(seed - value)
                 } else {
-                    total = total + current / (i + 1)
+                    mixed = mixed + step * 11 - value / 2
                 }
             }
         }
-
-        total = clamp(total, -500, 500)
-        i = i + 1
     }
 
-    return total
+    return clamp(mixed, 0 - 400, 400)
 }
 
-func weave_paths(a: int[], b: int[]): int {
-    var score = 0
-    var i = 0
+func fold_pair(left: int, right: int, bias: int): int {
+    var gap = abs(left - right) + bias
 
-    while i < 8 {
-        var left = a[i]
-        var right = b[7 - i]
-        var mixed = balance(left, right, i + 3)
-
-        if mixed > 40 {
-            score = score + mixed
+    if left > right {
+        return gap + left * 2 + bias
+    } else {
+        if right > left {
+            return gap + right * 2 - bias
         } else {
-            score = score + mixed * 2
+            return gap + bias * 3
         }
-
-        if left > right {
-            if left > 0 {
-                score = score + left * (i + 1)
-            } else {
-                score = score + abs(left - right)
-            }
-        } else {
-            if right > left {
-                if right > 0 {
-                    score = score + right * (8 - i)
-                } else {
-                    score = score + abs(left - right)
-                }
-            } else {
-                score = score + abs(left - right)
-            }
-        }
-
-        i = i + 1
     }
-
-    return score
 }
 
-func final_orbit(base: int, echo: int, drift: int): int {
-    var value = base + echo - drift
+func orbit(base: int, echo: int): int {
     var turn = 0
+    var value = base + echo
 
     while turn < 6 {
-        if turn == 0 {
-            value = value + 11
+        value = twist(value, echo + turn * 5, turn)
+
+        if turn == 2 {
+            value = value + fold_pair(base, echo, turn + 1)
         } else {
-            if turn == 1 {
-                value = value * 2 - 9
+            if turn == 4 {
+                value = value - fold_pair(echo, base, turn + 2) / 3
             } else {
-                if turn == 2 {
-                    value = value + drift / 3
-                } else {
-                    if turn == 3 {
-                        value = value - echo / 4
-                    } else {
-                        if turn == 4 {
-                            value = value + abs(base - drift)
-                        } else {
-                            value = value + turn * 13 - 7
-                        }
-                    }
-                }
+                value = value + base / (turn + 1)
             }
         }
 
-        value = clamp(value, -2000, 2000)
+        value = clamp(value, 0 - 900, 900)
         turn = turn + 1
     }
 
@@ -169,16 +92,42 @@ func final_orbit(base: int, echo: int, drift: int): int {
 }
 
 func main(): int {
-    var skyline :: int[] = [5, 12, -3, 18, 7, 25, -9, 14]
-    var river :: int[] = [8, -4, 11, 6, 19, -2, 13, 3]
+    var skyline :: int[] = [5, 12, 3, 18, 7, 25, 9, 14]
+    var river :: int[] = [8, 4, 11, 6, 19, 2, 13, 3]
+    var score = 0
+    var pulse = 17
+    var i = 0
 
-    var shaped = shape_signal(skyline, 17)
-    var woven = weave_paths(skyline, river)
-    var orbit = final_orbit(shaped, woven, shape_signal(river, 9))
+    while i < 8 {
+        var left = skyline[i]
+        var right = river[7 - i]
+        var wave = twist(pulse, left + right, i)
+        var folded = fold_pair(left, right, i + 2)
+
+        if wave > folded {
+            score = score + wave + left * (i + 1)
+        } else {
+            score = score + folded + right * (8 - i)
+        }
+
+        if i == 1 {
+            score = score + orbit(left * 3, right * 2)
+        } else {
+            if i == 5 {
+                score = score - orbit(right * 2, left) / 2
+            } else {
+                score = score + abs(left - right) * (i + 1)
+            }
+        }
+
+        score = clamp(score, 0 - 2000, 2000)
+        pulse = twist(score, pulse + folded, i + 1)
+        i = i + 1
+    }
 
     print_str("di can do poetry with control flow")
-    print_int(shaped)
-    print_int(woven)
-    print_int(orbit)
+    print_int(score)
+    print_int(pulse)
+    print_int(orbit(score, pulse))
     return 0
 }
