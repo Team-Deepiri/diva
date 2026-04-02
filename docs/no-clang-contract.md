@@ -6,7 +6,7 @@ This document freezes the behavioral contract for `NO_CLANG=1` installs and for 
 
 | Variable | Meaning |
 |----------|---------|
-| `NO_CLANG=1` | [`scripts/install.sh`](../scripts/install.sh) must **not** execute `clang`. Runtime is copied from [`bootstrap/runtime-linux-amd64.o`](../bootstrap/runtime-linux-amd64.o), which must be kept in sync with [`runtime/runtime.ll`](../runtime/runtime.ll) (refresh outside the tree). |
+| `NO_CLANG=1` | [`scripts/install.sh`](../scripts/install.sh) must **not** execute `clang`. Runtime is copied from [`bootstrap/runtime-linux-amd64.o`](../bootstrap/runtime-linux-amd64.o), which must be kept in sync with [`runtime/runtime.ll`](../runtime/runtime.ll) (refresh with [`scripts/rebuild-bootstrap.sh`](../scripts/rebuild-bootstrap.sh) when IR changes). |
 | `DI_BOOTSTRAP` | Absolute path to the seed `di` binary used by [`compiler/src/main.di`](../compiler/src/main.di). |
 | `DI_STDLIB_DIR` | Standard library root (default `~/.local/share/di/stdlib`). |
 | `DI_RUNTIME_O` | Hosted runtime object linked with user programs. |
@@ -22,6 +22,7 @@ This document freezes the behavioral contract for `NO_CLANG=1` installs and for 
 - `NO_CLANG=1` + `./scripts/install.sh` must succeed on Linux x86_64 when `bootstrap/runtime-linux-amd64.o` exists.
 - [`tests/run-no-clang.sh`](../tests/run-no-clang.sh) exercises install + a minimal `di run` under this contract.
 - CI should run [`scripts/verify-no-clang.sh`](../scripts/verify-no-clang.sh) (or equivalent) so `clang` is never invoked on that lane.
+- [`scripts/verify-no-c-sources.sh`](../scripts/verify-no-c-sources.sh) fails if any `.c` or `.h` file is tracked; [`tests/run.sh`](../tests/run.sh) invokes it after the no-clang check.
 
 ## Future: Di-native object emission
 

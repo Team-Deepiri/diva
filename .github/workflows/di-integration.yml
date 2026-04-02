@@ -1,4 +1,5 @@
-name: CLI Smoke Tests
+# Di language repo: no C sources in-tree; install uses runtime/runtime.ll or bootstrap/*.o.
+name: Di integration tests
 
 on:
   push:
@@ -7,17 +8,16 @@ on:
     branches: ["main"]
 
 jobs:
-  smoke-tests:
+  integration:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build toolchain
+      - name: Install toolchain (linker for hosted executables)
         run: sudo apt-get update && sudo apt-get install -y build-essential
 
       - name: Install di
         run: sh scripts/install.sh
 
-      - name: Run smoke tests
+      - name: Run full test suite
         run: sh tests/run.sh

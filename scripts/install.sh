@@ -13,7 +13,7 @@ mkdir -p "${RUNTIME_DIR}"
 mkdir -p "${STDLIB_DIR}"
 
 # Hosted runtime: LLVM IR in-tree (runtime/runtime.ll). No C sources in this repository.
-# - NO_CLANG=1: copy checked-in [bootstrap/runtime-linux-amd64.o](../bootstrap/runtime-linux-amd64.o) (must match current runtime.ll; refresh via maintainer build outside the tree).
+# - NO_CLANG=1: copy bootstrap/runtime-linux-amd64.o (must match runtime.ll; refresh with scripts/rebuild-bootstrap.sh when IR changes).
 # - Else: compile .ll with clang when available, else copy the same bootstrap object.
 if [ "${NO_CLANG:-}" = "1" ]; then
   if [ ! -f "${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" ]; then

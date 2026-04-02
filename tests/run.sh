@@ -341,4 +341,10 @@ if ! NO_CLANG=1 sh "${ROOT_DIR}/scripts/verify-no-clang.sh" >"${TEST_ROOT}/no-cl
     fail "NO_CLANG verify failed"
 fi
 
+log "verifying no tracked C/C header sources (scripts/verify-no-c-sources.sh)"
+if ! sh "${ROOT_DIR}/scripts/verify-no-c-sources.sh" >"${TEST_ROOT}/no-c-sources-verify.out" 2>&1; then
+    sed -n '1,80p' "${TEST_ROOT}/no-c-sources-verify.out" >&2
+    fail "no-C-sources verify failed"
+fi
+
 log "all tests passed"
