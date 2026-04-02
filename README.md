@@ -1,14 +1,6 @@
-# di
+# Di
+_A lightweight programming language for semantic analysis, textual IR emission, and native executable generation._
 
-`Di` is a new systems programming language project by Deepiri.
-
-The current repo already includes:
-
-- a C compiler frontend
-- semantic analysis
-- textual LLVM IR emission
-- native executable generation through a generated-C fallback
-- a small runtime, examples, install scripts, and an editor extension
 
 ## Repository Layout
 
