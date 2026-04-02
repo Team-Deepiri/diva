@@ -20,6 +20,7 @@ cc -I"${ROOT_DIR}/include" \
   "${ROOT_DIR}/src/token.c" \
   "${ROOT_DIR}/src/lexer.c" \
   "${ROOT_DIR}/src/ast.c" \
+  "${ROOT_DIR}/src/ir.c" \
   "${ROOT_DIR}/src/parser.c" \
   "${ROOT_DIR}/src/sema.c" \
   "${ROOT_DIR}/src/codegen_llvm.c" \

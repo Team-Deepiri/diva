@@ -2,6 +2,7 @@
 
 #include "codegen_llvm.h"
 #include "diag.h"
+#include "ir.h"
 #include "lexer.h"
 #include "parser.h"
 #include "sema.h"
@@ -411,6 +412,7 @@ static int di_create_project(const DiOptions *options) {
 
 int di_driver_run(const DiOptions *options) {
     DiAstProgram *program;
+    DiIrProgram *ir_program;
 
     if (options == NULL) {
         di_error("missing compiler options");
@@ -450,12 +452,20 @@ int di_driver_run(const DiOptions *options) {
         return 1;
     }
 
-    if (di_codegen_emit_llvm_ir(program, options->input_path) != 0) {
+    ir_program = di_ir_lower_program(program);
+    if (ir_program == NULL) {
         di_ast_program_free(program);
         return 1;
     }
 
-    if (di_codegen_build_native(program, options->input_path, options->run_after_build) != 0) {
+    if (di_codegen_emit_llvm_ir(ir_program, options->input_path) != 0) {
+        di_ir_program_free(ir_program);
+        di_ast_program_free(program);
+        return 1;
+    }
+
+    if (di_codegen_build_native(ir_program, options->input_path, options->run_after_build) != 0) {
+        di_ir_program_free(ir_program);
         di_ast_program_free(program);
         return 1;
     }
@@ -464,6 +474,7 @@ int di_driver_run(const DiOptions *options) {
         di_info("emit-ir requested");
     }
 
+    di_ir_program_free(ir_program);
     di_ast_program_free(program);
     return 0;
 }

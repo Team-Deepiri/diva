@@ -17,6 +17,7 @@ $sources = @(
     (Join-Path $root "src\token.c"),
     (Join-Path $root "src\lexer.c"),
     (Join-Path $root "src\ast.c"),
+    (Join-Path $root "src\ir.c"),
     (Join-Path $root "src\parser.c"),
     (Join-Path $root "src\sema.c"),
     (Join-Path $root "src\codegen_llvm.c")

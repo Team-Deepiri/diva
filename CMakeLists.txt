@@ -24,6 +24,7 @@ set(DI_SOURCES
   src/token.c
   src/lexer.c
   src/ast.c
+  src/ir.c
   src/parser.c
   src/sema.c
   src/codegen_llvm.c
