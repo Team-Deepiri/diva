@@ -1,6 +1,5 @@
 # Di
-_
-A lightweight programming language for semantic analysis, textual IR emission, and native executable generation._
+_A lightweight programming language for semantic analysis, textual IR emission, and native executable generation._
 
 
 ## Repository Layout
