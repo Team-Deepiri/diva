@@ -4,5 +4,6 @@
 #include "ast.h"
 
 DiAstProgram *di_parse_program(const char *source);
+DiAstProgram *di_parse_file(const char *source, const char *source_path);
 
 #endif

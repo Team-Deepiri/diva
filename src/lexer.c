@@ -36,6 +36,7 @@ static DiTokenKind keyword_kind(const char *start, int length) {
     if (length == 2 && strncmp(start, "in", 2) == 0) return DI_TOKEN_IN;
     if (length == 4 && strncmp(start, "true", 4) == 0) return DI_TOKEN_TRUE;
     if (length == 5 && strncmp(start, "false", 5) == 0) return DI_TOKEN_FALSE;
+    if (length == 7 && strncmp(start, "package", 7) == 0) return DI_TOKEN_PACKAGE;
     if (length == 6 && strncmp(start, "import", 6) == 0) return DI_TOKEN_IMPORT;
     return DI_TOKEN_IDENT;
 }

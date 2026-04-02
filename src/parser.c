@@ -74,6 +74,41 @@ static char *copy_text(const char *text) {
     return di_ast_strdup_range(text, (int)strlen(text));
 }
 
+static int parse_package_decl(DiParser *parser, DiAstProgram *program) {
+    if (!parser_match(parser, DI_TOKEN_PACKAGE)) {
+        return 1;
+    }
+    if (parser->current.kind != DI_TOKEN_IDENT) {
+        di_error("expected package name after 'package'");
+        parser->had_error = 1;
+        return 0;
+    }
+    program->package_name = parser_take_text(parser);
+    parser_advance(parser);
+    parser_maybe_semi(parser);
+    return 1;
+}
+
+static int parse_import_decl(DiParser *parser, DiAstProgram *program) {
+    char *import_path;
+    if (!parser_match(parser, DI_TOKEN_IMPORT)) {
+        return 0;
+    }
+    if (parser->current.kind != DI_TOKEN_STRING_LIT) {
+        di_error("expected string literal after 'import'");
+        parser->had_error = 1;
+        return 1;
+    }
+    import_path = di_ast_strdup_range(parser->current.lexeme + 1, parser->current.length - 2);
+    if (import_path == NULL || !di_ast_program_add_import(program, import_path)) {
+        parser->had_error = 1;
+    }
+    free(import_path);
+    parser_advance(parser);
+    parser_maybe_semi(parser);
+    return 1;
+}
+
 static DiAstType parse_type(DiParser *parser) {
     DiAstType type;
     char buffer[128];
@@ -696,7 +731,7 @@ static int parse_class_decl(DiParser *parser, DiAstProgram *program, int is_stru
     return 1;
 }
 
-DiAstProgram *di_parse_program(const char *source) {
+DiAstProgram *di_parse_file(const char *source, const char *source_path) {
     DiParser parser;
     DiAstProgram *program = di_ast_program_new();
 
@@ -706,6 +741,9 @@ DiAstProgram *di_parse_program(const char *source) {
 
     di_lexer_init(&parser.lexer, source);
     parser.had_error = 0;
+    if (source_path != NULL) {
+        program->source_path = copy_text(source_path);
+    }
     parser_advance(&parser);
 
     if (parser.current.kind == DI_TOKEN_EOF) {
@@ -714,8 +752,19 @@ DiAstProgram *di_parse_program(const char *source) {
         return program;
     }
 
+    if (!parse_package_decl(&parser, program)) {
+        program->had_error = 1;
+        return program;
+    }
+
     while (parser.current.kind != DI_TOKEN_EOF) {
         DiAstDecl *decl;
+        if (parse_import_decl(&parser, program)) {
+            if (parser.had_error) {
+                break;
+            }
+            continue;
+        }
         int is_extern = parser_match(&parser, DI_TOKEN_EXTERN);
 
         if (!is_extern && (parser.current.kind == DI_TOKEN_CLASS || parser.current.kind == DI_TOKEN_STRUCT)) {
@@ -741,4 +790,8 @@ DiAstProgram *di_parse_program(const char *source) {
 
     program->had_error = parser.had_error;
     return program;
+}
+
+DiAstProgram *di_parse_program(const char *source) {
+    return di_parse_file(source, NULL);
 }

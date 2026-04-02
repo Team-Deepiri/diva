@@ -142,6 +142,7 @@ assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.di" "duplicat
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_ident.di" "unknown identifier 'missing'"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/reserved_name.di" "uses a reserved backend identifier"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_import_main.di" "duplicate top-level declaration 'clash'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/package_mismatch_main.di" "package mismatch:"
 
 log "checking generated project workflow"
 rm -rf "${TEST_ROOT}/generated-app"

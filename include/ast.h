@@ -191,6 +191,10 @@ struct DiAstDecl {
 typedef struct {
     DiAstDecl **decls;
     size_t decl_count;
+    const char *package_name;
+    const char *source_path;
+    char **imports;
+    size_t import_count;
     int had_error;
 } DiAstProgram;
 
@@ -200,6 +204,7 @@ DiAstStmt *di_ast_stmt_new(DiAstKind kind);
 DiAstExpr *di_ast_expr_new(DiAstKind kind);
 char *di_ast_strdup_range(const char *start, int length);
 int di_ast_program_add_decl(DiAstProgram *program, DiAstDecl *decl);
+int di_ast_program_add_import(DiAstProgram *program, const char *import_path);
 int di_ast_decl_add_param(DiAstDecl *decl, DiAstParam param);
 int di_ast_decl_add_stmt(DiAstDecl *decl, DiAstStmt *stmt);
 int di_ast_decl_add_field(DiAstDecl *decl, DiAstField field);

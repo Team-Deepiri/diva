@@ -1,3 +1,5 @@
+package imports_demo
+
 import "math.di"
 
 extern func print_int(x: int): void

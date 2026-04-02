@@ -22,6 +22,12 @@ typedef struct {
     size_t capacity;
 } StringBuilder;
 
+typedef struct {
+    DiAstProgram *program;
+    char **paths;
+    size_t count;
+} ProgramGraph;
+
 static char *read_file(const char *path) {
     FILE *file;
     long size;
@@ -106,38 +112,6 @@ static void path_list_free(PathList *list) {
     free(list->items);
 }
 
-static int builder_append_n(StringBuilder *builder, const char *text, size_t len) {
-    char *next;
-    size_t needed = builder->length + len + 1;
-    if (needed > builder->capacity) {
-        size_t capacity = builder->capacity == 0 ? 1024 : builder->capacity;
-        while (capacity < needed) {
-            capacity *= 2;
-        }
-        next = (char *)realloc(builder->data, capacity);
-        if (next == NULL) {
-            return 0;
-        }
-        builder->data = next;
-        builder->capacity = capacity;
-    }
-    memcpy(builder->data + builder->length, text, len);
-    builder->length += len;
-    builder->data[builder->length] = '\0';
-    return 1;
-}
-
-static int builder_append(StringBuilder *builder, const char *text) {
-    return builder_append_n(builder, text, strlen(text));
-}
-
-static const char *skip_spaces(const char *cursor, const char *end) {
-    while (cursor < end && (*cursor == ' ' || *cursor == '\t' || *cursor == '\r')) {
-        cursor++;
-    }
-    return cursor;
-}
-
 static void dirname_of(const char *path, char *out, size_t out_size) {
     const char *slash = strrchr(path, '/');
     const char *backslash = strrchr(path, '\\');
@@ -175,10 +149,50 @@ static void join_path(char *out, size_t out_size, const char *base_dir, const ch
     snprintf(out, out_size, "%s/%s", base_dir, relative);
 }
 
-static int load_source_recursive(const char *path, StringBuilder *builder, PathList *loaded, PathList *loading) {
+static int program_graph_add(ProgramGraph *graph, const char *path, DiAstProgram *program) {
+    DiAstDecl **decls;
+    char **paths;
+    size_t next_count = graph->count + 1;
+
+    decls = (DiAstDecl **)realloc(graph->program->decls, sizeof(DiAstDecl *) * (graph->program->decl_count + program->decl_count));
+    if (program->decl_count != 0 && decls == NULL) {
+        return 0;
+    }
+    graph->program->decls = decls;
+    memcpy(graph->program->decls + graph->program->decl_count, program->decls, sizeof(DiAstDecl *) * program->decl_count);
+    graph->program->decl_count += program->decl_count;
+    program->decl_count = 0;
+
+    paths = (char **)realloc(graph->paths, sizeof(char *) * next_count);
+    if (paths == NULL) {
+        return 0;
+    }
+    graph->paths = paths;
+    graph->paths[graph->count] = di_ast_strdup_range(path, (int)strlen(path));
+    if (graph->paths[graph->count] == NULL) {
+        return 0;
+    }
+    graph->count = next_count;
+    return 1;
+}
+
+static void program_graph_free(ProgramGraph *graph) {
+    size_t i;
+    for (i = 0; i < graph->count; ++i) {
+        free(graph->paths[i]);
+    }
+    free(graph->paths);
+}
+
+static int load_program_recursive(const char *path,
+                                  ProgramGraph *graph,
+                                  PathList *loaded,
+                                  PathList *loading,
+                                  char **shared_package) {
     char *source;
+    DiAstProgram *file_program;
     char directory[512];
-    const char *cursor;
+    size_t i;
 
     if (path_list_contains(loaded, path)) {
         return 1;
@@ -197,85 +211,94 @@ static int load_source_recursive(const char *path, StringBuilder *builder, PathL
         return 0;
     }
 
-    dirname_of(path, directory, sizeof(directory));
-    cursor = source;
-    while (*cursor != '\0') {
-        const char *line_start = cursor;
-        const char *line_end = cursor;
-        const char *trimmed;
-
-        while (*line_end != '\0' && *line_end != '\n') {
-            line_end++;
-        }
-
-        trimmed = skip_spaces(line_start, line_end);
-        if ((size_t)(line_end - trimmed) >= 7 && strncmp(trimmed, "import ", 7) == 0) {
-            const char *quote_start = strchr(trimmed + 7, '"');
-            const char *quote_end = quote_start != NULL ? strchr(quote_start + 1, '"') : NULL;
-            if (quote_start == NULL || quote_end == NULL) {
-                di_error("invalid import syntax in %s", path);
-                free(source);
-                path_list_pop(loading);
-                return 0;
-            }
-            if (quote_end < line_end) {
-                char import_path[512];
-                char resolved_path[1024];
-                size_t import_len = (size_t)(quote_end - quote_start - 1);
-                if (import_len >= sizeof(import_path)) {
-                    free(source);
-                    path_list_pop(loading);
-                    di_error("import path too long in %s", path);
-                    return 0;
-                }
-                memcpy(import_path, quote_start + 1, import_len);
-                import_path[import_len] = '\0';
-                join_path(resolved_path, sizeof(resolved_path), directory, import_path);
-                if (!load_source_recursive(resolved_path, builder, loaded, loading)) {
-                    free(source);
-                    path_list_pop(loading);
-                    return 0;
-                }
-            }
-        } else {
-            if (!builder_append_n(builder, line_start, (size_t)(line_end - line_start)) ||
-                !builder_append(builder, "\n")) {
-                free(source);
-                path_list_pop(loading);
-                return 0;
-            }
-        }
-
-        cursor = *line_end == '\n' ? line_end + 1 : line_end;
-    }
-
+    file_program = di_parse_file(source, path);
     free(source);
-    path_list_pop(loading);
-    if (!path_list_push(loaded, path)) {
+    if (file_program == NULL || file_program->had_error) {
+        di_ast_program_free(file_program);
+        path_list_pop(loading);
         return 0;
     }
+
+    if (file_program->package_name != NULL) {
+        if (*shared_package == NULL) {
+            *shared_package = di_ast_strdup_range(file_program->package_name, (int)strlen(file_program->package_name));
+            if (*shared_package == NULL) {
+                di_ast_program_free(file_program);
+                path_list_pop(loading);
+                return 0;
+            }
+        } else if (strcmp(*shared_package, file_program->package_name) != 0) {
+            di_error("package mismatch: %s declares package %s but expected %s",
+                     path,
+                     file_program->package_name,
+                     *shared_package);
+            di_ast_program_free(file_program);
+            path_list_pop(loading);
+            return 0;
+        }
+    }
+
+    dirname_of(path, directory, sizeof(directory));
+    for (i = 0; i < file_program->import_count; ++i) {
+        char resolved_path[1024];
+        join_path(resolved_path, sizeof(resolved_path), directory, file_program->imports[i]);
+        if (!load_program_recursive(resolved_path, graph, loaded, loading, shared_package)) {
+            di_ast_program_free(file_program);
+            path_list_pop(loading);
+            return 0;
+        }
+    }
+
+    if (!program_graph_add(graph, path, file_program)) {
+        di_ast_program_free(file_program);
+        path_list_pop(loading);
+        return 0;
+    }
+
+    if (!path_list_push(loaded, path)) {
+        di_ast_program_free(file_program);
+        path_list_pop(loading);
+        return 0;
+    }
+    path_list_pop(loading);
+    di_ast_program_free(file_program);
     return 1;
 }
 
-static char *load_compilation_unit(const char *entry_path) {
-    StringBuilder builder;
+static DiAstProgram *load_compilation_unit(const char *entry_path) {
     PathList loaded;
     PathList loading;
+    ProgramGraph graph;
+    char *shared_package = NULL;
 
-    memset(&builder, 0, sizeof(builder));
     memset(&loaded, 0, sizeof(loaded));
     memset(&loading, 0, sizeof(loading));
+    memset(&graph, 0, sizeof(graph));
 
-    if (!load_source_recursive(entry_path, &builder, &loaded, &loading)) {
-        free(builder.data);
-        path_list_free(&loaded);
-        path_list_free(&loading);
+    graph.program = di_ast_program_new();
+    if (graph.program == NULL) {
         return NULL;
     }
 
+    if (!load_program_recursive(entry_path, &graph, &loaded, &loading, &shared_package)) {
+        di_ast_program_free(graph.program);
+        path_list_free(&loaded);
+        path_list_free(&loading);
+        program_graph_free(&graph);
+        free(shared_package);
+        return NULL;
+    }
+
+    if (shared_package != NULL) {
+        graph.program->package_name = di_ast_strdup_range(shared_package, (int)strlen(shared_package));
+    }
+    graph.program->source_path = di_ast_strdup_range(entry_path, (int)strlen(entry_path));
+
     path_list_free(&loaded);
     path_list_free(&loading);
-    return builder.data;
+    program_graph_free(&graph);
+    free(shared_package);
+    return graph.program;
 }
 
 static void dump_tokens(const char *source) {
@@ -387,7 +410,6 @@ static int di_create_project(const DiOptions *options) {
 }
 
 int di_driver_run(const DiOptions *options) {
-    char *source;
     DiAstProgram *program;
 
     if (options == NULL) {
@@ -404,20 +426,19 @@ int di_driver_run(const DiOptions *options) {
         return 1;
     }
 
-    source = load_compilation_unit(options->input_path);
-    if (source == NULL) {
+    program = load_compilation_unit(options->input_path);
+    if (program == NULL) {
         return 1;
     }
 
     if (options->emit_tokens) {
+        char *source = read_file(options->input_path);
+        if (source == NULL) {
+            di_ast_program_free(program);
+            return 1;
+        }
         dump_tokens(source);
-    }
-
-    program = di_parse_program(source);
-    if (program == NULL || program->had_error) {
-        di_ast_program_free(program);
         free(source);
-        return 1;
     }
 
     if (options->emit_ast) {
@@ -426,19 +447,16 @@ int di_driver_run(const DiOptions *options) {
 
     if (di_sema_check_program(program) != 0) {
         di_ast_program_free(program);
-        free(source);
         return 1;
     }
 
     if (di_codegen_emit_llvm_ir(program, options->input_path) != 0) {
         di_ast_program_free(program);
-        free(source);
         return 1;
     }
 
     if (di_codegen_build_native(program, options->input_path, options->run_after_build) != 0) {
         di_ast_program_free(program);
-        free(source);
         return 1;
     }
 
@@ -447,6 +465,5 @@ int di_driver_run(const DiOptions *options) {
     }
 
     di_ast_program_free(program);
-    free(source);
     return 0;
 }

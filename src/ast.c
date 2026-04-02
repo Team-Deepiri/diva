@@ -60,6 +60,24 @@ int di_ast_program_add_decl(DiAstProgram *program, DiAstDecl *decl) {
     return 1;
 }
 
+int di_ast_program_add_import(DiAstProgram *program, const char *import_path) {
+    char **imports;
+    char *copy;
+
+    copy = di_ast_strdup_range(import_path, (int)strlen(import_path));
+    if (copy == NULL) {
+        return 0;
+    }
+    imports = (char **)di_realloc_array(program->imports, program->import_count + 1, sizeof(char *));
+    if (imports == NULL) {
+        free(copy);
+        return 0;
+    }
+    program->imports = imports;
+    program->imports[program->import_count++] = copy;
+    return 1;
+}
+
 int di_ast_decl_add_param(DiAstDecl *decl, DiAstParam param) {
     DiAstParam *params = (DiAstParam *)di_realloc_array(decl->params, decl->param_count + 1, sizeof(DiAstParam));
     if (params == NULL) {
@@ -322,7 +340,18 @@ void di_ast_dump_program(const DiAstProgram *program) {
         return;
     }
 
-    printf("Program\n");
+    printf("Program");
+    if (program->package_name != NULL) {
+        printf(" package=%s", program->package_name);
+    }
+    if (program->source_path != NULL) {
+        printf(" source=%s", program->source_path);
+    }
+    printf("\n");
+    for (i = 0; i < program->import_count; ++i) {
+        dump_indent(1);
+        printf("Import(%s)\n", program->imports[i]);
+    }
     for (i = 0; i < program->decl_count; ++i) {
         const DiAstDecl *decl = program->decls[i];
         dump_indent(1);
@@ -507,6 +536,12 @@ void di_ast_program_free(DiAstProgram *program) {
         free(decl);
     }
 
+    free((char *)program->package_name);
+    free((char *)program->source_path);
+    for (i = 0; i < program->import_count; ++i) {
+        free(program->imports[i]);
+    }
+    free(program->imports);
     free(program->decls);
     free(program);
 }
