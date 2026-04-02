@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Diri
-Comment=Run Diri source files
-Exec=sh -lc '"/home/josep/projects/Deepiri/diri-lang/build/filetype-home/.local/bin/diri" run "%f"; printf "\nPress Enter to close..."; read _'
-MimeType=text/x-diri;
-Terminal=true
-Categories=Development;
-NoDisplay=true
