@@ -5,5 +5,10 @@ void di_runtime_print_int(int x) {
 }
 
 void di_runtime_print_str(const char *x) {
-    puts(x);
+    if (x == NULL) {
+        printf("(null)\n");
+        return;
+    }
+
+    printf("%s\n", x);
 }
