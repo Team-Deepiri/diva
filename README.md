@@ -1,6 +1,6 @@
 # di
 
-`Di` is a new systems programming language project by Deepiri.
+`Di` a programming language by Deepiri.
 
 The current repo already includes:
 
