@@ -1,12 +1,12 @@
-extern func print_int(x: int): void;
+extern func print_int(x: int): void
 
 struct Counter {
-    value: int;
+    value: int
 }
 
 func main(): int {
-    let c: Counter = Counter { value: 1 };
-    c.value = c.value + 9;
-    print_int(c.value);
-    return 0;
+    let c: Counter = Counter { value: 1 }
+    c.value = c.value + 9
+    print_int(c.value)
+    return 0
 }

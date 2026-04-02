@@ -2,7 +2,7 @@
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/diri-tests.XXXXXX")
+TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/di-tests.XXXXXX")
 HOME_DIR="${TEST_ROOT}/home"
 BIN_DIR="${HOME_DIR}/.local/bin"
 
@@ -23,8 +23,8 @@ fail() {
     exit 1
 }
 
-strip_diri_logs() {
-    awk 'index($0, "[diri] ") != 1 && index($0, "[diri:error] ") != 1 { print }' "$1"
+strip_di_logs() {
+    awk 'index($0, "[di] ") != 1 && index($0, "[di:error] ") != 1 { print }' "$1"
 }
 
 assert_output_equals() {
@@ -32,12 +32,12 @@ assert_output_equals() {
     expected=$2
     output_file="${TEST_ROOT}/command.out"
 
-    if ! diri run "${file_path}" >"${output_file}" 2>&1; then
+    if ! di run "${file_path}" >"${output_file}" 2>&1; then
         sed -n '1,120p' "${output_file}" >&2
-        fail "command failed: diri run ${file_path}"
+        fail "command failed: di run ${file_path}"
     fi
 
-    actual=$(strip_diri_logs "${output_file}")
+    actual=$(strip_di_logs "${output_file}")
     if [ "${actual}" != "${expected}" ]; then
         printf '[test:error] unexpected runtime output for %s\n' "${file_path}" >&2
         printf '[test:error] expected:\n%s\n' "${expected}" >&2
@@ -51,9 +51,9 @@ assert_contains() {
     needle=$2
     output_file="${TEST_ROOT}/command.out"
 
-    if ! diri build "${file_path}" --ast >"${output_file}" 2>&1; then
+    if ! di build "${file_path}" --ast >"${output_file}" 2>&1; then
         sed -n '1,120p' "${output_file}" >&2
-        fail "command failed: diri build ${file_path} --ast"
+        fail "command failed: di build ${file_path} --ast"
     fi
 
     if ! grep -F "${needle}" "${output_file}" >/dev/null; then
@@ -68,7 +68,7 @@ assert_error_contains() {
     needle=$2
     output_file="${TEST_ROOT}/command.out"
 
-    if diri build "${file_path}" >"${output_file}" 2>&1; then
+    if di build "${file_path}" >"${output_file}" 2>&1; then
         sed -n '1,120p' "${output_file}" >&2
         fail "expected failure for ${file_path}"
     fi
@@ -84,15 +84,15 @@ assert_ir_contains() {
     file_path=$1
     needle=$2
     output_file="${TEST_ROOT}/command.out"
-    ir_path="${TEST_ROOT}/out.ll"
+    ir_path=
 
-    if ! diri emit-ir "${file_path}" >"${output_file}" 2>&1; then
+    if ! di emit-ir "${file_path}" >"${output_file}" 2>&1; then
         sed -n '1,120p' "${output_file}" >&2
-        fail "command failed: diri emit-ir ${file_path}"
+        fail "command failed: di emit-ir ${file_path}"
     fi
 
-    ir_path="${ROOT_DIR}/build/$(printf '%s' "${file_path}" | sed 's#[/\\]#_#g; s#\..*$##').ll"
-    if ! [ -f "${ir_path}" ]; then
+    ir_path=$(sed -n 's/^\[di\] wrote LLVM IR to //p' "${output_file}" | tail -n 1)
+    if [ -z "${ir_path}" ] || ! [ -f "${ir_path}" ]; then
         fail "expected LLVM IR output at ${ir_path}"
     fi
 
@@ -103,7 +103,7 @@ assert_ir_contains() {
     fi
 }
 
-log "installing diri into temporary home"
+log "installing di into temporary home"
 HOME="${HOME_DIR}" sh "${ROOT_DIR}/scripts/install.sh" >"${TEST_ROOT}/install.out" 2>&1 || {
     sed -n '1,120p' "${TEST_ROOT}/install.out" >&2
     fail "install script failed"
@@ -114,7 +114,7 @@ export HOME PATH
 
 log "running example integration tests"
 assert_output_equals "${ROOT_DIR}/examples/hello.di" "10"
-assert_output_equals "${ROOT_DIR}/examples/branching.di" "running diri
+assert_output_equals "${ROOT_DIR}/examples/branching.di" "running di
 20
 1"
 assert_output_equals "${ROOT_DIR}/examples/loop.di" "10"
@@ -125,11 +125,12 @@ assert_output_equals "${ROOT_DIR}/examples/structs.di" "18
 assert_output_equals "${ROOT_DIR}/examples/struct_mutation.di" "10"
 assert_output_equals "${ROOT_DIR}/examples/arrays.di" "9"
 assert_output_equals "${ROOT_DIR}/examples/array_mutation.di" "16"
+assert_output_equals "${ROOT_DIR}/examples/imports/main.di" "42"
 
 log "checking AST smoke output"
 assert_contains "${ROOT_DIR}/examples/hello.di" "Program"
-assert_contains "${ROOT_DIR}/examples/hello.di" "Let(x: int)"
-assert_contains "${ROOT_DIR}/examples/hello.di" "Call(print_int)"
+assert_contains "${ROOT_DIR}/examples/hello.di" "Var(x: int)"
+assert_contains "${ROOT_DIR}/examples/hello.di" "Ident(print_int)"
 
 log "checking LLVM IR smoke output"
 assert_ir_contains "${ROOT_DIR}/examples/loop.di" "br label %whilecond"
@@ -139,12 +140,14 @@ assert_ir_contains "${ROOT_DIR}/examples/array_mutation.di" "store i32"
 log "checking semantic failure cases"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.di" "duplicate declaration of 'x' in the same scope"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_ident.di" "unknown identifier 'missing'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/reserved_name.di" "uses a reserved backend identifier"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_import_main.di" "duplicate top-level declaration 'clash'"
 
 log "checking generated project workflow"
 rm -rf "${TEST_ROOT}/generated-app"
-if ! diri new "${TEST_ROOT}/generated-app" >"${TEST_ROOT}/new.out" 2>&1; then
+if ! di new "${TEST_ROOT}/generated-app" >"${TEST_ROOT}/new.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/new.out" >&2
-    fail "diri new failed"
+    fail "di new failed"
 fi
 
 if ! [ -f "${TEST_ROOT}/generated-app/main.di" ] || ! [ -f "${TEST_ROOT}/generated-app/.gitignore" ]; then
@@ -153,14 +156,14 @@ fi
 
 if ! (
     cd "${TEST_ROOT}/generated-app" &&
-    diri run main.di >"${TEST_ROOT}/generated.out" 2>&1
+    di run main.di >"${TEST_ROOT}/generated.out" 2>&1
 ); then
     sed -n '1,120p' "${TEST_ROOT}/generated.out" >&2
     fail "generated project failed to run"
 fi
 
-generated_output=$(strip_diri_logs "${TEST_ROOT}/generated.out")
-if [ "${generated_output}" != "hello from diri
+generated_output=$(strip_di_logs "${TEST_ROOT}/generated.out")
+if [ "${generated_output}" != "hello from di
 10" ]; then
     printf '[test:error] unexpected generated project output\n' >&2
     printf '[test:error] actual:\n%s\n' "${generated_output}" >&2

@@ -10,6 +10,6 @@ mkdir -p "${TARGET_ROOT}"
 rm -rf "${TARGET_DIR}"
 cp -R "${EXT_SRC}" "${TARGET_DIR}"
 
-echo "Installed Diri editor extension to ${TARGET_DIR}"
+echo "Installed Di editor extension to ${TARGET_DIR}"
 echo "Use a different first argument to target VS Code, for example:"
 echo "  ./scripts/install-extension.sh ~/.vscode/extensions"

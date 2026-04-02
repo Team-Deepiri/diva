@@ -1,6 +1,6 @@
 {
-  "scopeName": "source.diri",
-  "name": "Diri",
+  "scopeName": "source.di",
+  "name": "Di",
   "patterns": [
     { "include": "#comments" },
     { "include": "#keywords" },
@@ -15,7 +15,7 @@
     "comments": {
       "patterns": [
         {
-          "name": "comment.line.double-slash.diri",
+          "name": "comment.line.double-slash.di",
           "match": "//.*$"
         }
       ]
@@ -23,15 +23,15 @@
     "keywords": {
       "patterns": [
         {
-          "name": "keyword.control.diri",
-          "match": "\\b(func|extern|struct|let|if|else|while|return|true|false)\\b"
+          "name": "keyword.control.di",
+          "match": "\\b(func|extern|class|var|if|else|while|flux|in|return|true|false)\\b"
         }
       ]
     },
     "types": {
       "patterns": [
         {
-          "name": "storage.type.diri",
+          "name": "storage.type.di",
           "match": "\\b(int|bool|str|void)\\b"
         }
       ]
@@ -39,12 +39,12 @@
     "strings": {
       "patterns": [
         {
-          "name": "string.quoted.double.diri",
+          "name": "string.quoted.double.di",
           "begin": "\"",
           "end": "\"",
           "patterns": [
             {
-              "name": "constant.character.escape.diri",
+              "name": "constant.character.escape.di",
               "match": "\\\\."
             }
           ]
@@ -54,7 +54,7 @@
     "numbers": {
       "patterns": [
         {
-          "name": "constant.numeric.integer.diri",
+          "name": "constant.numeric.integer.di",
           "match": "\\b\\d+\\b"
         }
       ]
@@ -62,7 +62,7 @@
     "functions": {
       "patterns": [
         {
-          "name": "entity.name.function.diri",
+          "name": "entity.name.function.di",
           "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()"
         }
       ]
@@ -70,7 +70,7 @@
     "fields": {
       "patterns": [
         {
-          "name": "variable.other.member.diri",
+          "name": "variable.other.member.di",
           "match": "(?<=\\.)[A-Za-z_][A-Za-z0-9_]*\\b"
         }
       ]
@@ -78,8 +78,8 @@
     "operators": {
       "patterns": [
         {
-          "name": "keyword.operator.diri",
-          "match": "(==|!=|<=|>=|=|\\+|\\-|\\*|/|\\.|:|,|\\[|\\]|<|>)"
+          "name": "keyword.operator.di",
+          "match": "(==|!=|<=|>=|=>|::|\\.\\.|=|\\+|\\-|\\*|/|\\.|:|,|\\[|\\]|<|>|&|\\||!)"
         }
       ]
     }

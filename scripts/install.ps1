@@ -1,9 +1,9 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$installDir = Join-Path $HOME ".diri\bin"
-$output = Join-Path $installDir "diri.exe"
-$runtimeDir = Join-Path $HOME ".diri\runtime"
+$installDir = Join-Path $HOME ".di\bin"
+$output = Join-Path $installDir "di.exe"
+$runtimeDir = Join-Path $HOME ".di\runtime"
 $runtimeSource = Join-Path $runtimeDir "runtime.c"
 
 New-Item -ItemType Directory -Force $installDir | Out-Null
@@ -23,16 +23,16 @@ $sources = @(
 )
 
 $includeDir = Join-Path $root "include"
-$runtimeDefine = "/DDIRI_RUNTIME_SOURCE=`"$($runtimeSource -replace '\\','/')`""
+$runtimeDefine = "/DDI_RUNTIME_SOURCE=`"$($runtimeSource -replace '\\','/')`""
 
 if (Get-Command cl -ErrorAction SilentlyContinue) {
     & cl /nologo /I $includeDir $runtimeDefine /Fe:$output $sources
 } elseif (Get-Command gcc -ErrorAction SilentlyContinue) {
-    & gcc -I $includeDir "-DDIRI_RUNTIME_SOURCE=`"$($runtimeSource -replace '\\','/')`"" $sources -o $output
+    & gcc -I $includeDir "-DDI_RUNTIME_SOURCE=`"$($runtimeSource -replace '\\','/')`"" $sources -o $output
 } else {
     throw "No supported C compiler found. Install Visual Studio Build Tools or gcc/clang."
 }
 
-Write-Host "Installed diri to $output"
+Write-Host "Installed di to $output"
 Write-Host "Installed runtime to $runtimeSource"
 Write-Host "Add $installDir to your PATH if needed."

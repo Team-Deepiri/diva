@@ -1,54 +1,64 @@
-#ifndef DIRI_TOKEN_H
-#define DIRI_TOKEN_H
+#ifndef DI_TOKEN_H
+#define DI_TOKEN_H
 
 typedef enum {
-    DIRI_TOKEN_EOF = 0,
-    DIRI_TOKEN_INVALID,
-    DIRI_TOKEN_IDENT,
-    DIRI_TOKEN_INT_LIT,
-    DIRI_TOKEN_STRING_LIT,
-    DIRI_TOKEN_FUNC,
-    DIRI_TOKEN_STRUCT,
-    DIRI_TOKEN_EXTERN,
-    DIRI_TOKEN_LET,
-    DIRI_TOKEN_RETURN,
-    DIRI_TOKEN_IF,
-    DIRI_TOKEN_ELSE,
-    DIRI_TOKEN_WHILE,
-    DIRI_TOKEN_TRUE,
-    DIRI_TOKEN_FALSE,
-    DIRI_TOKEN_LPAREN,
-    DIRI_TOKEN_RPAREN,
-    DIRI_TOKEN_LBRACKET,
-    DIRI_TOKEN_RBRACKET,
-    DIRI_TOKEN_LBRACE,
-    DIRI_TOKEN_RBRACE,
-    DIRI_TOKEN_DOT,
-    DIRI_TOKEN_COLON,
-    DIRI_TOKEN_SEMI,
-    DIRI_TOKEN_COMMA,
-    DIRI_TOKEN_EQUAL,
-    DIRI_TOKEN_ARROW,
-    DIRI_TOKEN_PLUS,
-    DIRI_TOKEN_MINUS,
-    DIRI_TOKEN_STAR,
-    DIRI_TOKEN_SLASH,
-    DIRI_TOKEN_EQEQ,
-    DIRI_TOKEN_BANGEQ,
-    DIRI_TOKEN_LT,
-    DIRI_TOKEN_GT,
-    DIRI_TOKEN_LE,
-    DIRI_TOKEN_GE
-} DiriTokenKind;
+    DI_TOKEN_EOF = 0,
+    DI_TOKEN_INVALID,
+    DI_TOKEN_IDENT,
+    DI_TOKEN_INT_LIT,
+    DI_TOKEN_STRING_LIT,
+    DI_TOKEN_FUNC,
+    DI_TOKEN_EXTERN,
+    DI_TOKEN_STRUCT,
+    DI_TOKEN_CLASS,
+    DI_TOKEN_LET,
+    DI_TOKEN_VAR,
+    DI_TOKEN_RETURN,
+    DI_TOKEN_IF,
+    DI_TOKEN_ELSE,
+    DI_TOKEN_WHILE,
+    DI_TOKEN_FLUX,
+    DI_TOKEN_IN,
+    DI_TOKEN_TRUE,
+    DI_TOKEN_FALSE,
+    DI_TOKEN_IMPORT,
+    DI_TOKEN_LPAREN,
+    DI_TOKEN_RPAREN,
+    DI_TOKEN_LBRACKET,
+    DI_TOKEN_RBRACKET,
+    DI_TOKEN_LBRACE,
+    DI_TOKEN_RBRACE,
+    DI_TOKEN_DOT,
+    DI_TOKEN_DOTDOT,
+    DI_TOKEN_COLON,
+    DI_TOKEN_DOUBLECOLON,
+    DI_TOKEN_SEMI,
+    DI_TOKEN_COMMA,
+    DI_TOKEN_EQUAL,
+    DI_TOKEN_FATARROW,
+    DI_TOKEN_PLUS,
+    DI_TOKEN_MINUS,
+    DI_TOKEN_STAR,
+    DI_TOKEN_SLASH,
+    DI_TOKEN_BANG,
+    DI_TOKEN_AMP,
+    DI_TOKEN_PIPE,
+    DI_TOKEN_EQEQ,
+    DI_TOKEN_BANGEQ,
+    DI_TOKEN_LT,
+    DI_TOKEN_GT,
+    DI_TOKEN_LE,
+    DI_TOKEN_GE
+} DiTokenKind;
 
 typedef struct {
-    DiriTokenKind kind;
+    DiTokenKind kind;
     const char *lexeme;
     int length;
     int line;
     int column;
-} DiriToken;
+} DiToken;
 
-const char *diri_token_kind_name(DiriTokenKind kind);
+const char *di_token_kind_name(DiTokenKind kind);
 
 #endif

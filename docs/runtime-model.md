@@ -1,6 +1,6 @@
-# Diri Runtime Model
+# Di Runtime Model
 
-The first `diri` runtime model is intentionally conventional.
+The first `Di` runtime model is intentionally conventional.
 
 ## Baseline
 

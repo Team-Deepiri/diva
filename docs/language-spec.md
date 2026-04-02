@@ -1,26 +1,31 @@
-# Diri Language Spec
+# Di Language Spec
 
-This document defines the current designed surface of `diri`.
+This document describes the current implemented surface of `Di`.
 
-## Design Goals
+## Overview
 
-- readable systems-language syntax
-- explicit types
-- simple compilation pipeline
-- LLVM backend from the start
+`Di` is a compiled language with:
 
-## Syntax Style
+- `.di` source files
+- `di` as the CLI command
+- explicit function signatures
+- `var` bindings with optional type annotations
+- class-based data and methods
+- arrays, ranges, imports, and straightforward control flow
 
-`diri` aims for:
+## Design Direction
 
-- readable brace-based blocks
-- explicit types where declarations matter
-- low punctuation noise inside control flow
-- familiar function syntax without becoming C-like clutter
+The current language direction is:
+
+- readable brace-based syntax
+- explicit types where they add clarity
+- lightweight syntax for common code
+- no required parentheses around `if` and `while` conditions
+- simple lowering into LLVM IR and a native executable path
 
 ## File Extension
 
-All `diri` source files use the `.di` extension.
+All `Di` source files use the `.di` extension.
 
 Examples:
 
@@ -28,15 +33,17 @@ Examples:
 - `math.di`
 - `game_loop.di`
 
-## Core Syntax
+## Program Structure
 
-```diri
-extern func print_int(x: int): void;
+A minimal program looks like this:
+
+```di
+extern func print_int(x: int): void
 
 func main(): int {
-    let x: int = 10;
-    print_int(x);
-    return 0;
+    var x = 10
+    print_int(x)
+    return 0
 }
 ```
 
@@ -44,172 +51,223 @@ func main(): int {
 
 - `func`
 - `extern`
-- `struct`
-- `let`
+- `class`
+- `var`
 - `if`
 - `else`
 - `while`
+- `flux`
+- `in`
 - `return`
 - `true`
 - `false`
+- `import`
 
-## Primitive Types
+## Types
+
+Built-in types:
 
 - `int`
 - `bool`
 - `str`
 - `void`
 
-Arrays are written as `int[]`. User-defined struct names are used directly as types.
+Other supported type forms:
 
-## Expression Design
+- arrays like `int[]`
+- user-defined class names like `Point`
 
-Expressions stay readable and mostly left-to-right:
+## Declarations
 
-- function calls use `name(arg1, arg2)`
-- control-flow conditions do not require extra parentheses
-- field access uses `.`
-- array indexing uses `[]`
-- struct literals use named fields
+### Functions
 
-Supported today:
+```di
+func add(a: int, b: int): int {
+    return a + b
+}
+```
+
+### External Functions
+
+```di
+extern func print_str(x: str): void
+```
+
+### Classes
+
+Classes contain `var` fields and `func` methods:
+
+```di
+class Counter {
+    var value :: int
+
+    func bump(amount: int): int {
+        self.value = self.value + amount
+        return self.value
+    }
+}
+```
+
+Current implementation note:
+
+- class fields lower to struct-like fields
+- methods lower to functions with an explicit receiver
+- method calls use `obj.method(...)`
+
+## Variables
+
+Use `var` for local bindings.
+
+Type annotations are optional and use `::`.
+
+Semicolons are optional statement and declaration terminators. They are still accepted for compatibility, but the recommended style is to leave them out.
+
+```di
+var total = 0
+var nums :: int[] = [1, 2, 3]
+var point :: Point = Point { x: 3, y: 4 }
+```
+
+## Statements
+
+Supported statements:
+
+- variable declarations
+- assignments
+- field assignments
+- index assignments
+- expression statements
+- `if` / `else`
+- `while`
+- `flux`
+- `return`
+
+## Expressions
+
+Supported expressions:
 
 - integer literals
 - boolean literals
 - string literals
 - identifiers
 - function calls
+- method calls
 - grouped expressions with `()`
 - arithmetic: `+`, `-`, `*`, `/`
 - comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- logic: `&`, `|`, `!`
 - field access: `user.score`
 - array indexing: `numbers[i]`
-- struct literals: `Point { x: 1, y: 2 }`
+- object literals: `Point { x: 1, y: 2 }`
 - array literals: `[1, 2, 3]`
+- ranges: `0..5`
 
-## Statements
+## Control Flow
 
-Supported today:
+Conditions do not require extra parentheses.
 
-- `let` declarations
-- assignments
-- field assignments
-- expression statements
+### If / Else
+
+```di
+if score > 10 & ready {
+    return 1
+} else {
+    return 0
+}
+```
+
+### While
+
+`while` supports an update clause:
+
+```di
+while i < 5 => i = i + 1 {
+    total = total + i
+}
+```
+
+## Iteration
+
+`flux` iterates over ranges and arrays.
+
+```di
+flux value in 0..5 {
+    print_int(value)
+}
+```
+
+```di
+flux value in nums {
+    print_int(value)
+}
+```
+
+## Arrays
+
+Array literals and indexing are supported today.
+
+```di
+var values :: int[] = [3, 4, 5]
+var second = values[1]
+```
+
+Array element assignment is also supported:
+
+```di
+values[1] = 9
+```
+
+## Imports
+
+Top-level imports use relative `.di` file paths:
+
+```di
+import "math.di"
+```
+
+Imports are resolved before parsing into a single compilation unit.
+
+## Example
+
+```di
+import "math.di"
+
+extern func print_int(x: int): void
+
+func main(): int {
+    var nums :: int[] = [1, 2, 3]
+
+    flux value in nums {
+        print_int(value)
+    }
+
+    print_int(twice(21))
+    return 0
+}
+```
+
+## Implemented Today
+
+- `func` and `extern func`
+- class declarations with methods
+- `var` bindings with optional `::` type annotations
 - `if` / `else`
-- `while`
-- `return`
-- nested block scopes with shadowing
-
-## Examples
-
-### Variables And Assignment
-
-```diri
-func main(): int {
-    let value: int = 10;
-    value = value + 4;
-    return value;
-}
-```
-
-### Branching
-
-```diri
-func max(a: int, b: int): int {
-    if a >= b {
-        return a;
-    } else {
-        return b;
-    }
-}
-```
-
-### Looping
-
-```diri
-extern func print_int(x: int): void;
-
-func main(): int {
-    let i: int = 0;
-    let total: int = 0;
-
-    while i < 5 {
-        total = total + i;
-        i = i + 1;
-    }
-
-    print_int(total);
-    return 0;
-}
-```
-
-### Structs
-
-```diri
-struct Point {
-    x: int,
-    y: int,
-}
-
-func main(): int {
-    let point: Point = Point { x: 3, y: 4 };
-    return point.x + point.y;
-}
-```
-
-### Arrays
-
-```diri
-func main(): int {
-    let values: int[] = [3, 4, 5];
-    return values[1];
-}
-```
-
-## Current Implemented Features
-
-- function declarations with `func`
-- external function declarations with `extern func`
-- struct declarations
-- local bindings with `let`
-- assignment and field assignment
+- `while condition => update`
+- `flux item in iterable`
 - primitive types: `int`, `bool`, `str`, `void`
-- integer, boolean, and string literals
-- function calls
-- arithmetic and comparisons
-- field access
-- struct literals
-- `int[]` array literals and indexing
-- `if`
-- `while`
-- `return`
-- block scoping with shadowing
-
-## Creative But Readable Direction
-
-The language direction is:
-
-- concise keywords instead of symbolic tricks
-- no forced parentheses around `if` and `while` conditions
-- explicit field names in struct literals
-- a small `.di` source format that feels lightweight to type
-- tooling that treats `.di` as the default project entry format
-
-This keeps `diri` creative in feel without making code visually noisy or cryptic.
-
-## Near-Term Design Direction
-
-The next syntax areas to expand are:
-
-- richer array support beyond `int[]`
-- modules and imports
-- methods or namespaced APIs
-- a larger stdlib surface
+- arrays as `int[]`
+- arithmetic, comparisons, and boolean logic
+- field access and field mutation
+- array indexing and mutation
+- object literals
+- relative file imports
 
 ## Not Implemented Yet
 
 - generics
 - traits
 - packages
+- `@field` sugar for receiver access
 - custom packed-value runtime as the default representation
-- kernel or ISR features
+- NaN boxing
+- sub-byte addressing experiments

@@ -1,6 +1,6 @@
-# Diri Extension
+# Di Extension
 
-This extension registers the `diri` language for `.di` files.
+This extension registers the `Di` language for `.di` files.
 
 Included today:
 

@@ -17,6 +17,6 @@ if (Test-Path $targetDir) {
 }
 Copy-Item -Recurse -Force $extSource $targetDir
 
-Write-Host "Installed Diri editor extension to $targetDir"
+Write-Host "Installed Di editor extension to $targetDir"
 Write-Host "For VS Code, run:"
 Write-Host "  ./scripts/install-extension.ps1 `"$HOME\.vscode\extensions`""

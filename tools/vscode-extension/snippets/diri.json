@@ -4,22 +4,22 @@
     "body": [
       "func main(): int {",
       "    $0",
-      "    return 0;",
+      "    return 0",
       "}"
     ],
-    "description": "Create a Diri main function"
+    "description": "Create a Di main function"
   },
   "Extern Print Int": {
     "prefix": "printint",
     "body": [
-      "extern func print_int(x: int): void;"
+      "extern func print_int(x: int): void"
     ],
     "description": "Declare print_int runtime function"
   },
   "Extern Print Str": {
     "prefix": "printstr",
     "body": [
-      "extern func print_str(x: str): void;"
+      "extern func print_str(x: str): void"
     ],
     "description": "Declare print_str runtime function"
   },
@@ -30,7 +30,7 @@
       "    $0",
       "}"
     ],
-    "description": "Create a Diri function"
+    "description": "Create a Di function"
   },
   "If Else": {
     "prefix": "if",
@@ -41,7 +41,7 @@
       "    $0",
       "}"
     ],
-    "description": "Create a Diri if/else block"
+    "description": "Create a Di if/else block"
   },
   "While Loop": {
     "prefix": "while",
@@ -50,7 +50,7 @@
       "    $0",
       "}"
     ],
-    "description": "Create a Diri while loop"
+    "description": "Create a Di while loop"
   },
   "Struct": {
     "prefix": "struct",
@@ -60,33 +60,33 @@
       "    ${4:y}: ${5:int},",
       "}"
     ],
-    "description": "Create a Diri struct declaration"
+    "description": "Create a Di struct declaration"
   },
   "Struct Literal": {
     "prefix": "structlit",
     "body": [
       "${1:Point} { ${2:x}: ${3:1}, ${4:y}: ${5:2} }"
     ],
-    "description": "Create a Diri struct literal"
+    "description": "Create a Di struct literal"
   },
   "Int Array": {
     "prefix": "intarray",
     "body": [
-      "let ${1:values}: int[] = [${2:1}, ${3:2}, ${4:3}];"
+      "let ${1:values}: int[] = [${2:1}, ${3:2}, ${4:3}]"
     ],
-    "description": "Create a Diri int array literal"
+    "description": "Create a Di int array literal"
   },
   "Starter File": {
-    "prefix": "diri",
+    "prefix": "di",
     "body": [
-      "extern func print_str(x: str): void;",
-      "extern func print_int(x: int): void;",
+      "extern func print_str(x: str): void",
+      "extern func print_int(x: int): void",
       "",
       "func main(): int {",
       "    $0",
-      "    return 0;",
+      "    return 0",
       "}"
     ],
-    "description": "Create a Diri starter file"
+    "description": "Create a Di starter file"
   }
 }

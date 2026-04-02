@@ -1,8 +1,8 @@
-#ifndef DIRI_SEMA_H
-#define DIRI_SEMA_H
+#ifndef DI_SEMA_H
+#define DI_SEMA_H
 
 #include "ast.h"
 
-int diri_sema_check_program(const DiriAstProgram *program);
+int di_sema_check_program(const DiAstProgram *program);
 
 #endif

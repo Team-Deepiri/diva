@@ -1,5 +1,5 @@
-#ifndef DIRI_LEXER_H
-#define DIRI_LEXER_H
+#ifndef DI_LEXER_H
+#define DI_LEXER_H
 
 #include "token.h"
 
@@ -8,9 +8,9 @@ typedef struct {
     const char *cursor;
     int line;
     int column;
-} DiriLexer;
+} DiLexer;
 
-void diri_lexer_init(DiriLexer *lexer, const char *source);
-DiriToken diri_lexer_next(DiriLexer *lexer);
+void di_lexer_init(DiLexer *lexer, const char *source);
+DiToken di_lexer_next(DiLexer *lexer);
 
 #endif

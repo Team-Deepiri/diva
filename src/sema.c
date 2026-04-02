@@ -31,18 +31,42 @@ static int same_name(const char *a, const char *b) {
     return *a == '\0' && *b == '\0';
 }
 
-static const DiriAstDecl *find_decl(const DiriAstProgram *program, const char *name) {
+static const DiAstDecl *find_struct_decl(const DiAstProgram *program, const char *name) {
     size_t i;
-
     for (i = 0; i < program->decl_count; ++i) {
-        if (same_name(program->decls[i]->name, name)) {
+        if (program->decls[i]->kind == DI_AST_STRUCT_DECL && same_name(program->decls[i]->name, name)) {
             return program->decls[i];
         }
     }
     return NULL;
 }
 
-static const DiriAstField *find_struct_field(const DiriAstDecl *decl, const char *field_name) {
+static const DiAstDecl *find_function_decl(const DiAstProgram *program, const char *name) {
+    size_t i;
+    for (i = 0; i < program->decl_count; ++i) {
+        if ((program->decls[i]->kind == DI_AST_FUNCTION || program->decls[i]->kind == DI_AST_EXTERN_FUNCTION) &&
+            program->decls[i]->owner_type == NULL &&
+            same_name(program->decls[i]->name, name)) {
+            return program->decls[i];
+        }
+    }
+    return NULL;
+}
+
+static const DiAstDecl *find_method_decl(const DiAstProgram *program, const char *owner_type, const char *name) {
+    size_t i;
+    for (i = 0; i < program->decl_count; ++i) {
+        if ((program->decls[i]->kind == DI_AST_FUNCTION || program->decls[i]->kind == DI_AST_EXTERN_FUNCTION) &&
+            program->decls[i]->owner_type != NULL &&
+            same_name(program->decls[i]->owner_type, owner_type) &&
+            same_name(program->decls[i]->name, name)) {
+            return program->decls[i];
+        }
+    }
+    return NULL;
+}
+
+static const DiAstField *find_struct_field(const DiAstDecl *decl, const char *field_name) {
     size_t i;
     for (i = 0; i < decl->field_count; ++i) {
         if (same_name(decl->fields[i].name, field_name)) {
@@ -101,7 +125,6 @@ static int scope_contains_current(const ScopeStack *stack, const char *name) {
 
 static const char *scope_lookup(const ScopeStack *stack, const char *name) {
     size_t depth_index = stack->depth;
-
     while (depth_index > 0) {
         const ScopeFrame *frame = &stack->frames[depth_index - 1];
         size_t i = frame->count;
@@ -120,6 +143,35 @@ static int type_equals(const char *a, const char *b) {
     return same_name(a, b);
 }
 
+static int is_reserved_c_identifier(const char *name) {
+    static const char *reserved[] = {
+        "auto", "break", "case", "char", "const", "continue", "default",
+        "do", "double", "else", "enum", "extern", "float", "for", "goto",
+        "if", "inline", "int", "long", "register", "restrict", "return",
+        "short", "signed", "sizeof", "static", "struct", "switch", "typedef",
+        "union", "unsigned", "void", "volatile", "while", "_Bool"
+    };
+    size_t i;
+    for (i = 0; i < sizeof(reserved) / sizeof(reserved[0]); ++i) {
+        if (same_name(name, reserved[i])) {
+            return 1;
+        }
+    }
+    return same_name(name, "di_runtime_print_int") || same_name(name, "di_runtime_print_str");
+}
+
+static int validate_identifier_name(const char *kind, const char *name, const char *context) {
+    if (is_reserved_c_identifier(name)) {
+        if (context != NULL) {
+            di_error("%s '%s' in %s uses a reserved backend identifier", kind, name, context);
+        } else {
+            di_error("%s '%s' uses a reserved backend identifier", kind, name);
+        }
+        return 0;
+    }
+    return 1;
+}
+
 static int is_array_type(const char *type_name) {
     size_t len = strlen(type_name);
     return len > 2 && strcmp(type_name + len - 2, "[]") == 0;
@@ -136,230 +188,309 @@ static const char *array_element_type(const char *type_name) {
     return buffer;
 }
 
-static const char *check_expr(const DiriAstProgram *program, DiriAstExpr *expr, const DiriAstDecl *decl, ScopeStack *scopes);
-static int check_stmt_list(const DiriAstProgram *program, DiriAstStmt **items, size_t count, const DiriAstDecl *decl, ScopeStack *scopes, int new_scope);
+static int is_builtin_type(const char *type_name) {
+    return type_equals(type_name, "int") ||
+           type_equals(type_name, "bool") ||
+           type_equals(type_name, "str") ||
+           type_equals(type_name, "void") ||
+           type_equals(type_name, "range");
+}
 
-static const char *check_expr(const DiriAstProgram *program, DiriAstExpr *expr, const DiriAstDecl *decl, ScopeStack *scopes) {
+static int type_exists(const DiAstProgram *program, const char *type_name) {
+    return is_builtin_type(type_name) || is_array_type(type_name) || find_struct_decl(program, type_name) != NULL;
+}
+
+static const char *check_expr(const DiAstProgram *program, DiAstExpr *expr, const DiAstDecl *decl, ScopeStack *scopes);
+static int check_stmt_list(const DiAstProgram *program, DiAstStmt **items, size_t count, const DiAstDecl *decl, ScopeStack *scopes, int new_scope);
+
+static const char *check_expr(const DiAstProgram *program, DiAstExpr *expr, const DiAstDecl *decl, ScopeStack *scopes) {
     size_t i;
 
     if (expr == NULL) {
-        diri_error("missing expression in function %s", decl->name);
+        di_error("missing expression in function %s", decl->name);
         return NULL;
     }
 
-    if (expr->kind == DIRI_AST_INT_EXPR) {
-        expr->inferred_type = "int";
-        return expr->inferred_type;
-    }
-
-    if (expr->kind == DIRI_AST_BOOL_EXPR) {
-        expr->inferred_type = "bool";
-        return expr->inferred_type;
-    }
-
-    if (expr->kind == DIRI_AST_STRING_EXPR) {
-        expr->inferred_type = "str";
-        return expr->inferred_type;
-    }
-
-    if (expr->kind == DIRI_AST_IDENT_EXPR) {
-        const char *type_name = scope_lookup(scopes, expr->as.ident_name);
-        if (type_name != NULL) {
-            expr->inferred_type = type_name;
+    switch (expr->kind) {
+        case DI_AST_INT_EXPR:
+            expr->inferred_type = "int";
+            return expr->inferred_type;
+        case DI_AST_BOOL_EXPR:
+            expr->inferred_type = "bool";
+            return expr->inferred_type;
+        case DI_AST_STRING_EXPR:
+            expr->inferred_type = "str";
+            return expr->inferred_type;
+        case DI_AST_IDENT_EXPR: {
+            const char *type_name = scope_lookup(scopes, expr->as.ident_name);
+            if (type_name != NULL) {
+                expr->inferred_type = type_name;
+                return expr->inferred_type;
+            }
+            di_error("unknown identifier '%s' in function %s", expr->as.ident_name, decl->name);
+            return NULL;
+        }
+        case DI_AST_UNARY_EXPR: {
+            const char *operand_type = check_expr(program, expr->as.unary.operand, decl, scopes);
+            if (operand_type == NULL) {
+                return NULL;
+            }
+            if (!type_equals(operand_type, "bool") && !type_equals(operand_type, "int")) {
+                di_error("operator ! requires bool or int");
+                return NULL;
+            }
+            expr->inferred_type = "bool";
             return expr->inferred_type;
         }
-        diri_error("unknown identifier '%s' in function %s", expr->as.ident_name, decl->name);
-        return NULL;
-    }
-
-    if (expr->kind == DIRI_AST_FIELD_EXPR) {
-        const char *base_type = check_expr(program, expr->as.field.base, decl, scopes);
-        const DiriAstDecl *struct_decl;
-        const DiriAstField *field;
-        if (base_type == NULL) {
-            return NULL;
-        }
-        struct_decl = find_decl(program, base_type);
-        if (struct_decl == NULL || struct_decl->kind != DIRI_AST_STRUCT_DECL) {
-            diri_error("type '%s' does not have fields", base_type);
-            return NULL;
-        }
-        field = find_struct_field(struct_decl, expr->as.field.field_name);
-        if (field == NULL) {
-            diri_error("struct '%s' has no field '%s'", base_type, expr->as.field.field_name);
-            return NULL;
-        }
-        expr->inferred_type = field->type.name;
-        return expr->inferred_type;
-    }
-
-    if (expr->kind == DIRI_AST_STRUCT_INIT_EXPR) {
-        const DiriAstDecl *struct_decl = find_decl(program, expr->as.struct_init.type_name);
-        size_t i;
-        if (struct_decl == NULL || struct_decl->kind != DIRI_AST_STRUCT_DECL) {
-            diri_error("unknown struct type '%s'", expr->as.struct_init.type_name);
-            return NULL;
-        }
-        for (i = 0; i < expr->as.struct_init.field_count; ++i) {
-            const DiriAstField *field = find_struct_field(struct_decl, expr->as.struct_init.fields[i].name);
-            const char *value_type;
+        case DI_AST_FIELD_EXPR: {
+            const char *base_type = check_expr(program, expr->as.field.base, decl, scopes);
+            const DiAstDecl *struct_decl;
+            const DiAstField *field;
+            if (base_type == NULL) {
+                return NULL;
+            }
+            struct_decl = find_struct_decl(program, base_type);
+            if (struct_decl == NULL) {
+                di_error("type '%s' does not have fields", base_type);
+                return NULL;
+            }
+            field = find_struct_field(struct_decl, expr->as.field.field_name);
             if (field == NULL) {
-                diri_error("struct '%s' has no field '%s'", struct_decl->name, expr->as.struct_init.fields[i].name);
-                return NULL;
+                expr->inferred_type = "__method__";
+                return expr->inferred_type;
             }
-            value_type = check_expr(program, expr->as.struct_init.fields[i].value, decl, scopes);
-            if (value_type == NULL || !type_equals(value_type, field->type.name)) {
-                diri_error("initializer for %s.%s has wrong type", struct_decl->name, field->name);
-                return NULL;
-            }
-        }
-        expr->inferred_type = struct_decl->name;
-        return expr->inferred_type;
-    }
-
-    if (expr->kind == DIRI_AST_ARRAY_INIT_EXPR) {
-        size_t i;
-        const char *item_type = NULL;
-        for (i = 0; i < expr->as.array_init.item_count; ++i) {
-            const char *current = check_expr(program, expr->as.array_init.items[i], decl, scopes);
-            if (current == NULL) {
-                return NULL;
-            }
-            if (item_type == NULL) {
-                item_type = current;
-            } else if (!type_equals(item_type, current)) {
-                diri_error("array literal has mixed element types");
-                return NULL;
-            }
-        }
-        if (item_type == NULL) {
-            item_type = "int";
-        }
-        if (type_equals(item_type, "int")) {
-            expr->inferred_type = "int[]";
+            expr->inferred_type = field->type.name;
             return expr->inferred_type;
         }
-        diri_error("only int[] arrays are supported currently");
-        return NULL;
-    }
-
-    if (expr->kind == DIRI_AST_INDEX_EXPR) {
-        const char *base_type = check_expr(program, expr->as.index.base, decl, scopes);
-        const char *index_type = check_expr(program, expr->as.index.index, decl, scopes);
-        const char *elem_type;
-        if (base_type == NULL || index_type == NULL) {
-            return NULL;
-        }
-        if (!type_equals(index_type, "int")) {
-            diri_error("array index must be int");
-            return NULL;
-        }
-        elem_type = array_element_type(base_type);
-        if (elem_type == NULL) {
-            diri_error("cannot index non-array type '%s'", base_type);
-            return NULL;
-        }
-        expr->inferred_type = elem_type;
-        return expr->inferred_type;
-    }
-
-    if (expr->kind == DIRI_AST_CALL_EXPR) {
-        const DiriAstDecl *target = find_decl(program, expr->as.call.callee);
-        if (target == NULL) {
-            diri_error("unknown function '%s' in function %s", expr->as.call.callee, decl->name);
-            return NULL;
-        }
-        if (target->param_count != expr->as.call.arg_count) {
-            diri_error("call to '%s' has %zu argument(s), expected %zu",
-                       expr->as.call.callee,
-                       expr->as.call.arg_count,
-                       target->param_count);
-            return NULL;
-        }
-        for (i = 0; i < expr->as.call.arg_count; ++i) {
-            const char *arg_type = check_expr(program, expr->as.call.args[i], decl, scopes);
-            if (arg_type == NULL) {
+        case DI_AST_STRUCT_INIT_EXPR: {
+            const DiAstDecl *struct_decl = find_struct_decl(program, expr->as.struct_init.type_name);
+            if (struct_decl == NULL) {
+                di_error("unknown struct type '%s'", expr->as.struct_init.type_name);
                 return NULL;
             }
-            if (!type_equals(arg_type, target->params[i].type.name)) {
-                diri_error("argument %zu to '%s' has type %s, expected %s",
-                           i + 1,
-                           expr->as.call.callee,
-                           arg_type,
-                           target->params[i].type.name);
-                return NULL;
-            }
-        }
-        expr->inferred_type = target->return_type.name;
-        return expr->inferred_type;
-    }
-
-    if (expr->kind == DIRI_AST_BINARY_EXPR) {
-        const char *left_type = check_expr(program, expr->as.binary.left, decl, scopes);
-        const char *right_type = check_expr(program, expr->as.binary.right, decl, scopes);
-
-        if (left_type == NULL || right_type == NULL) {
-            return NULL;
-        }
-
-        if (!type_equals(left_type, right_type)) {
-            diri_error("binary operator %s used with mismatched types %s and %s",
-                       diri_binary_op_name(expr->as.binary.op),
-                       left_type,
-                       right_type);
-            return NULL;
-        }
-
-        switch (expr->as.binary.op) {
-            case DIRI_BIN_ADD:
-            case DIRI_BIN_SUB:
-            case DIRI_BIN_MUL:
-            case DIRI_BIN_DIV:
-                if (!type_equals(left_type, "int")) {
-                    diri_error("arithmetic operator %s requires int operands",
-                               diri_binary_op_name(expr->as.binary.op));
+            for (i = 0; i < expr->as.struct_init.field_count; ++i) {
+                const DiAstField *field = find_struct_field(struct_decl, expr->as.struct_init.fields[i].name);
+                const char *value_type;
+                if (field == NULL) {
+                    di_error("struct '%s' has no field '%s'", struct_decl->name, expr->as.struct_init.fields[i].name);
                     return NULL;
                 }
-                expr->inferred_type = "int";
+                value_type = check_expr(program, expr->as.struct_init.fields[i].value, decl, scopes);
+                if (value_type == NULL || !type_equals(value_type, field->type.name)) {
+                    di_error("initializer for %s.%s has wrong type", struct_decl->name, field->name);
+                    return NULL;
+                }
+            }
+            expr->inferred_type = struct_decl->name;
+            return expr->inferred_type;
+        }
+        case DI_AST_ARRAY_INIT_EXPR: {
+            const char *item_type = NULL;
+            for (i = 0; i < expr->as.array_init.item_count; ++i) {
+                const char *current = check_expr(program, expr->as.array_init.items[i], decl, scopes);
+                if (current == NULL) {
+                    return NULL;
+                }
+                if (item_type == NULL) {
+                    item_type = current;
+                } else if (!type_equals(item_type, current)) {
+                    di_error("array literal has mixed element types");
+                    return NULL;
+                }
+            }
+            if (item_type == NULL) {
+                item_type = "int";
+            }
+            if (type_equals(item_type, "int")) {
+                expr->inferred_type = "int[]";
                 return expr->inferred_type;
-            default:
+            }
+            di_error("only int[] arrays are supported currently");
+            return NULL;
+        }
+        case DI_AST_INDEX_EXPR: {
+            const char *base_type = check_expr(program, expr->as.index.base, decl, scopes);
+            const char *index_type = check_expr(program, expr->as.index.index, decl, scopes);
+            const char *elem_type;
+            if (base_type == NULL || index_type == NULL) {
+                return NULL;
+            }
+            if (!type_equals(index_type, "int")) {
+                di_error("array index must be int");
+                return NULL;
+            }
+            elem_type = array_element_type(base_type);
+            if (elem_type == NULL) {
+                di_error("cannot index non-array type '%s'", base_type);
+                return NULL;
+            }
+            expr->inferred_type = elem_type;
+            return expr->inferred_type;
+        }
+        case DI_AST_RANGE_EXPR: {
+            const char *start_type = check_expr(program, expr->as.range.start, decl, scopes);
+            const char *end_type = check_expr(program, expr->as.range.end, decl, scopes);
+            if (start_type == NULL || end_type == NULL) {
+                return NULL;
+            }
+            if (!type_equals(start_type, "int") || !type_equals(end_type, "int")) {
+                di_error("range bounds must be int");
+                return NULL;
+            }
+            expr->inferred_type = "range";
+            return expr->inferred_type;
+        }
+        case DI_AST_CALL_EXPR: {
+            if (expr->as.call.callee->kind == DI_AST_IDENT_EXPR) {
+                const DiAstDecl *target = find_function_decl(program, expr->as.call.callee->as.ident_name);
+                if (target == NULL) {
+                    di_error("unknown function '%s' in function %s", expr->as.call.callee->as.ident_name, decl->name);
+                    return NULL;
+                }
+                if (target->param_count != expr->as.call.arg_count) {
+                    di_error("call to '%s' has %zu argument(s), expected %zu",
+                               target->name,
+                               expr->as.call.arg_count,
+                               target->param_count);
+                    return NULL;
+                }
+                for (i = 0; i < expr->as.call.arg_count; ++i) {
+                    const char *arg_type = check_expr(program, expr->as.call.args[i], decl, scopes);
+                    if (arg_type == NULL) {
+                        return NULL;
+                    }
+                    if (!type_equals(arg_type, target->params[i].type.name)) {
+                        di_error("argument %zu to '%s' has type %s, expected %s",
+                                   i + 1,
+                                   target->name,
+                                   arg_type,
+                                   target->params[i].type.name);
+                        return NULL;
+                    }
+                }
+                expr->as.call.resolved_name = target->name;
+                expr->inferred_type = target->return_type.name;
+                return expr->inferred_type;
+            }
+
+            if (expr->as.call.callee->kind == DI_AST_FIELD_EXPR) {
+                const char *base_type = check_expr(program, expr->as.call.callee->as.field.base, decl, scopes);
+                const DiAstDecl *target;
+                if (base_type == NULL) {
+                    return NULL;
+                }
+                target = find_method_decl(program, base_type, expr->as.call.callee->as.field.field_name);
+                if (target == NULL) {
+                    di_error("type '%s' has no method '%s'", base_type, expr->as.call.callee->as.field.field_name);
+                    return NULL;
+                }
+                if (target->param_count != expr->as.call.arg_count + 1) {
+                    di_error("call to '%s.%s' has %zu argument(s), expected %zu",
+                               base_type,
+                               target->name,
+                               expr->as.call.arg_count,
+                               target->param_count - 1);
+                    return NULL;
+                }
+                for (i = 0; i < expr->as.call.arg_count; ++i) {
+                    const char *arg_type = check_expr(program, expr->as.call.args[i], decl, scopes);
+                    if (arg_type == NULL) {
+                        return NULL;
+                    }
+                    if (!type_equals(arg_type, target->params[i + 1].type.name)) {
+                        di_error("argument %zu to '%s.%s' has type %s, expected %s",
+                                   i + 1,
+                                   base_type,
+                                   target->name,
+                                   arg_type,
+                                   target->params[i + 1].type.name);
+                        return NULL;
+                    }
+                }
+                expr->as.call.resolved_name = target->name;
+                expr->inferred_type = target->return_type.name;
+                return expr->inferred_type;
+            }
+
+            di_error("invalid call target");
+            return NULL;
+        }
+        case DI_AST_BINARY_EXPR: {
+            const char *left_type = check_expr(program, expr->as.binary.left, decl, scopes);
+            const char *right_type = check_expr(program, expr->as.binary.right, decl, scopes);
+            if (left_type == NULL || right_type == NULL) {
+                return NULL;
+            }
+            if (expr->as.binary.op == DI_BIN_AND || expr->as.binary.op == DI_BIN_OR) {
+                if ((!type_equals(left_type, "bool") && !type_equals(left_type, "int")) ||
+                    (!type_equals(right_type, "bool") && !type_equals(right_type, "int"))) {
+                    di_error("logical operator %s requires bool or int operands", di_binary_op_name(expr->as.binary.op));
+                    return NULL;
+                }
                 expr->inferred_type = "bool";
                 return expr->inferred_type;
+            }
+            if (!type_equals(left_type, right_type)) {
+                di_error("binary operator %s used with mismatched types %s and %s",
+                           di_binary_op_name(expr->as.binary.op),
+                           left_type,
+                           right_type);
+                return NULL;
+            }
+            switch (expr->as.binary.op) {
+                case DI_BIN_ADD:
+                case DI_BIN_SUB:
+                case DI_BIN_MUL:
+                case DI_BIN_DIV:
+                    if (!type_equals(left_type, "int")) {
+                        di_error("arithmetic operator %s requires int operands", di_binary_op_name(expr->as.binary.op));
+                        return NULL;
+                    }
+                    expr->inferred_type = "int";
+                    return expr->inferred_type;
+                default:
+                    expr->inferred_type = "bool";
+                    return expr->inferred_type;
+            }
         }
+        default:
+            return NULL;
     }
-
-    return NULL;
 }
 
-static int check_stmt(const DiriAstProgram *program, DiriAstStmt *stmt, const DiriAstDecl *decl, ScopeStack *scopes) {
-    if (stmt->kind == DIRI_AST_LET_STMT) {
-        const char *value_type = check_expr(program, stmt->as.let_stmt.value, decl, scopes);
+static int check_stmt(const DiAstProgram *program, DiAstStmt *stmt, const DiAstDecl *decl, ScopeStack *scopes) {
+    if (stmt->kind == DI_AST_VAR_STMT) {
+        const char *value_type = check_expr(program, stmt->as.var_stmt.value, decl, scopes);
         if (value_type == NULL) {
             return 1;
         }
-        if (scope_contains_current(scopes, stmt->as.let_stmt.name)) {
-            diri_error("duplicate declaration of '%s' in the same scope", stmt->as.let_stmt.name);
+        if (scope_contains_current(scopes, stmt->as.var_stmt.name)) {
+            di_error("duplicate declaration of '%s' in the same scope", stmt->as.var_stmt.name);
             return 1;
         }
-        if (!type_equals(value_type, stmt->as.let_stmt.type.name)) {
-            diri_error("let binding '%s' has value type %s, expected %s",
-                       stmt->as.let_stmt.name,
-                       value_type,
-                       stmt->as.let_stmt.type.name);
-            return 1;
+        if (stmt->as.var_stmt.has_explicit_type) {
+            if (!type_equals(value_type, stmt->as.var_stmt.type.name)) {
+                di_error("var binding '%s' has value type %s, expected %s",
+                           stmt->as.var_stmt.name,
+                           value_type,
+                           stmt->as.var_stmt.type.name);
+                return 1;
+            }
+        } else {
+            stmt->as.var_stmt.type.name = value_type;
         }
-        if (!scope_add(scopes, stmt->as.let_stmt.name, stmt->as.let_stmt.type.name)) {
-            diri_error("failed to record declaration of '%s'", stmt->as.let_stmt.name);
+        if (!scope_add(scopes, stmt->as.var_stmt.name, stmt->as.var_stmt.type.name)) {
+            di_error("failed to record declaration of '%s'", stmt->as.var_stmt.name);
             return 1;
         }
         return 0;
     }
 
-    if (stmt->kind == DIRI_AST_ASSIGN_STMT) {
+    if (stmt->kind == DI_AST_ASSIGN_STMT) {
         const char *target_type = scope_lookup(scopes, stmt->as.assign_stmt.name);
         const char *value_type;
         if (target_type == NULL) {
-            diri_error("cannot assign to unknown variable '%s'", stmt->as.assign_stmt.name);
+            di_error("cannot assign to unknown variable '%s'", stmt->as.assign_stmt.name);
             return 1;
         }
         value_type = check_expr(program, stmt->as.assign_stmt.value, decl, scopes);
@@ -367,7 +498,7 @@ static int check_stmt(const DiriAstProgram *program, DiriAstStmt *stmt, const Di
             return 1;
         }
         if (!type_equals(target_type, value_type)) {
-            diri_error("assignment to '%s' has type %s, expected %s",
+            di_error("assignment to '%s' has type %s, expected %s",
                        stmt->as.assign_stmt.name,
                        value_type,
                        target_type);
@@ -376,39 +507,39 @@ static int check_stmt(const DiriAstProgram *program, DiriAstStmt *stmt, const Di
         return 0;
     }
 
-    if (stmt->kind == DIRI_AST_FIELD_ASSIGN_STMT) {
+    if (stmt->kind == DI_AST_FIELD_ASSIGN_STMT) {
         const char *target_type = check_expr(program, stmt->as.field_assign_stmt.target, decl, scopes);
         const char *value_type = check_expr(program, stmt->as.field_assign_stmt.value, decl, scopes);
         if (target_type == NULL || value_type == NULL) {
             return 1;
         }
         if (!type_equals(target_type, value_type)) {
-            diri_error("field assignment has type %s, expected %s", value_type, target_type);
+            di_error("field assignment has type %s, expected %s", value_type, target_type);
             return 1;
         }
         return 0;
     }
 
-    if (stmt->kind == DIRI_AST_INDEX_ASSIGN_STMT) {
+    if (stmt->kind == DI_AST_INDEX_ASSIGN_STMT) {
         const char *target_type = check_expr(program, stmt->as.index_assign_stmt.target, decl, scopes);
         const char *value_type = check_expr(program, stmt->as.index_assign_stmt.value, decl, scopes);
         if (target_type == NULL || value_type == NULL) {
             return 1;
         }
         if (!type_equals(target_type, value_type)) {
-            diri_error("array assignment has type %s, expected %s", value_type, target_type);
+            di_error("array assignment has type %s, expected %s", value_type, target_type);
             return 1;
         }
         return 0;
     }
 
-    if (stmt->kind == DIRI_AST_RETURN_STMT) {
+    if (stmt->kind == DI_AST_RETURN_STMT) {
         const char *value_type = check_expr(program, stmt->as.return_stmt.value, decl, scopes);
         if (value_type == NULL) {
             return 1;
         }
         if (!type_equals(value_type, decl->return_type.name)) {
-            diri_error("function %s returns %s, expected %s",
+            di_error("function %s returns %s, expected %s",
                        decl->name,
                        value_type,
                        decl->return_type.name);
@@ -417,39 +548,72 @@ static int check_stmt(const DiriAstProgram *program, DiriAstStmt *stmt, const Di
         return 0;
     }
 
-    if (stmt->kind == DIRI_AST_EXPR_STMT) {
+    if (stmt->kind == DI_AST_EXPR_STMT) {
         return check_expr(program, stmt->as.expr_stmt.expr, decl, scopes) == NULL ? 1 : 0;
     }
 
-    if (stmt->kind == DIRI_AST_IF_STMT) {
+    if (stmt->kind == DI_AST_IF_STMT) {
         const char *cond_type = check_expr(program, stmt->as.if_stmt.condition, decl, scopes);
         if (cond_type == NULL) {
             return 1;
         }
         if (!type_equals(cond_type, "bool") && !type_equals(cond_type, "int")) {
-            diri_error("if condition must be bool or int");
+            di_error("if condition must be bool or int");
             return 1;
         }
         return check_stmt_list(program, stmt->as.if_stmt.then_block.items, stmt->as.if_stmt.then_block.count, decl, scopes, 1) +
                check_stmt_list(program, stmt->as.if_stmt.else_block.items, stmt->as.if_stmt.else_block.count, decl, scopes, 1);
     }
 
-    if (stmt->kind == DIRI_AST_WHILE_STMT) {
+    if (stmt->kind == DI_AST_WHILE_STMT) {
         const char *cond_type = check_expr(program, stmt->as.while_stmt.condition, decl, scopes);
+        int failures = 0;
         if (cond_type == NULL) {
             return 1;
         }
         if (!type_equals(cond_type, "bool") && !type_equals(cond_type, "int")) {
-            diri_error("while condition must be bool or int");
+            di_error("while condition must be bool or int");
             return 1;
         }
-        return check_stmt_list(program, stmt->as.while_stmt.body.items, stmt->as.while_stmt.body.count, decl, scopes, 1);
+        scope_push(scopes);
+        failures += check_stmt_list(program, stmt->as.while_stmt.body.items, stmt->as.while_stmt.body.count, decl, scopes, 0);
+        if (stmt->as.while_stmt.update != NULL) {
+            failures += check_stmt(program, stmt->as.while_stmt.update, decl, scopes);
+        }
+        scope_pop(scopes);
+        return failures;
+    }
+
+    if (stmt->kind == DI_AST_FLUX_STMT) {
+        const char *iterable_type = check_expr(program, stmt->as.flux_stmt.iterable, decl, scopes);
+        const char *item_type = NULL;
+        int failures;
+        if (iterable_type == NULL) {
+            return 1;
+        }
+        if (type_equals(iterable_type, "range")) {
+            item_type = "int";
+        } else if (type_equals(iterable_type, "int[]")) {
+            item_type = "int";
+        } else {
+            di_error("flux currently supports ranges and int[] values");
+            return 1;
+        }
+        scope_push(scopes);
+        if (!scope_add(scopes, stmt->as.flux_stmt.name, item_type)) {
+            di_error("failed to bind flux iterator '%s'", stmt->as.flux_stmt.name);
+            scope_pop(scopes);
+            return 1;
+        }
+        failures = check_stmt_list(program, stmt->as.flux_stmt.body.items, stmt->as.flux_stmt.body.count, decl, scopes, 0);
+        scope_pop(scopes);
+        return failures;
     }
 
     return 0;
 }
 
-static int check_stmt_list(const DiriAstProgram *program, DiriAstStmt **items, size_t count, const DiriAstDecl *decl, ScopeStack *scopes, int new_scope) {
+static int check_stmt_list(const DiAstProgram *program, DiAstStmt **items, size_t count, const DiAstDecl *decl, ScopeStack *scopes, int new_scope) {
     size_t i;
     int failures = 0;
 
@@ -465,8 +629,9 @@ static int check_stmt_list(const DiriAstProgram *program, DiriAstStmt **items, s
     return failures;
 }
 
-int diri_sema_check_program(const DiriAstProgram *program) {
+int di_sema_check_program(const DiAstProgram *program) {
     size_t i;
+    size_t k;
     int seen_main = 0;
     int failures = 0;
 
@@ -475,28 +640,71 @@ int diri_sema_check_program(const DiriAstProgram *program) {
     }
 
     for (i = 0; i < program->decl_count; ++i) {
-        const DiriAstDecl *decl = program->decls[i];
-        ScopeStack scopes;
+        const DiAstDecl *decl = program->decls[i];
         size_t j;
 
-        if (same_name(decl->name, "main")) {
+        if (!validate_identifier_name(decl->kind == DI_AST_STRUCT_DECL ? "type" : "declaration",
+                                      decl->name,
+                                      decl->owner_type)) {
+            failures++;
+        }
+        if (decl->owner_type != NULL &&
+            !validate_identifier_name("owner type", decl->owner_type, decl->name)) {
+            failures++;
+        }
+        for (k = i + 1; k < program->decl_count; ++k) {
+            const DiAstDecl *other = program->decls[k];
+            const char *decl_owner = decl->owner_type != NULL ? decl->owner_type : "";
+            const char *other_owner = other->owner_type != NULL ? other->owner_type : "";
+            if (same_name(decl_owner, other_owner) && same_name(decl->name, other->name)) {
+                di_error("duplicate top-level declaration '%s'", decl->name);
+                failures++;
+                break;
+            }
+        }
+
+        if (decl->owner_type == NULL && same_name(decl->name, "main")) {
             seen_main = 1;
         }
 
-        if (decl->kind == DIRI_AST_EXTERN_FUNCTION) {
-            continue;
-        }
-        if (decl->kind == DIRI_AST_STRUCT_DECL) {
+        if (decl->kind == DI_AST_STRUCT_DECL) {
             for (j = 0; j < decl->field_count; ++j) {
-                if (find_decl(program, decl->fields[j].type.name) == NULL &&
-                    !type_equals(decl->fields[j].type.name, "int") &&
-                    !type_equals(decl->fields[j].type.name, "bool") &&
-                    !type_equals(decl->fields[j].type.name, "str") &&
-                    !type_equals(decl->fields[j].type.name, "void")) {
-                    diri_error("unknown field type '%s' in struct %s", decl->fields[j].type.name, decl->name);
+                if (!validate_identifier_name("field", decl->fields[j].name, decl->name)) {
+                    failures++;
+                }
+                if (!type_exists(program, decl->fields[j].type.name)) {
+                    di_error("unknown field type '%s' in struct %s", decl->fields[j].type.name, decl->name);
                     failures++;
                 }
             }
+            continue;
+        }
+
+        if (decl->kind == DI_AST_EXTERN_FUNCTION) {
+            continue;
+        }
+
+        for (j = 0; j < decl->param_count; ++j) {
+            if (!validate_identifier_name("parameter", decl->params[j].name, decl->name)) {
+                failures++;
+            }
+            if (!type_exists(program, decl->params[j].type.name)) {
+                di_error("unknown parameter type '%s' in function %s", decl->params[j].type.name, decl->name);
+                failures++;
+            }
+        }
+        if (!type_exists(program, decl->return_type.name)) {
+            di_error("unknown return type '%s' in function %s", decl->return_type.name, decl->name);
+            failures++;
+        }
+    }
+
+    for (i = 0; i < program->decl_count; ++i) {
+        const DiAstDecl *decl = program->decls[i];
+        ScopeStack scopes;
+        size_t j;
+
+        if (decl->kind == DI_AST_STRUCT_DECL || decl->kind == DI_AST_EXTERN_FUNCTION) {
             continue;
         }
 
@@ -504,7 +712,7 @@ int diri_sema_check_program(const DiriAstProgram *program) {
         scope_push(&scopes);
         for (j = 0; j < decl->param_count; ++j) {
             if (!scope_add(&scopes, decl->params[j].name, decl->params[j].type.name)) {
-                diri_error("duplicate parameter '%s' in function %s", decl->params[j].name, decl->name);
+                di_error("duplicate parameter '%s' in function %s", decl->params[j].name, decl->name);
                 failures++;
             }
         }
@@ -512,7 +720,7 @@ int diri_sema_check_program(const DiriAstProgram *program) {
     }
 
     if (!seen_main) {
-        diri_error("program is missing a main function");
+        di_error("program is missing a main function");
         failures++;
     }
 

@@ -1,76 +1,85 @@
-#ifndef DIRI_AST_H
-#define DIRI_AST_H
+#ifndef DI_AST_H
+#define DI_AST_H
 
 #include <stddef.h>
 
 typedef enum {
-    DIRI_AST_PROGRAM = 0,
-    DIRI_AST_STRUCT_DECL,
-    DIRI_AST_FUNCTION,
-    DIRI_AST_EXTERN_FUNCTION,
-    DIRI_AST_LET_STMT,
-    DIRI_AST_ASSIGN_STMT,
-    DIRI_AST_FIELD_ASSIGN_STMT,
-    DIRI_AST_INDEX_ASSIGN_STMT,
-    DIRI_AST_RETURN_STMT,
-    DIRI_AST_EXPR_STMT,
-    DIRI_AST_IF_STMT,
-    DIRI_AST_WHILE_STMT,
-    DIRI_AST_INT_EXPR,
-    DIRI_AST_BOOL_EXPR,
-    DIRI_AST_STRING_EXPR,
-    DIRI_AST_IDENT_EXPR,
-    DIRI_AST_CALL_EXPR,
-    DIRI_AST_BINARY_EXPR,
-    DIRI_AST_FIELD_EXPR,
-    DIRI_AST_STRUCT_INIT_EXPR,
-    DIRI_AST_INDEX_EXPR,
-    DIRI_AST_ARRAY_INIT_EXPR
-} DiriAstKind;
+    DI_AST_PROGRAM = 0,
+    DI_AST_STRUCT_DECL,
+    DI_AST_FUNCTION,
+    DI_AST_EXTERN_FUNCTION,
+    DI_AST_VAR_STMT,
+    DI_AST_ASSIGN_STMT,
+    DI_AST_FIELD_ASSIGN_STMT,
+    DI_AST_INDEX_ASSIGN_STMT,
+    DI_AST_RETURN_STMT,
+    DI_AST_EXPR_STMT,
+    DI_AST_IF_STMT,
+    DI_AST_WHILE_STMT,
+    DI_AST_FLUX_STMT,
+    DI_AST_INT_EXPR,
+    DI_AST_BOOL_EXPR,
+    DI_AST_STRING_EXPR,
+    DI_AST_IDENT_EXPR,
+    DI_AST_CALL_EXPR,
+    DI_AST_BINARY_EXPR,
+    DI_AST_UNARY_EXPR,
+    DI_AST_FIELD_EXPR,
+    DI_AST_STRUCT_INIT_EXPR,
+    DI_AST_INDEX_EXPR,
+    DI_AST_ARRAY_INIT_EXPR,
+    DI_AST_RANGE_EXPR
+} DiAstKind;
 
 typedef enum {
-    DIRI_BIN_ADD = 0,
-    DIRI_BIN_SUB,
-    DIRI_BIN_MUL,
-    DIRI_BIN_DIV,
-    DIRI_BIN_EQ,
-    DIRI_BIN_NE,
-    DIRI_BIN_LT,
-    DIRI_BIN_GT,
-    DIRI_BIN_LE,
-    DIRI_BIN_GE
-} DiriBinaryOp;
+    DI_BIN_ADD = 0,
+    DI_BIN_SUB,
+    DI_BIN_MUL,
+    DI_BIN_DIV,
+    DI_BIN_EQ,
+    DI_BIN_NE,
+    DI_BIN_LT,
+    DI_BIN_GT,
+    DI_BIN_LE,
+    DI_BIN_GE,
+    DI_BIN_AND,
+    DI_BIN_OR
+} DiBinaryOp;
 
-typedef struct DiriAstType {
+typedef enum {
+    DI_UNARY_NOT = 0
+} DiUnaryOp;
+
+typedef struct DiAstType {
     const char *name;
-} DiriAstType;
+} DiAstType;
 
-typedef struct DiriAstExpr DiriAstExpr;
-typedef struct DiriAstStmt DiriAstStmt;
-typedef struct DiriAstDecl DiriAstDecl;
+typedef struct DiAstExpr DiAstExpr;
+typedef struct DiAstStmt DiAstStmt;
+typedef struct DiAstDecl DiAstDecl;
 
 typedef struct {
     const char *name;
-    DiriAstType type;
-} DiriAstField;
+    DiAstType type;
+} DiAstField;
 
 typedef struct {
     const char *name;
-    DiriAstExpr *value;
-} DiriAstInitField;
+    DiAstExpr *value;
+} DiAstInitField;
 
 typedef struct {
-    DiriAstExpr **items;
+    DiAstExpr **items;
     size_t count;
-} DiriAstExprList;
+} DiAstExprList;
 
 typedef struct {
     const char *name;
-    DiriAstType type;
-} DiriAstParam;
+    DiAstType type;
+} DiAstParam;
 
-struct DiriAstExpr {
-    DiriAstKind kind;
+struct DiAstExpr {
+    DiAstKind kind;
     const char *inferred_type;
     union {
         long int_value;
@@ -78,112 +87,129 @@ struct DiriAstExpr {
         const char *string_value;
         const char *ident_name;
         struct {
-            const char *callee;
-            DiriAstExpr **args;
+            DiAstExpr *callee;
+            DiAstExpr **args;
             size_t arg_count;
+            const char *resolved_name;
         } call;
         struct {
-            DiriBinaryOp op;
-            DiriAstExpr *left;
-            DiriAstExpr *right;
+            DiBinaryOp op;
+            DiAstExpr *left;
+            DiAstExpr *right;
         } binary;
         struct {
-            DiriAstExpr *base;
+            DiUnaryOp op;
+            DiAstExpr *operand;
+        } unary;
+        struct {
+            DiAstExpr *base;
             const char *field_name;
         } field;
         struct {
             const char *type_name;
-            DiriAstInitField *fields;
+            DiAstInitField *fields;
             size_t field_count;
         } struct_init;
         struct {
-            DiriAstExpr *base;
-            DiriAstExpr *index;
+            DiAstExpr *base;
+            DiAstExpr *index;
         } index;
         struct {
-            DiriAstExpr **items;
+            DiAstExpr **items;
             size_t item_count;
         } array_init;
+        struct {
+            DiAstExpr *start;
+            DiAstExpr *end;
+        } range;
     } as;
 };
 
 typedef struct {
-    DiriAstStmt **items;
+    DiAstStmt **items;
     size_t count;
-} DiriAstBlock;
+} DiAstBlock;
 
-struct DiriAstStmt {
-    DiriAstKind kind;
+struct DiAstStmt {
+    DiAstKind kind;
     union {
         struct {
             const char *name;
-            DiriAstType type;
-            DiriAstExpr *value;
-        } let_stmt;
+            DiAstType type;
+            DiAstExpr *value;
+            int has_explicit_type;
+        } var_stmt;
         struct {
             const char *name;
-            DiriAstExpr *value;
+            DiAstExpr *value;
         } assign_stmt;
         struct {
-            DiriAstExpr *target;
-            DiriAstExpr *value;
+            DiAstExpr *target;
+            DiAstExpr *value;
         } field_assign_stmt;
         struct {
-            DiriAstExpr *target;
-            DiriAstExpr *value;
+            DiAstExpr *target;
+            DiAstExpr *value;
         } index_assign_stmt;
         struct {
-            DiriAstExpr *value;
+            DiAstExpr *value;
         } return_stmt;
         struct {
-            DiriAstExpr *expr;
+            DiAstExpr *expr;
         } expr_stmt;
         struct {
-            DiriAstExpr *condition;
-            DiriAstBlock then_block;
-            DiriAstBlock else_block;
+            DiAstExpr *condition;
+            DiAstBlock then_block;
+            DiAstBlock else_block;
         } if_stmt;
         struct {
-            DiriAstExpr *condition;
-            DiriAstBlock body;
+            DiAstExpr *condition;
+            DiAstBlock body;
+            DiAstStmt *update;
         } while_stmt;
+        struct {
+            const char *name;
+            DiAstExpr *iterable;
+            DiAstBlock body;
+        } flux_stmt;
     } as;
 };
 
-struct DiriAstDecl {
-    DiriAstKind kind;
+struct DiAstDecl {
+    DiAstKind kind;
     const char *name;
-    DiriAstParam *params;
+    const char *owner_type;
+    DiAstParam *params;
     size_t param_count;
-    DiriAstType return_type;
-    DiriAstStmt **body;
+    DiAstType return_type;
+    DiAstStmt **body;
     size_t body_count;
-    DiriAstField *fields;
+    DiAstField *fields;
     size_t field_count;
 };
 
 typedef struct {
-    DiriAstDecl **decls;
+    DiAstDecl **decls;
     size_t decl_count;
     int had_error;
-} DiriAstProgram;
+} DiAstProgram;
 
-DiriAstProgram *diri_ast_program_new(void);
-DiriAstDecl *diri_ast_decl_new(DiriAstKind kind, const char *name);
-DiriAstStmt *diri_ast_stmt_new(DiriAstKind kind);
-DiriAstExpr *diri_ast_expr_new(DiriAstKind kind);
-char *diri_ast_strdup_range(const char *start, int length);
-int diri_ast_program_add_decl(DiriAstProgram *program, DiriAstDecl *decl);
-int diri_ast_decl_add_param(DiriAstDecl *decl, DiriAstParam param);
-int diri_ast_decl_add_stmt(DiriAstDecl *decl, DiriAstStmt *stmt);
-int diri_ast_decl_add_field(DiriAstDecl *decl, DiriAstField field);
-int diri_ast_block_add_stmt(DiriAstBlock *block, DiriAstStmt *stmt);
-int diri_ast_call_add_arg(DiriAstExpr *expr, DiriAstExpr *arg);
-int diri_ast_struct_init_add_field(DiriAstExpr *expr, DiriAstInitField field);
-int diri_ast_array_add_item(DiriAstExpr *expr, DiriAstExpr *item);
-const char *diri_binary_op_name(DiriBinaryOp op);
-void diri_ast_dump_program(const DiriAstProgram *program);
-void diri_ast_program_free(DiriAstProgram *program);
-const char *diri_ast_kind_name(DiriAstKind kind);
+DiAstProgram *di_ast_program_new(void);
+DiAstDecl *di_ast_decl_new(DiAstKind kind, const char *name);
+DiAstStmt *di_ast_stmt_new(DiAstKind kind);
+DiAstExpr *di_ast_expr_new(DiAstKind kind);
+char *di_ast_strdup_range(const char *start, int length);
+int di_ast_program_add_decl(DiAstProgram *program, DiAstDecl *decl);
+int di_ast_decl_add_param(DiAstDecl *decl, DiAstParam param);
+int di_ast_decl_add_stmt(DiAstDecl *decl, DiAstStmt *stmt);
+int di_ast_decl_add_field(DiAstDecl *decl, DiAstField field);
+int di_ast_block_add_stmt(DiAstBlock *block, DiAstStmt *stmt);
+int di_ast_call_add_arg(DiAstExpr *expr, DiAstExpr *arg);
+int di_ast_struct_init_add_field(DiAstExpr *expr, DiAstInitField field);
+int di_ast_array_add_item(DiAstExpr *expr, DiAstExpr *item);
+const char *di_binary_op_name(DiBinaryOp op);
+void di_ast_dump_program(const DiAstProgram *program);
+void di_ast_program_free(DiAstProgram *program);
+const char *di_ast_kind_name(DiAstKind kind);
 
 #endif

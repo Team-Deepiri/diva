@@ -1,14 +1,14 @@
 {
   "name": "diri-lang",
-  "displayName": "Diri Language",
-  "description": "Language support for Diri (.di) files.",
+  "displayName": "Di Language",
+  "description": "Language support for Di (.di) files.",
   "version": "0.0.1",
   "publisher": "deepiri",
   "engines": {
     "vscode": "^1.85.0"
   },
   "activationEvents": [
-    "onLanguage:diri"
+    "onLanguage:di"
   ],
   "categories": [
     "Programming Languages"
@@ -16,22 +16,22 @@
   "contributes": {
     "languages": [
       {
-        "id": "diri",
-        "aliases": ["Diri", "diri"],
+        "id": "di",
+        "aliases": ["Di", "di", "Di", "di"],
         "extensions": [".di"],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "diri",
-        "scopeName": "source.diri",
+        "language": "di",
+        "scopeName": "source.di",
         "path": "./syntaxes/diri.tmLanguage.json"
       }
     ],
     "snippets": [
       {
-        "language": "diri",
+        "language": "di",
         "path": "./snippets/diri.json"
       }
     ]

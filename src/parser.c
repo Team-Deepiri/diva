@@ -8,26 +8,20 @@
 #include <string.h>
 
 typedef struct {
-    DiriLexer lexer;
-    DiriToken current;
+    DiLexer lexer;
+    DiToken current;
     int had_error;
-} DiriParser;
+} DiParser;
 
-static DiriTokenKind parser_peek_kind(DiriParser *parser) {
-    DiriLexer copy = parser->lexer;
-    DiriToken next = diri_lexer_next(&copy);
-    return next.kind;
-}
-
-static void parser_advance(DiriParser *parser) {
-    parser->current = diri_lexer_next(&parser->lexer);
-    if (parser->current.kind == DIRI_TOKEN_INVALID) {
-        diri_error("invalid token at %d:%d", parser->current.line, parser->current.column);
+static void parser_advance(DiParser *parser) {
+    parser->current = di_lexer_next(&parser->lexer);
+    if (parser->current.kind == DI_TOKEN_INVALID) {
+        di_error("invalid token at %d:%d", parser->current.line, parser->current.column);
         parser->had_error = 1;
     }
 }
 
-static int parser_match(DiriParser *parser, DiriTokenKind kind) {
+static int parser_match(DiParser *parser, DiTokenKind kind) {
     if (parser->current.kind != kind) {
         return 0;
     }
@@ -35,36 +29,68 @@ static int parser_match(DiriParser *parser, DiriTokenKind kind) {
     return 1;
 }
 
-static void parser_expect(DiriParser *parser, DiriTokenKind kind, const char *what) {
+static void parser_expect(DiParser *parser, DiTokenKind kind, const char *what) {
     if (!parser_match(parser, kind)) {
-        diri_error("expected %s at %d:%d, got %s",
+        di_error("expected %s at %d:%d, got %s",
                    what,
                    parser->current.line,
                    parser->current.column,
-                   diri_token_kind_name(parser->current.kind));
+                   di_token_kind_name(parser->current.kind));
         parser->had_error = 1;
     }
 }
 
-static char *parser_take_text(DiriParser *parser) {
-    return diri_ast_strdup_range(parser->current.lexeme, parser->current.length);
+static void parser_maybe_semi(DiParser *parser) {
+    parser_match(parser, DI_TOKEN_SEMI);
 }
 
-static DiriAstType parse_type(DiriParser *parser) {
-    DiriAstType type;
+static int parser_looks_like_struct_init(DiParser *parser) {
+    DiLexer copy;
+    DiToken first;
+    DiToken second;
+
+    if (parser->current.kind != DI_TOKEN_LBRACE) {
+        return 0;
+    }
+
+    copy = parser->lexer;
+    first = di_lexer_next(&copy);
+    if (first.kind == DI_TOKEN_RBRACE) {
+        return 1;
+    }
+    if (first.kind != DI_TOKEN_IDENT) {
+        return 0;
+    }
+
+    second = di_lexer_next(&copy);
+    return second.kind == DI_TOKEN_COLON;
+}
+
+static char *parser_take_text(DiParser *parser) {
+    return di_ast_strdup_range(parser->current.lexeme, parser->current.length);
+}
+
+static char *copy_text(const char *text) {
+    return di_ast_strdup_range(text, (int)strlen(text));
+}
+
+static DiAstType parse_type(DiParser *parser) {
+    DiAstType type;
     char buffer[128];
     size_t len;
+
     type.name = NULL;
-    if (parser->current.kind != DIRI_TOKEN_IDENT) {
-        diri_error("expected type name at %d:%d", parser->current.line, parser->current.column);
+    if (parser->current.kind != DI_TOKEN_IDENT) {
+        di_error("expected type name at %d:%d", parser->current.line, parser->current.column);
         parser->had_error = 1;
-        type.name = diri_ast_strdup_range("error", 5);
+        type.name = copy_text("error");
         return type;
     }
+
     type.name = parser_take_text(parser);
     parser_advance(parser);
-    if (parser_match(parser, DIRI_TOKEN_LBRACKET)) {
-        parser_expect(parser, DIRI_TOKEN_RBRACKET, "']'");
+    if (parser_match(parser, DI_TOKEN_LBRACKET)) {
+        parser_expect(parser, DI_TOKEN_RBRACKET, "']'");
         len = strlen(type.name);
         if (len + 3 < sizeof(buffer)) {
             memcpy(buffer, type.name, len);
@@ -72,36 +98,32 @@ static DiriAstType parse_type(DiriParser *parser) {
             buffer[len + 1] = ']';
             buffer[len + 2] = '\0';
             free((char *)type.name);
-            type.name = diri_ast_strdup_range(buffer, (int)(len + 2));
+            type.name = copy_text(buffer);
         }
     }
     return type;
 }
 
-static DiriAstExpr *parse_expr(DiriParser *parser);
-static DiriAstStmt *parse_stmt(DiriParser *parser);
-static int parse_block(DiriParser *parser, DiriAstBlock *block);
-
-static DiriBinaryOp token_to_binary_op(DiriTokenKind kind) {
+static DiBinaryOp token_to_binary_op(DiTokenKind kind) {
     switch (kind) {
-        case DIRI_TOKEN_PLUS: return DIRI_BIN_ADD;
-        case DIRI_TOKEN_MINUS: return DIRI_BIN_SUB;
-        case DIRI_TOKEN_STAR: return DIRI_BIN_MUL;
-        case DIRI_TOKEN_SLASH: return DIRI_BIN_DIV;
-        case DIRI_TOKEN_EQEQ: return DIRI_BIN_EQ;
-        case DIRI_TOKEN_BANGEQ: return DIRI_BIN_NE;
-        case DIRI_TOKEN_LT: return DIRI_BIN_LT;
-        case DIRI_TOKEN_GT: return DIRI_BIN_GT;
-        case DIRI_TOKEN_LE: return DIRI_BIN_LE;
-        case DIRI_TOKEN_GE: return DIRI_BIN_GE;
-        default: return DIRI_BIN_ADD;
+        case DI_TOKEN_PLUS: return DI_BIN_ADD;
+        case DI_TOKEN_MINUS: return DI_BIN_SUB;
+        case DI_TOKEN_STAR: return DI_BIN_MUL;
+        case DI_TOKEN_SLASH: return DI_BIN_DIV;
+        case DI_TOKEN_EQEQ: return DI_BIN_EQ;
+        case DI_TOKEN_BANGEQ: return DI_BIN_NE;
+        case DI_TOKEN_LT: return DI_BIN_LT;
+        case DI_TOKEN_GT: return DI_BIN_GT;
+        case DI_TOKEN_LE: return DI_BIN_LE;
+        case DI_TOKEN_GE: return DI_BIN_GE;
+        case DI_TOKEN_AMP: return DI_BIN_AND;
+        case DI_TOKEN_PIPE: return DI_BIN_OR;
+        default: return DI_BIN_ADD;
     }
 }
 
-static DiriAstExpr *make_binary_expr(DiriBinaryOp op, DiriAstExpr *left, DiriAstExpr *right) {
-    DiriAstExpr *expr;
-
-    expr = diri_ast_expr_new(DIRI_AST_BINARY_EXPR);
+static DiAstExpr *make_binary_expr(DiBinaryOp op, DiAstExpr *left, DiAstExpr *right) {
+    DiAstExpr *expr = di_ast_expr_new(DI_AST_BINARY_EXPR);
     if (expr == NULL) {
         return NULL;
     }
@@ -111,15 +133,19 @@ static DiriAstExpr *make_binary_expr(DiriBinaryOp op, DiriAstExpr *left, DiriAst
     return expr;
 }
 
-static DiriAstExpr *parse_postfix(DiriParser *parser, DiriAstExpr *expr) {
+static DiAstExpr *parse_expr(DiParser *parser);
+static DiAstStmt *parse_stmt(DiParser *parser);
+static DiAstStmt *parse_simple_stmt(DiParser *parser, int require_semi);
+
+static DiAstExpr *parse_postfix(DiParser *parser, DiAstExpr *expr) {
     for (;;) {
-        if (parser_match(parser, DIRI_TOKEN_DOT)) {
-            DiriAstExpr *field_expr = diri_ast_expr_new(DIRI_AST_FIELD_EXPR);
+        if (parser_match(parser, DI_TOKEN_DOT)) {
+            DiAstExpr *field_expr = di_ast_expr_new(DI_AST_FIELD_EXPR);
             if (field_expr == NULL) {
                 return expr;
             }
-            if (parser->current.kind != DIRI_TOKEN_IDENT) {
-                diri_error("expected field name after '.'");
+            if (parser->current.kind != DI_TOKEN_IDENT) {
+                di_error("expected field name after '.'");
                 parser->had_error = 1;
                 return field_expr;
             }
@@ -129,15 +155,35 @@ static DiriAstExpr *parse_postfix(DiriParser *parser, DiriAstExpr *expr) {
             expr = field_expr;
             continue;
         }
-        if (parser_match(parser, DIRI_TOKEN_LBRACKET)) {
-            DiriAstExpr *index_expr = diri_ast_expr_new(DIRI_AST_INDEX_EXPR);
+        if (parser_match(parser, DI_TOKEN_LBRACKET)) {
+            DiAstExpr *index_expr = di_ast_expr_new(DI_AST_INDEX_EXPR);
             if (index_expr == NULL) {
                 return expr;
             }
             index_expr->as.index.base = expr;
             index_expr->as.index.index = parse_expr(parser);
-            parser_expect(parser, DIRI_TOKEN_RBRACKET, "']'");
+            parser_expect(parser, DI_TOKEN_RBRACKET, "']'");
             expr = index_expr;
+            continue;
+        }
+        if (parser_match(parser, DI_TOKEN_LPAREN)) {
+            DiAstExpr *call_expr = di_ast_expr_new(DI_AST_CALL_EXPR);
+            if (call_expr == NULL) {
+                return expr;
+            }
+            call_expr->as.call.callee = expr;
+            while (parser->current.kind != DI_TOKEN_RPAREN && parser->current.kind != DI_TOKEN_EOF) {
+                DiAstExpr *arg = parse_expr(parser);
+                if (arg == NULL || !di_ast_call_add_arg(call_expr, arg)) {
+                    parser->had_error = 1;
+                    return call_expr;
+                }
+                if (!parser_match(parser, DI_TOKEN_COMMA)) {
+                    break;
+                }
+            }
+            parser_expect(parser, DI_TOKEN_RPAREN, "')'");
+            expr = call_expr;
             continue;
         }
         break;
@@ -145,442 +191,549 @@ static DiriAstExpr *parse_postfix(DiriParser *parser, DiriAstExpr *expr) {
     return expr;
 }
 
-static DiriAstExpr *parse_primary(DiriParser *parser) {
-    DiriAstExpr *expr;
+static DiAstExpr *parse_primary(DiParser *parser) {
+    DiAstExpr *expr;
     char *name;
 
-    if (parser->current.kind == DIRI_TOKEN_INT_LIT) {
+    if (parser->current.kind == DI_TOKEN_INT_LIT) {
         char *literal_text;
-        expr = diri_ast_expr_new(DIRI_AST_INT_EXPR);
+        expr = di_ast_expr_new(DI_AST_INT_EXPR);
         if (expr == NULL) return NULL;
         literal_text = parser_take_text(parser);
-        if (literal_text == NULL) {
-            return NULL;
-        }
         expr->as.int_value = strtol(literal_text, NULL, 10);
         free(literal_text);
         parser_advance(parser);
         return expr;
     }
 
-    if (parser->current.kind == DIRI_TOKEN_TRUE || parser->current.kind == DIRI_TOKEN_FALSE) {
-        expr = diri_ast_expr_new(DIRI_AST_BOOL_EXPR);
+    if (parser->current.kind == DI_TOKEN_TRUE || parser->current.kind == DI_TOKEN_FALSE) {
+        expr = di_ast_expr_new(DI_AST_BOOL_EXPR);
         if (expr == NULL) return NULL;
-        expr->as.bool_value = parser->current.kind == DIRI_TOKEN_TRUE;
+        expr->as.bool_value = parser->current.kind == DI_TOKEN_TRUE;
         parser_advance(parser);
         return expr;
     }
 
-    if (parser->current.kind == DIRI_TOKEN_STRING_LIT) {
-        expr = diri_ast_expr_new(DIRI_AST_STRING_EXPR);
+    if (parser->current.kind == DI_TOKEN_STRING_LIT) {
+        expr = di_ast_expr_new(DI_AST_STRING_EXPR);
         if (expr == NULL) return NULL;
-        expr->as.string_value = diri_ast_strdup_range(parser->current.lexeme + 1, parser->current.length - 2);
+        expr->as.string_value = di_ast_strdup_range(parser->current.lexeme + 1, parser->current.length - 2);
         parser_advance(parser);
         return expr;
     }
 
-    if (parser_match(parser, DIRI_TOKEN_LBRACKET)) {
-        expr = diri_ast_expr_new(DIRI_AST_ARRAY_INIT_EXPR);
+    if (parser_match(parser, DI_TOKEN_BANG)) {
+        expr = di_ast_expr_new(DI_AST_UNARY_EXPR);
         if (expr == NULL) return NULL;
-        while (parser->current.kind != DIRI_TOKEN_RBRACKET && parser->current.kind != DIRI_TOKEN_EOF) {
-            DiriAstExpr *item = parse_expr(parser);
-            if (item == NULL || !diri_ast_array_add_item(expr, item)) {
+        expr->as.unary.op = DI_UNARY_NOT;
+        expr->as.unary.operand = parse_primary(parser);
+        return expr;
+    }
+
+    if (parser_match(parser, DI_TOKEN_LBRACKET)) {
+        expr = di_ast_expr_new(DI_AST_ARRAY_INIT_EXPR);
+        if (expr == NULL) return NULL;
+        while (parser->current.kind != DI_TOKEN_RBRACKET && parser->current.kind != DI_TOKEN_EOF) {
+            DiAstExpr *item = parse_expr(parser);
+            if (item == NULL || !di_ast_array_add_item(expr, item)) {
                 parser->had_error = 1;
                 return expr;
             }
-            if (!parser_match(parser, DIRI_TOKEN_COMMA)) {
+            if (!parser_match(parser, DI_TOKEN_COMMA)) {
                 break;
             }
         }
-        parser_expect(parser, DIRI_TOKEN_RBRACKET, "']'");
+        parser_expect(parser, DI_TOKEN_RBRACKET, "']'");
         return parse_postfix(parser, expr);
     }
 
-    if (parser->current.kind == DIRI_TOKEN_IDENT) {
+    if (parser->current.kind == DI_TOKEN_IDENT) {
         name = parser_take_text(parser);
         parser_advance(parser);
-        if (parser->current.kind == DIRI_TOKEN_LBRACE &&
-            (parser_peek_kind(parser) == DIRI_TOKEN_IDENT ||
-             parser_peek_kind(parser) == DIRI_TOKEN_RBRACE)) {
-            parser_advance(parser);
-            expr = diri_ast_expr_new(DIRI_AST_STRUCT_INIT_EXPR);
+        if (parser_looks_like_struct_init(parser)) {
+            expr = di_ast_expr_new(DI_AST_STRUCT_INIT_EXPR);
             if (expr == NULL) return NULL;
             expr->as.struct_init.type_name = name;
-            while (parser->current.kind != DIRI_TOKEN_RBRACE && parser->current.kind != DIRI_TOKEN_EOF) {
-                DiriAstInitField field;
-                if (parser->current.kind != DIRI_TOKEN_IDENT) {
-                    diri_error("expected struct field name");
+            parser_advance(parser);
+            while (parser->current.kind != DI_TOKEN_RBRACE && parser->current.kind != DI_TOKEN_EOF) {
+                DiAstInitField field;
+                if (parser->current.kind != DI_TOKEN_IDENT) {
+                    di_error("expected struct field name");
                     parser->had_error = 1;
                     return expr;
                 }
                 field.name = parser_take_text(parser);
                 parser_advance(parser);
-                parser_expect(parser, DIRI_TOKEN_COLON, "':'");
+                parser_expect(parser, DI_TOKEN_COLON, "':'");
                 field.value = parse_expr(parser);
-                if (!diri_ast_struct_init_add_field(expr, field)) {
+                if (!di_ast_struct_init_add_field(expr, field)) {
                     parser->had_error = 1;
                     return expr;
                 }
-                if (!parser_match(parser, DIRI_TOKEN_COMMA)) {
+                if (!parser_match(parser, DI_TOKEN_COMMA)) {
                     break;
                 }
             }
-            parser_expect(parser, DIRI_TOKEN_RBRACE, "'}'");
-            return parse_postfix(parser, expr);
-        }
-        if (parser_match(parser, DIRI_TOKEN_LPAREN)) {
-            expr = diri_ast_expr_new(DIRI_AST_CALL_EXPR);
-            if (expr == NULL) return NULL;
-            expr->as.call.callee = name;
-            while (parser->current.kind != DIRI_TOKEN_RPAREN && parser->current.kind != DIRI_TOKEN_EOF) {
-                DiriAstExpr *arg = parse_expr(parser);
-                if (arg == NULL || !diri_ast_call_add_arg(expr, arg)) {
-                    parser->had_error = 1;
-                    return expr;
-                }
-                if (!parser_match(parser, DIRI_TOKEN_COMMA)) {
-                    break;
-                }
-            }
-            parser_expect(parser, DIRI_TOKEN_RPAREN, "')'");
+            parser_expect(parser, DI_TOKEN_RBRACE, "'}'");
             return parse_postfix(parser, expr);
         }
 
-        expr = diri_ast_expr_new(DIRI_AST_IDENT_EXPR);
+        expr = di_ast_expr_new(DI_AST_IDENT_EXPR);
         if (expr == NULL) return NULL;
         expr->as.ident_name = name;
         return parse_postfix(parser, expr);
     }
 
-    if (parser_match(parser, DIRI_TOKEN_LPAREN)) {
+    if (parser_match(parser, DI_TOKEN_LPAREN)) {
         expr = parse_expr(parser);
-        parser_expect(parser, DIRI_TOKEN_RPAREN, "')'");
+        parser_expect(parser, DI_TOKEN_RPAREN, "')'");
         return parse_postfix(parser, expr);
     }
 
-    diri_error("unexpected token in expression at %d:%d: %s",
+    di_error("unexpected token in expression at %d:%d: %s",
                parser->current.line,
                parser->current.column,
-               diri_token_kind_name(parser->current.kind));
+               di_token_kind_name(parser->current.kind));
     parser->had_error = 1;
     return NULL;
 }
 
-static DiriAstExpr *parse_factor(DiriParser *parser) {
-    DiriAstExpr *expr = parse_primary(parser);
-
-    while (parser->current.kind == DIRI_TOKEN_STAR || parser->current.kind == DIRI_TOKEN_SLASH) {
-        DiriTokenKind op = parser->current.kind;
-        DiriAstExpr *right;
+static DiAstExpr *parse_factor(DiParser *parser) {
+    DiAstExpr *expr = parse_primary(parser);
+    while (parser->current.kind == DI_TOKEN_STAR || parser->current.kind == DI_TOKEN_SLASH) {
+        DiTokenKind op = parser->current.kind;
+        DiAstExpr *right;
         parser_advance(parser);
         right = parse_primary(parser);
         expr = make_binary_expr(token_to_binary_op(op), expr, right);
     }
-
     return expr;
 }
 
-static DiriAstExpr *parse_term(DiriParser *parser) {
-    DiriAstExpr *expr = parse_factor(parser);
-
-    while (parser->current.kind == DIRI_TOKEN_PLUS || parser->current.kind == DIRI_TOKEN_MINUS) {
-        DiriTokenKind op = parser->current.kind;
-        DiriAstExpr *right;
+static DiAstExpr *parse_term(DiParser *parser) {
+    DiAstExpr *expr = parse_factor(parser);
+    while (parser->current.kind == DI_TOKEN_PLUS || parser->current.kind == DI_TOKEN_MINUS) {
+        DiTokenKind op = parser->current.kind;
+        DiAstExpr *right;
         parser_advance(parser);
         right = parse_factor(parser);
         expr = make_binary_expr(token_to_binary_op(op), expr, right);
     }
-
     return expr;
 }
 
-static DiriAstExpr *parse_comparison(DiriParser *parser) {
-    DiriAstExpr *expr = parse_term(parser);
-
-    while (parser->current.kind == DIRI_TOKEN_LT ||
-           parser->current.kind == DIRI_TOKEN_GT ||
-           parser->current.kind == DIRI_TOKEN_LE ||
-           parser->current.kind == DIRI_TOKEN_GE) {
-        DiriTokenKind op = parser->current.kind;
-        DiriAstExpr *right;
+static DiAstExpr *parse_comparison(DiParser *parser) {
+    DiAstExpr *expr = parse_term(parser);
+    while (parser->current.kind == DI_TOKEN_LT ||
+           parser->current.kind == DI_TOKEN_GT ||
+           parser->current.kind == DI_TOKEN_LE ||
+           parser->current.kind == DI_TOKEN_GE) {
+        DiTokenKind op = parser->current.kind;
+        DiAstExpr *right;
         parser_advance(parser);
         right = parse_term(parser);
         expr = make_binary_expr(token_to_binary_op(op), expr, right);
     }
-
     return expr;
 }
 
-static DiriAstExpr *parse_equality(DiriParser *parser) {
-    DiriAstExpr *expr = parse_comparison(parser);
-
-    while (parser->current.kind == DIRI_TOKEN_EQEQ || parser->current.kind == DIRI_TOKEN_BANGEQ) {
-        DiriTokenKind op = parser->current.kind;
-        DiriAstExpr *right;
+static DiAstExpr *parse_equality(DiParser *parser) {
+    DiAstExpr *expr = parse_comparison(parser);
+    while (parser->current.kind == DI_TOKEN_EQEQ || parser->current.kind == DI_TOKEN_BANGEQ) {
+        DiTokenKind op = parser->current.kind;
+        DiAstExpr *right;
         parser_advance(parser);
         right = parse_comparison(parser);
         expr = make_binary_expr(token_to_binary_op(op), expr, right);
     }
-
     return expr;
 }
 
-static DiriAstExpr *parse_expr(DiriParser *parser) {
-    return parse_equality(parser);
+static DiAstExpr *parse_and(DiParser *parser) {
+    DiAstExpr *expr = parse_equality(parser);
+    while (parser->current.kind == DI_TOKEN_AMP) {
+        DiTokenKind op = parser->current.kind;
+        DiAstExpr *right;
+        parser_advance(parser);
+        right = parse_equality(parser);
+        expr = make_binary_expr(token_to_binary_op(op), expr, right);
+    }
+    return expr;
 }
 
-static int parse_block(DiriParser *parser, DiriAstBlock *block) {
-    parser_expect(parser, DIRI_TOKEN_LBRACE, "'{'");
-    while (parser->current.kind != DIRI_TOKEN_RBRACE && parser->current.kind != DIRI_TOKEN_EOF) {
-        DiriAstStmt *stmt = parse_stmt(parser);
-        if (stmt == NULL || !diri_ast_block_add_stmt(block, stmt)) {
+static DiAstExpr *parse_or(DiParser *parser) {
+    DiAstExpr *expr = parse_and(parser);
+    while (parser->current.kind == DI_TOKEN_PIPE) {
+        DiTokenKind op = parser->current.kind;
+        DiAstExpr *right;
+        parser_advance(parser);
+        right = parse_and(parser);
+        expr = make_binary_expr(token_to_binary_op(op), expr, right);
+    }
+    return expr;
+}
+
+static DiAstExpr *parse_range(DiParser *parser) {
+    DiAstExpr *expr = parse_or(parser);
+    if (parser_match(parser, DI_TOKEN_DOTDOT)) {
+        DiAstExpr *range_expr = di_ast_expr_new(DI_AST_RANGE_EXPR);
+        if (range_expr == NULL) {
+            return expr;
+        }
+        range_expr->as.range.start = expr;
+        range_expr->as.range.end = parse_or(parser);
+        return range_expr;
+    }
+    return expr;
+}
+
+static DiAstExpr *parse_expr(DiParser *parser) {
+    return parse_range(parser);
+}
+
+static int parse_block(DiParser *parser, DiAstBlock *block) {
+    parser_expect(parser, DI_TOKEN_LBRACE, "'{'");
+    while (parser->current.kind != DI_TOKEN_RBRACE && parser->current.kind != DI_TOKEN_EOF) {
+        DiAstStmt *stmt = parse_stmt(parser);
+        if (stmt == NULL || !di_ast_block_add_stmt(block, stmt)) {
             parser->had_error = 1;
             return 0;
         }
     }
-    parser_expect(parser, DIRI_TOKEN_RBRACE, "'}'");
+    parser_expect(parser, DI_TOKEN_RBRACE, "'}'");
     return 1;
 }
 
-static DiriAstStmt *parse_stmt(DiriParser *parser) {
-    DiriAstStmt *stmt;
+static DiAstStmt *make_assign_from_target(DiParser *parser, DiAstExpr *target, DiAstExpr *value) {
+    DiAstStmt *stmt;
 
-    if (parser_match(parser, DIRI_TOKEN_LET)) {
-        stmt = diri_ast_stmt_new(DIRI_AST_LET_STMT);
+    if (target != NULL && target->kind == DI_AST_IDENT_EXPR) {
+        stmt = di_ast_stmt_new(DI_AST_ASSIGN_STMT);
         if (stmt == NULL) return NULL;
-        if (parser->current.kind != DIRI_TOKEN_IDENT) {
-            diri_error("expected identifier after let");
-            parser->had_error = 1;
-            return stmt;
-        }
-        stmt->as.let_stmt.name = parser_take_text(parser);
-        parser_advance(parser);
-        parser_expect(parser, DIRI_TOKEN_COLON, "':'");
-        stmt->as.let_stmt.type = parse_type(parser);
-        parser_expect(parser, DIRI_TOKEN_EQUAL, "'='");
-        stmt->as.let_stmt.value = parse_expr(parser);
-        parser_expect(parser, DIRI_TOKEN_SEMI, "';'");
+        stmt->as.assign_stmt.name = target->as.ident_name;
+        target->as.ident_name = NULL;
+        free(target);
+        stmt->as.assign_stmt.value = value;
         return stmt;
     }
+    if (target != NULL && target->kind == DI_AST_FIELD_EXPR) {
+        stmt = di_ast_stmt_new(DI_AST_FIELD_ASSIGN_STMT);
+        if (stmt == NULL) return NULL;
+        stmt->as.field_assign_stmt.target = target;
+        stmt->as.field_assign_stmt.value = value;
+        return stmt;
+    }
+    if (target != NULL && target->kind == DI_AST_INDEX_EXPR) {
+        stmt = di_ast_stmt_new(DI_AST_INDEX_ASSIGN_STMT);
+        if (stmt == NULL) return NULL;
+        stmt->as.index_assign_stmt.target = target;
+        stmt->as.index_assign_stmt.value = value;
+        return stmt;
+    }
+    di_error("invalid assignment target");
+    parser->had_error = 1;
+    return NULL;
+}
 
-    if (parser_match(parser, DIRI_TOKEN_RETURN)) {
-        stmt = diri_ast_stmt_new(DIRI_AST_RETURN_STMT);
+static DiAstStmt *parse_var_stmt(DiParser *parser, int require_semi) {
+    DiAstStmt *stmt = di_ast_stmt_new(DI_AST_VAR_STMT);
+    if (stmt == NULL) return NULL;
+    if (!(parser_match(parser, DI_TOKEN_VAR) || parser_match(parser, DI_TOKEN_LET))) {
+        di_error("expected 'var' or 'let' at %d:%d", parser->current.line, parser->current.column);
+        parser->had_error = 1;
+        return stmt;
+    }
+    if (parser->current.kind != DI_TOKEN_IDENT) {
+        di_error("expected identifier after var");
+        parser->had_error = 1;
+        return stmt;
+    }
+    stmt->as.var_stmt.name = parser_take_text(parser);
+    parser_advance(parser);
+    if (parser_match(parser, DI_TOKEN_DOUBLECOLON) || parser_match(parser, DI_TOKEN_COLON)) {
+        stmt->as.var_stmt.type = parse_type(parser);
+        stmt->as.var_stmt.has_explicit_type = 1;
+    }
+    parser_expect(parser, DI_TOKEN_EQUAL, "'='");
+    stmt->as.var_stmt.value = parse_expr(parser);
+    if (require_semi) {
+        parser_maybe_semi(parser);
+    }
+    return stmt;
+}
+
+static DiAstStmt *parse_simple_stmt(DiParser *parser, int require_semi) {
+    DiAstStmt *stmt;
+    DiAstExpr *target;
+
+    if (parser->current.kind == DI_TOKEN_VAR || parser->current.kind == DI_TOKEN_LET) {
+        return parse_var_stmt(parser, require_semi);
+    }
+
+    if (parser_match(parser, DI_TOKEN_RETURN)) {
+        stmt = di_ast_stmt_new(DI_AST_RETURN_STMT);
         if (stmt == NULL) return NULL;
         stmt->as.return_stmt.value = parse_expr(parser);
-        parser_expect(parser, DIRI_TOKEN_SEMI, "';'");
+        if (require_semi) {
+            parser_maybe_semi(parser);
+        }
         return stmt;
     }
 
-    if (parser_match(parser, DIRI_TOKEN_IF)) {
-        stmt = diri_ast_stmt_new(DIRI_AST_IF_STMT);
+    target = parse_expr(parser);
+    if (parser_match(parser, DI_TOKEN_EQUAL)) {
+        stmt = make_assign_from_target(parser, target, parse_expr(parser));
+        if (require_semi) {
+            parser_maybe_semi(parser);
+        }
+        return stmt;
+    }
+
+    stmt = di_ast_stmt_new(DI_AST_EXPR_STMT);
+    if (stmt == NULL) return NULL;
+    stmt->as.expr_stmt.expr = target;
+    if (require_semi) {
+        parser_maybe_semi(parser);
+    }
+    return stmt;
+}
+
+static DiAstStmt *parse_stmt(DiParser *parser) {
+    DiAstStmt *stmt;
+
+    if (parser_match(parser, DI_TOKEN_IF)) {
+        stmt = di_ast_stmt_new(DI_AST_IF_STMT);
         if (stmt == NULL) return NULL;
         stmt->as.if_stmt.condition = parse_expr(parser);
-        if (!parse_block(parser, &stmt->as.if_stmt.then_block)) {
-            return stmt;
-        }
-        if (parser_match(parser, DIRI_TOKEN_ELSE)) {
-            if (!parse_block(parser, &stmt->as.if_stmt.else_block)) {
-                return stmt;
-            }
+        parse_block(parser, &stmt->as.if_stmt.then_block);
+        if (parser_match(parser, DI_TOKEN_ELSE)) {
+            parse_block(parser, &stmt->as.if_stmt.else_block);
         }
         return stmt;
     }
 
-    if (parser_match(parser, DIRI_TOKEN_WHILE)) {
-        stmt = diri_ast_stmt_new(DIRI_AST_WHILE_STMT);
+    if (parser_match(parser, DI_TOKEN_WHILE)) {
+        stmt = di_ast_stmt_new(DI_AST_WHILE_STMT);
         if (stmt == NULL) return NULL;
         stmt->as.while_stmt.condition = parse_expr(parser);
+        if (parser_match(parser, DI_TOKEN_FATARROW)) {
+            stmt->as.while_stmt.update = parse_simple_stmt(parser, 0);
+        }
         parse_block(parser, &stmt->as.while_stmt.body);
         return stmt;
     }
 
-    if (parser->current.kind == DIRI_TOKEN_IDENT) {
-        DiriAstExpr *target = parse_expr(parser);
-        if (parser_match(parser, DIRI_TOKEN_EQUAL)) {
-            if (target != NULL && target->kind == DIRI_AST_IDENT_EXPR) {
-                stmt = diri_ast_stmt_new(DIRI_AST_ASSIGN_STMT);
-                if (stmt == NULL) return NULL;
-                stmt->as.assign_stmt.name = target->as.ident_name;
-                target->as.ident_name = NULL;
-                free(target);
-                stmt->as.assign_stmt.value = parse_expr(parser);
-                parser_expect(parser, DIRI_TOKEN_SEMI, "';'");
-                return stmt;
-            }
-            if (target != NULL && target->kind == DIRI_AST_FIELD_EXPR) {
-                stmt = diri_ast_stmt_new(DIRI_AST_FIELD_ASSIGN_STMT);
-                if (stmt == NULL) return NULL;
-                stmt->as.field_assign_stmt.target = target;
-                stmt->as.field_assign_stmt.value = parse_expr(parser);
-                parser_expect(parser, DIRI_TOKEN_SEMI, "';'");
-                return stmt;
-            }
-            if (target != NULL && target->kind == DIRI_AST_INDEX_EXPR) {
-                stmt = diri_ast_stmt_new(DIRI_AST_INDEX_ASSIGN_STMT);
-                if (stmt == NULL) return NULL;
-                stmt->as.index_assign_stmt.target = target;
-                stmt->as.index_assign_stmt.value = parse_expr(parser);
-                parser_expect(parser, DIRI_TOKEN_SEMI, "';'");
-                return stmt;
-            }
-            diri_error("invalid assignment target");
-            parser->had_error = 1;
-            return NULL;
-        }
-        stmt = diri_ast_stmt_new(DIRI_AST_EXPR_STMT);
+    if (parser_match(parser, DI_TOKEN_FLUX)) {
+        stmt = di_ast_stmt_new(DI_AST_FLUX_STMT);
         if (stmt == NULL) return NULL;
-        stmt->as.expr_stmt.expr = target;
-        parser_expect(parser, DIRI_TOKEN_SEMI, "';'");
+        if (parser->current.kind != DI_TOKEN_IDENT) {
+            di_error("expected iterator name after flux");
+            parser->had_error = 1;
+            return stmt;
+        }
+        stmt->as.flux_stmt.name = parser_take_text(parser);
+        parser_advance(parser);
+        parser_expect(parser, DI_TOKEN_IN, "'in'");
+        stmt->as.flux_stmt.iterable = parse_expr(parser);
+        parse_block(parser, &stmt->as.flux_stmt.body);
         return stmt;
     }
 
-    stmt = diri_ast_stmt_new(DIRI_AST_EXPR_STMT);
-    if (stmt == NULL) return NULL;
-    stmt->as.expr_stmt.expr = parse_expr(parser);
-    parser_expect(parser, DIRI_TOKEN_SEMI, "';'");
-    return stmt;
+    return parse_simple_stmt(parser, 1);
 }
 
-static void parse_param_list(DiriParser *parser, DiriAstDecl *decl) {
-    while (parser->current.kind != DIRI_TOKEN_RPAREN && parser->current.kind != DIRI_TOKEN_EOF) {
-        DiriAstParam param;
-        if (parser->current.kind != DIRI_TOKEN_IDENT) {
-            diri_error("expected parameter name at %d:%d", parser->current.line, parser->current.column);
+static void parse_param_list(DiParser *parser, DiAstDecl *decl) {
+    while (parser->current.kind != DI_TOKEN_RPAREN && parser->current.kind != DI_TOKEN_EOF) {
+        DiAstParam param;
+        if (parser->current.kind != DI_TOKEN_IDENT) {
+            di_error("expected parameter name at %d:%d", parser->current.line, parser->current.column);
             parser->had_error = 1;
             return;
         }
         param.name = parser_take_text(parser);
         parser_advance(parser);
-        parser_expect(parser, DIRI_TOKEN_COLON, "':'");
+        parser_expect(parser, DI_TOKEN_COLON, "':'");
         param.type = parse_type(parser);
-        if (!diri_ast_decl_add_param(decl, param)) {
+        if (!di_ast_decl_add_param(decl, param)) {
             parser->had_error = 1;
             return;
         }
-        if (!parser_match(parser, DIRI_TOKEN_COMMA)) {
+        if (!parser_match(parser, DI_TOKEN_COMMA)) {
             break;
         }
     }
 }
 
-static DiriAstDecl *parse_struct_decl(DiriParser *parser) {
-    DiriAstDecl *decl;
+static DiAstDecl *parse_function_decl(DiParser *parser, int is_extern, const char *owner_type) {
+    DiAstDecl *decl;
     char *name;
 
-    parser_expect(parser, DIRI_TOKEN_STRUCT, "'struct'");
-    if (parser->current.kind != DIRI_TOKEN_IDENT) {
-        diri_error("expected struct name");
-        parser->had_error = 1;
-        return NULL;
-    }
-    name = parser_take_text(parser);
-    parser_advance(parser);
-    decl = diri_ast_decl_new(DIRI_AST_STRUCT_DECL, name);
-    if (decl == NULL) {
-        return NULL;
-    }
-    parser_expect(parser, DIRI_TOKEN_LBRACE, "'{'");
-    while (parser->current.kind != DIRI_TOKEN_RBRACE && parser->current.kind != DIRI_TOKEN_EOF) {
-        DiriAstField field;
-        if (parser->current.kind != DIRI_TOKEN_IDENT) {
-            diri_error("expected field name in struct");
-            parser->had_error = 1;
-            return decl;
-        }
-        field.name = parser_take_text(parser);
-        parser_advance(parser);
-        parser_expect(parser, DIRI_TOKEN_COLON, "':'");
-        field.type = parse_type(parser);
-        parser_expect(parser, DIRI_TOKEN_SEMI, "';'");
-        if (!diri_ast_decl_add_field(decl, field)) {
-            parser->had_error = 1;
-            return decl;
-        }
-    }
-    parser_expect(parser, DIRI_TOKEN_RBRACE, "'}'");
-    return decl;
-}
-
-static DiriAstDecl *parse_function(DiriParser *parser, int is_extern) {
-    DiriAstDecl *decl;
-    char *name;
-
-    parser_expect(parser, DIRI_TOKEN_FUNC, "'func'");
-    if (parser->current.kind != DIRI_TOKEN_IDENT) {
-        diri_error("expected function name at %d:%d", parser->current.line, parser->current.column);
+    parser_expect(parser, DI_TOKEN_FUNC, "'func'");
+    if (parser->current.kind != DI_TOKEN_IDENT) {
+        di_error("expected function name at %d:%d", parser->current.line, parser->current.column);
         parser->had_error = 1;
         return NULL;
     }
 
     name = parser_take_text(parser);
     parser_advance(parser);
-    decl = diri_ast_decl_new(is_extern ? DIRI_AST_EXTERN_FUNCTION : DIRI_AST_FUNCTION, name);
+    decl = di_ast_decl_new(is_extern ? DI_AST_EXTERN_FUNCTION : DI_AST_FUNCTION, name);
     if (decl == NULL) {
         return NULL;
     }
+    if (owner_type != NULL) {
+        decl->owner_type = copy_text(owner_type);
+    }
 
-    parser_expect(parser, DIRI_TOKEN_LPAREN, "'('");
+    parser_expect(parser, DI_TOKEN_LPAREN, "'('");
+    if (owner_type != NULL) {
+        DiAstParam self_param;
+        self_param.name = copy_text("self");
+        self_param.type.name = copy_text(owner_type);
+        if (!di_ast_decl_add_param(decl, self_param)) {
+            parser->had_error = 1;
+            return decl;
+        }
+    }
     parse_param_list(parser, decl);
-    parser_expect(parser, DIRI_TOKEN_RPAREN, "')'");
-    parser_expect(parser, DIRI_TOKEN_COLON, "':'");
+    parser_expect(parser, DI_TOKEN_RPAREN, "')'");
+    parser_expect(parser, DI_TOKEN_COLON, "':'");
     decl->return_type = parse_type(parser);
 
     if (is_extern) {
-        parser_expect(parser, DIRI_TOKEN_SEMI, "';'");
+        parser_maybe_semi(parser);
         return decl;
     }
 
-    parser_expect(parser, DIRI_TOKEN_LBRACE, "'{'");
-    while (parser->current.kind != DIRI_TOKEN_RBRACE && parser->current.kind != DIRI_TOKEN_EOF) {
-        DiriAstStmt *stmt = parse_stmt(parser);
-        if (stmt == NULL || !diri_ast_decl_add_stmt(decl, stmt)) {
+    parser_expect(parser, DI_TOKEN_LBRACE, "'{'");
+    while (parser->current.kind != DI_TOKEN_RBRACE && parser->current.kind != DI_TOKEN_EOF) {
+        DiAstStmt *stmt = parse_stmt(parser);
+        if (stmt == NULL || !di_ast_decl_add_stmt(decl, stmt)) {
             parser->had_error = 1;
             return decl;
         }
     }
-    parser_expect(parser, DIRI_TOKEN_RBRACE, "'}'");
+    parser_expect(parser, DI_TOKEN_RBRACE, "'}'");
     return decl;
 }
 
-DiriAstProgram *diri_parse_program(const char *source) {
-    DiriParser parser;
-    DiriAstProgram *program = diri_ast_program_new();
+static int parse_class_decl(DiParser *parser, DiAstProgram *program, int is_struct_style) {
+    DiAstDecl *struct_decl;
+    char *class_name;
+
+    if (is_struct_style) {
+        parser_expect(parser, DI_TOKEN_STRUCT, "'struct'");
+    } else {
+        parser_expect(parser, DI_TOKEN_CLASS, "'class'");
+    }
+    if (parser->current.kind != DI_TOKEN_IDENT) {
+        di_error("expected class name");
+        parser->had_error = 1;
+        return 0;
+    }
+
+    class_name = parser_take_text(parser);
+    parser_advance(parser);
+    struct_decl = di_ast_decl_new(DI_AST_STRUCT_DECL, copy_text(class_name));
+    if (struct_decl == NULL) {
+        free(class_name);
+        return 0;
+    }
+
+    parser_expect(parser, DI_TOKEN_LBRACE, "'{'");
+    while (parser->current.kind != DI_TOKEN_RBRACE && parser->current.kind != DI_TOKEN_EOF) {
+        if (parser->current.kind == DI_TOKEN_VAR || parser->current.kind == DI_TOKEN_IDENT) {
+            DiAstField field;
+            if (parser->current.kind == DI_TOKEN_VAR) {
+                parser_advance(parser);
+            }
+            if (parser->current.kind != DI_TOKEN_IDENT) {
+                di_error("expected field name in class");
+                parser->had_error = 1;
+                free(class_name);
+                return 0;
+            }
+            field.name = parser_take_text(parser);
+            parser_advance(parser);
+            if (!(parser_match(parser, DI_TOKEN_DOUBLECOLON) || parser_match(parser, DI_TOKEN_COLON))) {
+                di_error("expected '::' or ':' after field name");
+                parser->had_error = 1;
+                free(class_name);
+                return 0;
+            }
+            field.type = parse_type(parser);
+            parser_maybe_semi(parser);
+            if (!di_ast_decl_add_field(struct_decl, field)) {
+                parser->had_error = 1;
+                free(class_name);
+                return 0;
+            }
+            continue;
+        }
+
+        if (parser->current.kind == DI_TOKEN_FUNC) {
+            DiAstDecl *method = parse_function_decl(parser, 0, class_name);
+            if (method == NULL || !di_ast_program_add_decl(program, method)) {
+                parser->had_error = 1;
+                free(class_name);
+                return 0;
+            }
+            continue;
+        }
+
+        di_error("expected field or method in class %s", class_name);
+        parser->had_error = 1;
+        free(class_name);
+        return 0;
+    }
+
+    parser_expect(parser, DI_TOKEN_RBRACE, "'}'");
+    if (!di_ast_program_add_decl(program, struct_decl)) {
+        free(class_name);
+        return 0;
+    }
+    free(class_name);
+    return 1;
+}
+
+DiAstProgram *di_parse_program(const char *source) {
+    DiParser parser;
+    DiAstProgram *program = di_ast_program_new();
 
     if (program == NULL) {
         return NULL;
     }
 
-    diri_lexer_init(&parser.lexer, source);
+    di_lexer_init(&parser.lexer, source);
     parser.had_error = 0;
     parser_advance(&parser);
 
-    if (parser.current.kind == DIRI_TOKEN_EOF) {
-        diri_error("empty input");
+    if (parser.current.kind == DI_TOKEN_EOF) {
+        di_error("empty input");
         program->had_error = 1;
         return program;
     }
 
-    while (parser.current.kind != DIRI_TOKEN_EOF) {
-        DiriAstDecl *decl;
-        int is_extern = parser_match(&parser, DIRI_TOKEN_EXTERN);
+    while (parser.current.kind != DI_TOKEN_EOF) {
+        DiAstDecl *decl;
+        int is_extern = parser_match(&parser, DI_TOKEN_EXTERN);
 
-        if (!is_extern && parser.current.kind == DIRI_TOKEN_STRUCT) {
-            decl = parse_struct_decl(&parser);
-            if (decl == NULL || !diri_ast_program_add_decl(program, decl)) {
+        if (!is_extern && (parser.current.kind == DI_TOKEN_CLASS || parser.current.kind == DI_TOKEN_STRUCT)) {
+            if (!parse_class_decl(&parser, program, parser.current.kind == DI_TOKEN_STRUCT)) {
                 parser.had_error = 1;
                 break;
             }
             continue;
         }
 
-        if (parser.current.kind != DIRI_TOKEN_FUNC) {
-            diri_error("expected declaration at %d:%d", parser.current.line, parser.current.column);
+        if (parser.current.kind != DI_TOKEN_FUNC) {
+            di_error("expected declaration at %d:%d", parser.current.line, parser.current.column);
             parser.had_error = 1;
             break;
         }
 
-        decl = parse_function(&parser, is_extern);
-        if (decl == NULL || !diri_ast_program_add_decl(program, decl)) {
+        decl = parse_function_decl(&parser, is_extern, NULL);
+        if (decl == NULL || !di_ast_program_add_decl(program, decl)) {
             parser.had_error = 1;
             break;
         }

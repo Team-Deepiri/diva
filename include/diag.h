@@ -1,9 +1,9 @@
-#ifndef DIRI_DIAG_H
-#define DIRI_DIAG_H
+#ifndef DI_DIAG_H
+#define DI_DIAG_H
 
 #include <stdarg.h>
 
-void diri_info(const char *fmt, ...);
-void diri_error(const char *fmt, ...);
+void di_info(const char *fmt, ...);
+void di_error(const char *fmt, ...);
 
 #endif

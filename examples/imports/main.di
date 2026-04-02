@@ -1,7 +1,9 @@
+import "math.di"
+
 extern func print_int(x: int): void
 
 func main(): int {
-    let nums: int[] = [3, 6, 9, 12]
-    print_int(nums[2])
+    var result = twice(21)
+    print_int(result)
     return 0
 }

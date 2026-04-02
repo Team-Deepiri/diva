@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(diri LANGUAGES C)
+project(di LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -17,7 +17,7 @@ endif()
 
 include_directories(include)
 
-set(DIRI_SOURCES
+set(DI_SOURCES
   src/main.c
   src/driver.c
   src/diag.c
@@ -29,10 +29,10 @@ set(DIRI_SOURCES
   src/codegen_llvm.c
 )
 
-add_executable(diri ${DIRI_SOURCES})
+add_executable(di ${DI_SOURCES})
 
 if(LLVM_FOUND)
   if(TARGET LLVM)
-    target_link_libraries(diri PRIVATE LLVM)
+    target_link_libraries(di PRIVATE LLVM)
   endif()
 endif()

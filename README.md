@@ -1,6 +1,6 @@
-# diri-lang
+# di
 
-`diri` is a new systems programming language project by Deepiri.
+`Di` is a new systems programming language project by Deepiri.
 
 The current repo already includes:
 
@@ -17,49 +17,57 @@ The current repo already includes:
 - `runtime/`: runtime support implemented in C
 - `stdlib/`: early standard library surface and notes
 - `docs/`: language and architecture documents
-- `examples/`: small `diri` programs
+- `examples/`: small `Di` programs
 - `tests/`: focused compiler tests
+
+## Guides
+
+- install and usage: `docs/install-and-usage.md`
+- syntax guide: `docs/syntax-guide.md`
+- language spec: `docs/language-spec.md`
 
 ## Current Language Surface
 
-`diri` currently supports:
+`Di` currently supports:
 
 - `func` and `extern func`
-- `struct` declarations
-- `let` declarations and assignment
+- `class` declarations with methods
+- `var` declarations with optional `::` type annotations
 - `if` / `else`
-- `while`
+- `while condition => update`
+- `flux item in iterable`
 - integer, boolean, and string literals
-- arithmetic and comparisons
-- function calls
+- arithmetic, comparisons, and boolean operators
+- function and method calls
 - field access and field assignment
-- struct literals
+- object literals
 - array literals and indexing
+- optional semicolons, with semicolon-free style preferred
 
 ## Example
 
-```diri
-extern func print_int(x: int): void;
+```di
+extern func print_int(x: int): void
 
 func main(): int {
-    let x: int = 10;
-    print_int(x);
-    return 0;
+    var x = 10
+    print_int(x)
+    return 0
 }
 ```
 
 ## CLI
 
 ```sh
-diri main.di
-diri build main.di
-diri run main.di
-diri emit-ir main.di
-diri watch main.di
-diri new my-app
+di main.di
+di build main.di
+di run main.di
+di emit-ir main.di
+di watch main.di
+di new my-app
 ```
 
-`.di` is the source extension for all `diri` files.
+`.di` is the source extension for all `Di` files.
 
 ## Build
 
@@ -81,15 +89,15 @@ If you just want a working local compiler quickly:
 After installation, the expected workflow is:
 
 ```sh
-diri new hello-di
+di new hello-di
 cd hello-di
-diri main.di
-diri build main.di
-diri emit-ir main.di
-diri watch main.di
+di main.di
+di build main.di
+di emit-ir main.di
+di watch main.di
 ```
 
-`diri new` creates a starter project with a `main.di`, `.gitignore`, and README.
+`di new` creates a starter project with a `main.di`, `.gitignore`, and README.
 
 ## Install
 
@@ -107,13 +115,13 @@ PowerShell:
 
 These SDK scripts install:
 
-- the `diri` compiler into a local user bin directory
-- the `.di` Diri source file type association on the local machine
+- the `di` compiler into a local user bin directory
+- the `.di` Di source file type association on the local machine
 - the local `.di` editor extension into Cursor by default
 
 If you only want the compiler, use `./scripts/install.sh` or `./scripts/install.ps1`.
 
-If you only want to register the Diri file type:
+If you only want to register the Di file type:
 
 - Linux / WSL: `./scripts/install-filetype.sh`
 - PowerShell: `./scripts/install-filetype.ps1`
@@ -124,12 +132,12 @@ A local VS Code / Cursor extension for `.di` files lives in:
 
 - `tools/vscode-extension/`
 
-It registers the `diri` language and currently includes:
+It registers the `Di` language and currently includes:
 
 - `.di` file association
 - comment, bracket, and auto-close configuration
 - syntax highlighting for functions, keywords, types, operators, fields, and arrays
-- starter snippets for common `diri` patterns
+- starter snippets for common `Di` patterns
 
 Install it locally:
 

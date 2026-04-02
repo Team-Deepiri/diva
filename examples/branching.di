@@ -1,21 +1,21 @@
-extern func print_int(x: int): void;
-extern func print_str(x: str): void;
+extern func print_int(x: int): void
+extern func print_str(x: str): void
 
 func max(a: int, b: int): int {
     if a >= b {
-        return a;
+        return a
     } else {
-        return b;
+        return b
     }
 }
 
 func main(): int {
-    print_str("running diri");
-    print_int(max(7 + 5, 10 * 2));
+    print_str("running di")
+    print_int(max(7 + 5, 10 * 2))
     if 3 == 3 {
-        print_int(1);
+        print_int(1)
     } else {
-        print_int(0);
+        print_int(0)
     }
-    return 0;
+    return 0
 }
