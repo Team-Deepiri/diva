@@ -108,6 +108,7 @@ Additional hosted hooks used for self-hosting (declared in `stdlib/std/host.di`,
 - `host_argc(): int`, `host_argv(index: int): str`
 - `file_size(path: str): int`, `read_file(path: str): str`
 - `str_len(s: str): int`, `str_byte(s: str, index: int): int`
+- `host_getenv(name: str): str`, `host_system(cmd: str): int` — process environment and shell (`libc`); used by the bootstrap compiler driver in `compiler/`
 
 See `docs/selfhost-bootstrap.md`.
 

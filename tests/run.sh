@@ -114,7 +114,9 @@ export HOME
 PATH="${BIN_DIR}:${PATH}"
 export PATH
 
-log "running example integration tests"
+run_all_tests() {
+    _stage=$1
+    log "running integration tests (${_stage})"
 assert_output_equals "${ROOT_DIR}/examples/hello.di" "10"
 assert_output_equals "${ROOT_DIR}/examples/host_argv.di" "1"
 assert_output_equals "${ROOT_DIR}/examples/vec_demo.di" "2
@@ -276,5 +278,34 @@ if ! di build "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-build.out
     sed -n '1,120p' "${TEST_ROOT}/kernel-build.out" >&2
     fail "kernel package failed di build"
 fi
+
+    log "all integration checks passed (${_stage})"
+}
+
+run_all_tests seed
+
+log "checking self-host bootstrap (Di compiler package forwards to seed via DI_BOOTSTRAP)"
+export DI_BOOTSTRAP="${ROOT_DIR}/bootstrap/di-linux-amd64"
+RUNTIME_O="${HOME_DIR}/.local/share/di/runtime/runtime.o"
+if ! [ -f "${RUNTIME_O}" ]; then
+    fail "expected runtime object at ${RUNTIME_O}"
+fi
+BUILD_OUT="${TEST_ROOT}/compiler-selfhost-build.out"
+if ! DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
+    "${ROOT_DIR}/bootstrap/di-linux-amd64" build "${ROOT_DIR}/compiler" >"${BUILD_OUT}" 2>&1
+then
+    sed -n '1,120p' "${BUILD_OUT}" >&2
+    fail "failed to build compiler/ (self-host driver) with seed di"
+fi
+SELFHOST_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD_OUT}" | tail -n 1)
+if [ -z "${SELFHOST_EXE}" ] || ! [ -x "${SELFHOST_EXE}" ]; then
+    printf '[test:error] could not resolve self-host executable from build output\n' >&2
+    sed -n '1,80p' "${BUILD_OUT}" >&2
+    exit 1
+fi
+cp "${SELFHOST_EXE}" "${BIN_DIR}/di"
+chmod +x "${BIN_DIR}/di"
+
+run_all_tests selfhost
 
 log "all tests passed"

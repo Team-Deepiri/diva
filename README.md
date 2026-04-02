@@ -7,7 +7,8 @@ This repository is **Di source only** (`.di` standard library, examples, tests, 
 ## Repository layout
 
 - `bootstrap/` — prebuilt `di` (Linux x86-64) and `runtime-linux-amd64.o` fallback for installs without `clang`
-- `runtime/` — `runtime.ll` (LLVM IR) and `runtime.o` (precompiled for local dev defaults)
+- `compiler/` — Di package that installs as `di` and forwards to the seed binary (`DI_BOOTSTRAP`); see `compiler/README.md`
+- `runtime/` — `runtime.ll` (LLVM IR), `extra.c` (tiny libc glue merged into the runtime object when `clang` is missing), optional `runtime.o` for local dev
 - `stdlib/` — standard library `.di` modules
 - `docs/` — language and architecture notes
 - `examples/` — sample programs
@@ -15,7 +16,7 @@ This repository is **Di source only** (`.di` standard library, examples, tests, 
 
 ## Install (Linux / WSL)
 
-Needs `cc` for linking user programs. Optional `clang` to compile `runtime/runtime.ll` at install time; otherwise the script copies `bootstrap/runtime-linux-amd64.o`.
+Needs `cc` for linking user programs and for merging `runtime/extra.c` into the runtime object when `clang` is missing. Optional `clang` to compile `runtime/runtime.ll` alone at install time (full runtime in one object).
 
 ```sh
 ./scripts/install.sh
@@ -64,7 +65,12 @@ di new my-lib --lib
 
 ## CMake
 
-`cmake` is configured to **stop** with a pointer to `./scripts/install.sh` — there is no in-tree compiler build from sources here.
+`cmake` is a no-op pointer: there is no C compiler build in-tree. Use `./scripts/install.sh` and `bootstrap/di-linux-amd64`. Integration tests run twice (`tests/run.sh`): once with the seed compiler, then with the Di compiler package built from `compiler/` replacing `di`.
+
+## Self-host bootstrap
+
+- `scripts/bootstrap-verify.sh` runs the same suite as `tests/run.sh` (seed + self-host stages).
+- The long-term goal is a full compiler in Di; the current `compiler/` driver is a minimal Di-hosted CLI that delegates to the seed binary. See `docs/selfhost-bootstrap.md`.
 
 ## Generated output
 

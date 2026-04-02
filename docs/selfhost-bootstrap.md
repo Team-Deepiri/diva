@@ -2,6 +2,12 @@
 
 This document tracks what the hosted Di runtime exposes so a Di-implemented compiler can exist without growing the language surface first.
 
+## Bootstrap driver (`compiler/`)
+
+The repository includes a small Di app (`compiler/src/main.di`) that builds to a hosted executable behaving like `di` by forwarding CLI arguments to the **seed** compiler binary. Set `DI_BOOTSTRAP` to an absolute path (e.g. `bootstrap/di-linux-amd64` in the repo). The driver uses `host_getenv` and `host_system`; the runtime implements them via `getenv` / `system` (LLVM IR in `runtime/runtime.ll`, merged with `runtime/extra.c` when `clang` is unavailable).
+
+This is a **practical bridge** so `PATH` can point at a Di-built `di` while the toolchain remains the checked-in bootstrap binary. A full self-host replaces this with lexer, parser, sema, IR, and codegen entirely in Di.
+
 ## Process and file I/O
 
 Import `std/host.di`. The hosted runtime (LLVM IR in `runtime/runtime.ll`) provides:

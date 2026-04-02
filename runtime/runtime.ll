@@ -908,6 +908,27 @@ define dso_local void @di_runtime_abort() local_unnamed_addr #17 {
 ; Function Attrs: noreturn nounwind
 declare void @abort() local_unnamed_addr #18
 
+; Bootstrap / self-host: getenv and system (libc) for Di-hosted compiler driver.
+declare noalias ptr @getenv(ptr nocapture noundef readonly) local_unnamed_addr #5
+declare i32 @system(ptr nocapture noundef readonly) local_unnamed_addr #5
+
+define dso_local ptr @di_runtime_getenv(ptr noundef %0) local_unnamed_addr #6 {
+  %1 = tail call ptr @getenv(ptr noundef nonnull %0)
+  %2 = icmp eq ptr %1, null
+  br i1 %2, label %3, label %4
+
+3:
+  ret ptr @.str
+
+4:
+  ret ptr %1
+}
+
+define dso_local i32 @di_runtime_system(ptr noundef %0) local_unnamed_addr #6 {
+  %1 = tail call i32 @system(ptr noundef %0)
+  ret i32 %1
+}
+
 ; Function Attrs: mustprogress nocallback nofree nounwind willreturn memory(argmem: write)
 declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg) #19
 

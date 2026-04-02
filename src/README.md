@@ -1,1 +1,1 @@
-The reference compiler binary is not built from sources in this tree. Use `bootstrap/di-linux-amd64` via `./scripts/install.sh`.
+There is no C compiler source here. The `di` executable is shipped as `bootstrap/di-linux-amd64` (Linux x86-64). The hosted runtime is LLVM IR at `runtime/runtime.ll`, merged at install time with `runtime/extra.c` when `clang` is unavailable.

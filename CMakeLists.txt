@@ -1,10 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(di NONE)
+project(di LANGUAGES NONE)
 
-message(FATAL_ERROR
-  "The Di reference compiler is not built from C sources in this tree.\n"
-  "  Install the toolchain: ./scripts/install.sh\n"
-  "  (installs the bootstrap compiler from bootstrap/di-linux-amd64, LLVM IR runtime, and stdlib.)\n"
-  "  Requires: cc, and optionally clang (to compile runtime/runtime.ll to ~/.local/share/di/runtime/runtime.o)."
-)
+message(STATUS "The Di reference compiler is not built from C sources in this tree.")
+message(STATUS "Use ./scripts/install.sh (bootstrap/di-linux-amd64) or build the Di driver in compiler/.")
+message(STATUS "Maintainers: see scripts/rebuild-bootstrap.sh to refresh bootstrap/di-linux-amd64 from a C toolchain checkout.")

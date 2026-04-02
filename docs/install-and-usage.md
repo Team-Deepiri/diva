@@ -14,7 +14,7 @@ There is **no compiler source tree** in this repository (only the bootstrap `di`
 
 ## Prerequisites
 
-- Linux / WSL: `cc` to link generated user code with the runtime object; optional `clang` to compile `runtime/runtime.ll` at install time (otherwise a prebuilt `runtime.o` is copied).
+- Linux / WSL: `cc` to link generated user code with the runtime object, and to merge `runtime/extra.c` with the bootstrap runtime object when `clang` is unavailable; optional `clang` to compile `runtime/runtime.ll` alone at install time (single full `runtime.o`).
 
 Do **not** use CMake here: it only prints instructions to run `./scripts/install.sh`.
 
