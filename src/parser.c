@@ -74,6 +74,64 @@ static char *copy_text(const char *text) {
     return di_ast_strdup_range(text, (int)strlen(text));
 }
 
+static int parser_looks_like_generic_call_args(DiParser *parser) {
+    DiLexer copy;
+    DiToken token;
+
+    if (parser->current.kind != DI_TOKEN_LBRACKET) {
+        return 0;
+    }
+
+    copy = parser->lexer;
+    token = di_lexer_next(&copy);
+    if (token.kind != DI_TOKEN_IDENT) {
+        return 0;
+    }
+
+    for (;;) {
+        token = di_lexer_next(&copy);
+        if (token.kind == DI_TOKEN_COMMA) {
+            token = di_lexer_next(&copy);
+            if (token.kind != DI_TOKEN_IDENT) {
+                return 0;
+            }
+            continue;
+        }
+        if (token.kind != DI_TOKEN_RBRACKET) {
+            return 0;
+        }
+        break;
+    }
+
+    token = di_lexer_next(&copy);
+    return token.kind == DI_TOKEN_LPAREN;
+}
+
+static void parse_generic_param_list(DiParser *parser, DiAstDecl *decl) {
+    if (!parser_match(parser, DI_TOKEN_LBRACKET)) {
+        return;
+    }
+    while (parser->current.kind != DI_TOKEN_RBRACKET && parser->current.kind != DI_TOKEN_EOF) {
+        char *name;
+        if (parser->current.kind != DI_TOKEN_IDENT) {
+            di_error("expected generic parameter name");
+            parser->had_error = 1;
+            return;
+        }
+        name = parser_take_text(parser);
+        parser_advance(parser);
+        if (!di_ast_decl_add_generic_param(decl, name)) {
+            free(name);
+            parser->had_error = 1;
+            return;
+        }
+        if (!parser_match(parser, DI_TOKEN_COMMA)) {
+            break;
+        }
+    }
+    parser_expect(parser, DI_TOKEN_RBRACKET, "']'");
+}
+
 static int parse_package_decl(DiParser *parser, DiAstProgram *program) {
     if (!parser_match(parser, DI_TOKEN_PACKAGE)) {
         return 1;
@@ -172,6 +230,26 @@ static DiAstExpr *parse_expr(DiParser *parser);
 static DiAstStmt *parse_stmt(DiParser *parser);
 static DiAstStmt *parse_simple_stmt(DiParser *parser, int require_semi);
 
+static DiAstExpr *parse_call_expr(DiParser *parser, DiAstExpr *callee) {
+    DiAstExpr *call_expr = di_ast_expr_new(DI_AST_CALL_EXPR);
+    if (call_expr == NULL) {
+        return callee;
+    }
+    call_expr->as.call.callee = callee;
+    while (parser->current.kind != DI_TOKEN_RPAREN && parser->current.kind != DI_TOKEN_EOF) {
+        DiAstExpr *arg = parse_expr(parser);
+        if (arg == NULL || !di_ast_call_add_arg(call_expr, arg)) {
+            parser->had_error = 1;
+            return call_expr;
+        }
+        if (!parser_match(parser, DI_TOKEN_COMMA)) {
+            break;
+        }
+    }
+    parser_expect(parser, DI_TOKEN_RPAREN, "')'");
+    return call_expr;
+}
+
 static DiAstExpr *parse_postfix(DiParser *parser, DiAstExpr *expr) {
     for (;;) {
         if (parser_match(parser, DI_TOKEN_DOT)) {
@@ -190,6 +268,32 @@ static DiAstExpr *parse_postfix(DiParser *parser, DiAstExpr *expr) {
             expr = field_expr;
             continue;
         }
+        if (parser->current.kind == DI_TOKEN_LBRACKET && parser_looks_like_generic_call_args(parser)) {
+            DiAstExpr *call_expr;
+            parser_advance(parser);
+            call_expr = di_ast_expr_new(DI_AST_CALL_EXPR);
+            if (call_expr == NULL) {
+                return expr;
+            }
+            call_expr->as.call.callee = expr;
+            while (parser->current.kind != DI_TOKEN_RBRACKET && parser->current.kind != DI_TOKEN_EOF) {
+                DiAstType type = parse_type(parser);
+                if (!di_ast_call_add_generic_arg(call_expr, type)) {
+                    parser->had_error = 1;
+                    return call_expr;
+                }
+                if (!parser_match(parser, DI_TOKEN_COMMA)) {
+                    break;
+                }
+            }
+            parser_expect(parser, DI_TOKEN_RBRACKET, "']'");
+            parser_expect(parser, DI_TOKEN_LPAREN, "'('");
+            expr = parse_call_expr(parser, call_expr->as.call.callee);
+            expr->as.call.generic_args = call_expr->as.call.generic_args;
+            expr->as.call.generic_arg_count = call_expr->as.call.generic_arg_count;
+            free(call_expr);
+            continue;
+        }
         if (parser_match(parser, DI_TOKEN_LBRACKET)) {
             DiAstExpr *index_expr = di_ast_expr_new(DI_AST_INDEX_EXPR);
             if (index_expr == NULL) {
@@ -202,23 +306,7 @@ static DiAstExpr *parse_postfix(DiParser *parser, DiAstExpr *expr) {
             continue;
         }
         if (parser_match(parser, DI_TOKEN_LPAREN)) {
-            DiAstExpr *call_expr = di_ast_expr_new(DI_AST_CALL_EXPR);
-            if (call_expr == NULL) {
-                return expr;
-            }
-            call_expr->as.call.callee = expr;
-            while (parser->current.kind != DI_TOKEN_RPAREN && parser->current.kind != DI_TOKEN_EOF) {
-                DiAstExpr *arg = parse_expr(parser);
-                if (arg == NULL || !di_ast_call_add_arg(call_expr, arg)) {
-                    parser->had_error = 1;
-                    return call_expr;
-                }
-                if (!parser_match(parser, DI_TOKEN_COMMA)) {
-                    break;
-                }
-            }
-            parser_expect(parser, DI_TOKEN_RPAREN, "')'");
-            expr = call_expr;
+            expr = parse_call_expr(parser, expr);
             continue;
         }
         break;
@@ -620,6 +708,8 @@ static DiAstDecl *parse_function_decl(DiParser *parser, int is_extern, const cha
         decl->owner_type = copy_text(owner_type);
     }
 
+    parse_generic_param_list(parser, decl);
+
     parser_expect(parser, DI_TOKEN_LPAREN, "'('");
     if (owner_type != NULL) {
         DiAstParam self_param;
@@ -650,6 +740,72 @@ static DiAstDecl *parse_function_decl(DiParser *parser, int is_extern, const cha
     }
     parser_expect(parser, DI_TOKEN_RBRACE, "'}'");
     return decl;
+}
+
+static int parse_trait_decl(DiParser *parser, DiAstProgram *program) {
+    DiAstDecl *trait_decl;
+    char *name;
+
+    parser_expect(parser, DI_TOKEN_TRAIT, "'trait'");
+    if (parser->current.kind != DI_TOKEN_IDENT) {
+        di_error("expected trait name");
+        parser->had_error = 1;
+        return 0;
+    }
+
+    name = parser_take_text(parser);
+    parser_advance(parser);
+    trait_decl = di_ast_decl_new(DI_AST_TRAIT_DECL, name);
+    if (trait_decl == NULL) {
+        free(name);
+        return 0;
+    }
+
+    parser_expect(parser, DI_TOKEN_LBRACE, "'{'");
+    while (parser->current.kind != DI_TOKEN_RBRACE && parser->current.kind != DI_TOKEN_EOF) {
+        DiAstDecl *method = parse_function_decl(parser, 1, NULL);
+        if (method == NULL || !di_ast_decl_add_trait_method(trait_decl, method)) {
+            parser->had_error = 1;
+            return 0;
+        }
+        parser_maybe_semi(parser);
+    }
+    parser_expect(parser, DI_TOKEN_RBRACE, "'}'");
+    return di_ast_program_add_decl(program, trait_decl);
+}
+
+static int parse_impl_decl(DiParser *parser, DiAstProgram *program) {
+    DiAstDecl *impl_decl;
+    char *trait_name;
+    char *type_name;
+
+    parser_expect(parser, DI_TOKEN_IMPL, "'impl'");
+    if (parser->current.kind != DI_TOKEN_IDENT) {
+        di_error("expected trait name after impl");
+        parser->had_error = 1;
+        return 0;
+    }
+    trait_name = parser_take_text(parser);
+    parser_advance(parser);
+    parser_expect(parser, DI_TOKEN_FOR, "'for'");
+    if (parser->current.kind != DI_TOKEN_IDENT) {
+        di_error("expected type name after 'for'");
+        free(trait_name);
+        parser->had_error = 1;
+        return 0;
+    }
+    type_name = parser_take_text(parser);
+    parser_advance(parser);
+    parser_maybe_semi(parser);
+
+    impl_decl = di_ast_decl_new(DI_AST_IMPL_DECL, trait_name);
+    if (impl_decl == NULL) {
+        free(trait_name);
+        free(type_name);
+        return 0;
+    }
+    impl_decl->owner_type = type_name;
+    return di_ast_program_add_decl(program, impl_decl);
 }
 
 static int parse_class_decl(DiParser *parser, DiAstProgram *program, int is_struct_style) {
@@ -769,6 +925,22 @@ DiAstProgram *di_parse_file(const char *source, const char *source_path) {
 
         if (!is_extern && (parser.current.kind == DI_TOKEN_CLASS || parser.current.kind == DI_TOKEN_STRUCT)) {
             if (!parse_class_decl(&parser, program, parser.current.kind == DI_TOKEN_STRUCT)) {
+                parser.had_error = 1;
+                break;
+            }
+            continue;
+        }
+
+        if (!is_extern && parser.current.kind == DI_TOKEN_TRAIT) {
+            if (!parse_trait_decl(&parser, program)) {
+                parser.had_error = 1;
+                break;
+            }
+            continue;
+        }
+
+        if (!is_extern && parser.current.kind == DI_TOKEN_IMPL) {
+            if (!parse_impl_decl(&parser, program)) {
                 parser.had_error = 1;
                 break;
             }

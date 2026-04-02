@@ -1,0 +1,13 @@
+trait Measure {
+    func measure(): int
+}
+
+class Empty {
+    value: int
+}
+
+impl Measure for Empty
+
+func main(): int {
+    return 0
+}

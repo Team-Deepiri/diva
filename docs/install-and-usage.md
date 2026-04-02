@@ -58,11 +58,13 @@ On Linux / WSL, the default install locations are:
 
 - compiler: `~/.local/bin/di`
 - runtime: `~/.local/share/di/runtime/`
+- stdlib: `~/.local/share/di/stdlib/`
 
 On PowerShell, the default install locations are:
 
 - compiler: `~/.di/bin/di.exe`
 - runtime: `~/.di/runtime/`
+- stdlib: `~/.di/stdlib/`
 
 If the compiler is not found after install, add the install directory to your `PATH`.
 
@@ -112,34 +114,58 @@ Common commands:
 
 ```sh
 di main.di
-di build main.di
-di run main.di
-di emit-ir main.di
-di watch main.di
+di build .
+di run .
+di check .
+di emit-ir .
+di watch .
 di new hello-di
+di new hello-lib --lib
 ```
 
 Notes:
 
-- `di main.di` builds and runs a `.di` file
-- `di build main.di` builds without running
-- `di emit-ir main.di` writes LLVM IR into `build/`
-- `di watch main.di` rebuilds and reruns on file changes
-- `di new hello-di` creates a starter project
+- `di main.di` builds and runs a single `.di` file
+- `di build .` builds the current package directory
+- `di check .` validates a package without native linking
+- `di emit-ir .` writes LLVM IR into `build/`
+- `di watch .` watches the package entry file from `di.mod`
+- `di new hello-di` creates an app package
+- `di new hello-lib --lib` creates a library package
 
 ## Create A New Project
 
 ```sh
 di new hello-di
 cd hello-di
-di run main.di
+di run .
 ```
 
 The generated project includes:
 
-- `main.di`
+- `di.mod`
+- `src/main.di` for apps or `src/lib.di` for libraries
 - `.gitignore`
 - `README.md`
+
+## Package Dependencies
+
+Package manifests can declare local dependencies:
+
+```txt
+name = "app_with_dep"
+kind = "app"
+entry = "src/main.di"
+dep.math_lib = "../math_lib"
+```
+
+Then source files can import a dependency package by name:
+
+```di
+import "pkg/math_lib"
+```
+
+`pkg/<name>` resolves to the dependency package entry from that package's own `di.mod`.
 
 ## Build From Source
 

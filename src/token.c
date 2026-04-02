@@ -23,6 +23,9 @@ const char *di_token_kind_name(DiTokenKind kind) {
         case DI_TOKEN_FALSE: return "false";
         case DI_TOKEN_PACKAGE: return "package";
         case DI_TOKEN_IMPORT: return "import";
+        case DI_TOKEN_TRAIT: return "trait";
+        case DI_TOKEN_IMPL: return "impl";
+        case DI_TOKEN_FOR: return "for";
         case DI_TOKEN_LPAREN: return "(";
         case DI_TOKEN_RPAREN: return ")";
         case DI_TOKEN_LBRACKET: return "[";

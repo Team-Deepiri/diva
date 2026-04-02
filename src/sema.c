@@ -3,6 +3,7 @@
 #include "diag.h"
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct {
@@ -46,6 +47,17 @@ static const DiAstDecl *find_function_decl(const DiAstProgram *program, const ch
     for (i = 0; i < program->decl_count; ++i) {
         if ((program->decls[i]->kind == DI_AST_FUNCTION || program->decls[i]->kind == DI_AST_EXTERN_FUNCTION) &&
             program->decls[i]->owner_type == NULL &&
+            same_name(program->decls[i]->name, name)) {
+            return program->decls[i];
+        }
+    }
+    return NULL;
+}
+
+static const DiAstDecl *find_trait_decl(const DiAstProgram *program, const char *name) {
+    size_t i;
+    for (i = 0; i < program->decl_count; ++i) {
+        if (program->decls[i]->kind == DI_AST_TRAIT_DECL &&
             same_name(program->decls[i]->name, name)) {
             return program->decls[i];
         }
@@ -143,6 +155,40 @@ static int type_equals(const char *a, const char *b) {
     return same_name(a, b);
 }
 
+static int same_signature(const DiAstDecl *left, const DiAstDecl *right) {
+    size_t i;
+    if (left->kind != right->kind ||
+        !type_equals(left->return_type.name, right->return_type.name) ||
+        left->param_count != right->param_count ||
+        left->generic_param_count != right->generic_param_count) {
+        return 0;
+    }
+    for (i = 0; i < left->param_count; ++i) {
+        if (!type_equals(left->params[i].type.name, right->params[i].type.name)) {
+            return 0;
+        }
+    }
+    for (i = 0; i < left->generic_param_count; ++i) {
+        if (!same_name(left->generic_params[i], right->generic_params[i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int decl_has_generic_param(const DiAstDecl *decl, const char *name) {
+    size_t i;
+    if (decl == NULL) {
+        return 0;
+    }
+    for (i = 0; i < decl->generic_param_count; ++i) {
+        if (same_name(decl->generic_params[i], name)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int is_reserved_c_identifier(const char *name) {
     static const char *reserved[] = {
         "auto", "break", "case", "char", "const", "continue", "default",
@@ -196,8 +242,58 @@ static int is_builtin_type(const char *type_name) {
            type_equals(type_name, "range");
 }
 
-static int type_exists(const DiAstProgram *program, const char *type_name) {
-    return is_builtin_type(type_name) || is_array_type(type_name) || find_struct_decl(program, type_name) != NULL;
+static int type_exists(const DiAstProgram *program, const DiAstDecl *decl, const char *type_name) {
+    const char *elem_type;
+    if (is_builtin_type(type_name)) {
+        return 1;
+    }
+    if (decl_has_generic_param(decl, type_name)) {
+        return 1;
+    }
+    elem_type = array_element_type(type_name);
+    if (elem_type != NULL) {
+        return type_exists(program, decl, elem_type);
+    }
+    return find_struct_decl(program, type_name) != NULL;
+}
+
+static const char *resolve_decl_type(const DiAstDecl *decl,
+                                     const char *type_name,
+                                     const DiAstType *generic_args,
+                                     size_t generic_arg_count) {
+    size_t i;
+    if (decl == NULL || generic_args == NULL) {
+        return type_name;
+    }
+    for (i = 0; i < decl->generic_param_count && i < generic_arg_count; ++i) {
+        if (same_name(decl->generic_params[i], type_name)) {
+            return generic_args[i].name;
+        }
+    }
+    return type_name;
+}
+
+static char *make_generic_symbol_name(const DiAstDecl *decl, const DiAstType *generic_args, size_t generic_arg_count) {
+    size_t i;
+    size_t size = strlen(decl->name) + 3;
+    char *buffer;
+    for (i = 0; i < generic_arg_count; ++i) {
+        size += strlen(generic_args[i].name) + 2;
+    }
+    buffer = (char *)malloc(size);
+    if (buffer == NULL) {
+        return NULL;
+    }
+    buffer[0] = '\0';
+    strcpy(buffer, decl->name);
+    strcat(buffer, "__");
+    for (i = 0; i < generic_arg_count; ++i) {
+        if (i != 0) {
+            strcat(buffer, "_");
+        }
+        strcat(buffer, generic_args[i].name);
+    }
+    return buffer;
 }
 
 static const char *check_expr(const DiAstProgram *program, DiAstExpr *expr, const DiAstDecl *decl, ScopeStack *scopes);
@@ -347,6 +443,13 @@ static const char *check_expr(const DiAstProgram *program, DiAstExpr *expr, cons
                     di_error("unknown function '%s' in function %s", expr->as.call.callee->as.ident_name, decl->name);
                     return NULL;
                 }
+                if (target->generic_param_count != expr->as.call.generic_arg_count) {
+                    di_error("call to '%s' requires %zu generic type argument(s), got %zu",
+                               target->name,
+                               target->generic_param_count,
+                               expr->as.call.generic_arg_count);
+                    return NULL;
+                }
                 if (target->param_count != expr->as.call.arg_count) {
                     di_error("call to '%s' has %zu argument(s), expected %zu",
                                target->name,
@@ -356,20 +459,33 @@ static const char *check_expr(const DiAstProgram *program, DiAstExpr *expr, cons
                 }
                 for (i = 0; i < expr->as.call.arg_count; ++i) {
                     const char *arg_type = check_expr(program, expr->as.call.args[i], decl, scopes);
+                    const char *expected_type = resolve_decl_type(target,
+                                                                  target->params[i].type.name,
+                                                                  expr->as.call.generic_args,
+                                                                  expr->as.call.generic_arg_count);
                     if (arg_type == NULL) {
                         return NULL;
                     }
-                    if (!type_equals(arg_type, target->params[i].type.name)) {
+                    if (!type_equals(arg_type, expected_type)) {
                         di_error("argument %zu to '%s' has type %s, expected %s",
                                    i + 1,
                                    target->name,
                                    arg_type,
-                                   target->params[i].type.name);
+                                   expected_type);
                         return NULL;
                     }
                 }
-                expr->as.call.resolved_name = target->name;
-                expr->inferred_type = target->return_type.name;
+                if (target->generic_param_count != 0) {
+                    expr->as.call.resolved_name = make_generic_symbol_name(target,
+                                                                           expr->as.call.generic_args,
+                                                                           expr->as.call.generic_arg_count);
+                } else {
+                    expr->as.call.resolved_name = target->name;
+                }
+                expr->inferred_type = resolve_decl_type(target,
+                                                        target->return_type.name,
+                                                        expr->as.call.generic_args,
+                                                        expr->as.call.generic_arg_count);
                 return expr->inferred_type;
             }
 
@@ -629,7 +745,7 @@ static int check_stmt_list(const DiAstProgram *program, DiAstStmt **items, size_
     return failures;
 }
 
-int di_sema_check_program(const DiAstProgram *program) {
+int di_sema_check_program(const DiAstProgram *program, int require_main) {
     size_t i;
     size_t k;
     int seen_main = 0;
@@ -642,28 +758,44 @@ int di_sema_check_program(const DiAstProgram *program) {
     for (i = 0; i < program->decl_count; ++i) {
         const DiAstDecl *decl = program->decls[i];
         size_t j;
+        const char *decl_kind_name = decl->kind == DI_AST_STRUCT_DECL ? "type" :
+                                     decl->kind == DI_AST_TRAIT_DECL ? "trait" :
+                                     decl->kind == DI_AST_IMPL_DECL ? "impl" :
+                                     "declaration";
 
-        if (!validate_identifier_name(decl->kind == DI_AST_STRUCT_DECL ? "type" : "declaration",
-                                      decl->name,
-                                      decl->owner_type)) {
+        if (!validate_identifier_name(decl_kind_name, decl->name, decl->owner_type)) {
             failures++;
         }
         if (decl->owner_type != NULL &&
             !validate_identifier_name("owner type", decl->owner_type, decl->name)) {
             failures++;
         }
+        for (j = 0; j < decl->generic_param_count; ++j) {
+            if (!validate_identifier_name("generic parameter", decl->generic_params[j], decl->name)) {
+                failures++;
+            }
+        }
         for (k = i + 1; k < program->decl_count; ++k) {
             const DiAstDecl *other = program->decls[k];
             const char *decl_owner = decl->owner_type != NULL ? decl->owner_type : "";
             const char *other_owner = other->owner_type != NULL ? other->owner_type : "";
+            if (decl->kind == DI_AST_IMPL_DECL || other->kind == DI_AST_IMPL_DECL) {
+                continue;
+            }
             if (same_name(decl_owner, other_owner) && same_name(decl->name, other->name)) {
+                if (decl->kind == DI_AST_EXTERN_FUNCTION &&
+                    other->kind == DI_AST_EXTERN_FUNCTION &&
+                    same_signature(decl, other)) {
+                    continue;
+                }
                 di_error("duplicate top-level declaration '%s'", decl->name);
                 failures++;
                 break;
             }
         }
 
-        if (decl->owner_type == NULL && same_name(decl->name, "main")) {
+        if (decl->kind == DI_AST_FUNCTION && decl->owner_type == NULL &&
+            decl->generic_param_count == 0 && same_name(decl->name, "main")) {
             seen_main = 1;
         }
 
@@ -672,12 +804,105 @@ int di_sema_check_program(const DiAstProgram *program) {
                 if (!validate_identifier_name("field", decl->fields[j].name, decl->name)) {
                     failures++;
                 }
-                if (!type_exists(program, decl->fields[j].type.name)) {
+                if (!type_exists(program, decl, decl->fields[j].type.name)) {
                     di_error("unknown field type '%s' in struct %s", decl->fields[j].type.name, decl->name);
                     failures++;
                 }
             }
             continue;
+        }
+
+        if (decl->kind == DI_AST_TRAIT_DECL) {
+            for (j = 0; j < decl->trait_method_count; ++j) {
+                const DiAstDecl *method = decl->trait_methods[j];
+                size_t p;
+                if (!validate_identifier_name("trait method", method->name, decl->name)) {
+                    failures++;
+                }
+                for (p = 0; p < method->param_count; ++p) {
+                    if (!type_exists(program, method, method->params[p].type.name)) {
+                        di_error("unknown parameter type '%s' in trait %s method %s",
+                                 method->params[p].type.name,
+                                 decl->name,
+                                 method->name);
+                        failures++;
+                    }
+                }
+                if (!type_exists(program, method, method->return_type.name)) {
+                    di_error("unknown return type '%s' in trait %s method %s",
+                             method->return_type.name,
+                             decl->name,
+                             method->name);
+                    failures++;
+                }
+            }
+            continue;
+        }
+
+        if (decl->kind == DI_AST_IMPL_DECL) {
+            const DiAstDecl *trait_decl = find_trait_decl(program, decl->name);
+            const DiAstDecl *struct_decl = find_struct_decl(program, decl->owner_type);
+            if (trait_decl == NULL) {
+                di_error("unknown trait '%s' in impl", decl->name);
+                failures++;
+            }
+            if (struct_decl == NULL) {
+                di_error("unknown type '%s' in impl for trait %s", decl->owner_type, decl->name);
+                failures++;
+            }
+            if (trait_decl != NULL && struct_decl != NULL) {
+                for (j = 0; j < trait_decl->trait_method_count; ++j) {
+                    const DiAstDecl *required = trait_decl->trait_methods[j];
+                    const DiAstDecl *actual = find_method_decl(program, decl->owner_type, required->name);
+                    size_t p;
+                    if (actual == NULL) {
+                        di_error("type '%s' does not implement required method '%s' for trait %s",
+                                 decl->owner_type,
+                                 required->name,
+                                 decl->name);
+                        failures++;
+                        continue;
+                    }
+                    if (actual->param_count != required->param_count + 1) {
+                        di_error("method '%s.%s' does not match trait %s parameter count",
+                                 decl->owner_type,
+                                 required->name,
+                                 decl->name);
+                        failures++;
+                        continue;
+                    }
+                    if (!type_equals(actual->params[0].type.name, decl->owner_type)) {
+                        di_error("method '%s.%s' has invalid self parameter for trait %s",
+                                 decl->owner_type,
+                                 required->name,
+                                 decl->name);
+                        failures++;
+                    }
+                    for (p = 0; p < required->param_count; ++p) {
+                        if (!type_equals(actual->params[p + 1].type.name, required->params[p].type.name)) {
+                            di_error("method '%s.%s' parameter %zu does not match trait %s",
+                                     decl->owner_type,
+                                     required->name,
+                                     p + 1,
+                                     decl->name);
+                            failures++;
+                        }
+                    }
+                    if (!type_equals(actual->return_type.name, required->return_type.name)) {
+                        di_error("method '%s.%s' return type does not match trait %s",
+                                 decl->owner_type,
+                                 required->name,
+                                 decl->name);
+                        failures++;
+                    }
+                }
+            }
+            continue;
+        }
+
+        if (decl->owner_type != NULL && decl->generic_param_count != 0) {
+            di_error("generic methods are not supported yet: %s.%s", decl->owner_type, decl->name);
+            failures++;
         }
 
         if (decl->kind == DI_AST_EXTERN_FUNCTION) {
@@ -688,12 +913,12 @@ int di_sema_check_program(const DiAstProgram *program) {
             if (!validate_identifier_name("parameter", decl->params[j].name, decl->name)) {
                 failures++;
             }
-            if (!type_exists(program, decl->params[j].type.name)) {
+            if (!type_exists(program, decl, decl->params[j].type.name)) {
                 di_error("unknown parameter type '%s' in function %s", decl->params[j].type.name, decl->name);
                 failures++;
             }
         }
-        if (!type_exists(program, decl->return_type.name)) {
+        if (!type_exists(program, decl, decl->return_type.name)) {
             di_error("unknown return type '%s' in function %s", decl->return_type.name, decl->name);
             failures++;
         }
@@ -704,7 +929,10 @@ int di_sema_check_program(const DiAstProgram *program) {
         ScopeStack scopes;
         size_t j;
 
-        if (decl->kind == DI_AST_STRUCT_DECL || decl->kind == DI_AST_EXTERN_FUNCTION) {
+        if (decl->kind == DI_AST_STRUCT_DECL ||
+            decl->kind == DI_AST_EXTERN_FUNCTION ||
+            decl->kind == DI_AST_TRAIT_DECL ||
+            decl->kind == DI_AST_IMPL_DECL) {
             continue;
         }
 
@@ -719,7 +947,7 @@ int di_sema_check_program(const DiAstProgram *program) {
         failures += check_stmt_list(program, decl->body, decl->body_count, decl, &scopes, 0);
     }
 
-    if (!seen_main) {
+    if (require_main && !seen_main) {
         di_error("program is missing a main function");
         failures++;
     }

@@ -28,6 +28,10 @@ static const DiIrDecl *find_struct_decl(const DiIrProgram *program, const char *
 static const char *map_runtime_symbol(const char *name) {
     if (strcmp(name, "print_int") == 0) return "di_runtime_print_int";
     if (strcmp(name, "print_str") == 0) return "di_runtime_print_str";
+    if (strcmp(name, "print_hex") == 0) return "di_runtime_print_hex";
+    if (strcmp(name, "write") == 0) return "di_runtime_write";
+    if (strcmp(name, "exit") == 0) return "di_runtime_exit";
+    if (strcmp(name, "abort") == 0) return "di_runtime_abort";
     return name;
 }
 
@@ -46,17 +50,46 @@ static const char *callable_symbol_name(const DiAstExpr *call_expr) {
                                   : call_expr->as.call.callee->as.ident_name);
 }
 
-static const char *c_type_name(const DiIrProgram *program, const char *type_name) {
+static const char *resolve_decl_type_name(const DiIrDecl *decl, const char *type_name) {
+    size_t i;
+    size_t len;
     static char buffer[16][128];
     static int index = 0;
 
-    if (strcmp(type_name, "int") == 0) return "int";
-    if (strcmp(type_name, "bool") == 0) return "int";
-    if (strcmp(type_name, "str") == 0) return "const char *";
-    if (strcmp(type_name, "void") == 0) return "void";
-    if (find_struct_decl(program, type_name) != NULL) {
+    if (decl != NULL) {
+        for (i = 0; i < decl->generic_binding_count; ++i) {
+            if (strcmp(decl->generic_bindings[i].param_name, type_name) == 0) {
+                return decl->generic_bindings[i].type_name;
+            }
+        }
+    }
+
+    len = strlen(type_name);
+    if (len > 2 && strcmp(type_name + len - 2, "[]") == 0) {
+        const char *elem;
         index = (index + 1) % 16;
-        snprintf(buffer[index], sizeof(buffer[index]), "struct %s", type_name);
+        memcpy(buffer[index], type_name, len - 2);
+        buffer[index][len - 2] = '\0';
+        elem = resolve_decl_type_name(decl, buffer[index]);
+        snprintf(buffer[index], sizeof(buffer[index]), "%s[]", elem);
+        return buffer[index];
+    }
+
+    return type_name;
+}
+
+static const char *c_type_name(const DiIrProgram *program, const DiIrDecl *decl, const char *type_name) {
+    static char buffer[16][128];
+    static int index = 0;
+    const char *resolved = resolve_decl_type_name(decl, type_name);
+
+    if (strcmp(resolved, "int") == 0) return "int";
+    if (strcmp(resolved, "bool") == 0) return "int";
+    if (strcmp(resolved, "str") == 0) return "const char *";
+    if (strcmp(resolved, "void") == 0) return "void";
+    if (find_struct_decl(program, resolved) != NULL) {
+        index = (index + 1) % 16;
+        snprintf(buffer[index], sizeof(buffer[index]), "struct %s", resolved);
         return buffer[index];
     }
     return "int";
@@ -216,16 +249,16 @@ static void emit_indent(FILE *out, int indent) {
     }
 }
 
-static void emit_stmt_c(FILE *out, const DiIrProgram *program, const DiAstStmt *stmt, int indent);
+static void emit_stmt_c(FILE *out, const DiIrProgram *program, const DiIrDecl *decl, const DiAstStmt *stmt, int indent);
 
-static void emit_stmt_list_c(FILE *out, const DiIrProgram *program, DiAstStmt **items, size_t count, int indent) {
+static void emit_stmt_list_c(FILE *out, const DiIrProgram *program, const DiIrDecl *decl, DiAstStmt **items, size_t count, int indent) {
     size_t i;
     for (i = 0; i < count; ++i) {
-        emit_stmt_c(out, program, items[i], indent);
+        emit_stmt_c(out, program, decl, items[i], indent);
     }
 }
 
-static void emit_flux_stmt_c(FILE *out, const DiIrProgram *program, const DiAstStmt *stmt, int indent) {
+static void emit_flux_stmt_c(FILE *out, const DiIrProgram *program, const DiIrDecl *decl, const DiAstStmt *stmt, int indent) {
     if (stmt->as.flux_stmt.iterable->kind == DI_AST_RANGE_EXPR) {
         emit_indent(out, indent);
         fprintf(out, "for (int %s = ", stmt->as.flux_stmt.name);
@@ -233,7 +266,7 @@ static void emit_flux_stmt_c(FILE *out, const DiIrProgram *program, const DiAstS
         fprintf(out, "; %s < ", stmt->as.flux_stmt.name);
         emit_expr_c(out, stmt->as.flux_stmt.iterable->as.range.end);
         fprintf(out, "; %s = %s + 1) {\n", stmt->as.flux_stmt.name, stmt->as.flux_stmt.name);
-        emit_stmt_list_c(out, program, stmt->as.flux_stmt.body.items, stmt->as.flux_stmt.body.count, indent + 1);
+        emit_stmt_list_c(out, program, decl, stmt->as.flux_stmt.body.items, stmt->as.flux_stmt.body.count, indent + 1);
         emit_indent(out, indent);
         fprintf(out, "}\n");
         return;
@@ -253,22 +286,21 @@ static void emit_flux_stmt_c(FILE *out, const DiIrProgram *program, const DiAstS
     fprintf(out, "int %s = ", stmt->as.flux_stmt.name);
     emit_expr_c(out, stmt->as.flux_stmt.iterable);
     fprintf(out, "[%s__index];\n", stmt->as.flux_stmt.name);
-    emit_stmt_list_c(out, program, stmt->as.flux_stmt.body.items, stmt->as.flux_stmt.body.count, indent + 1);
+    emit_stmt_list_c(out, program, decl, stmt->as.flux_stmt.body.items, stmt->as.flux_stmt.body.count, indent + 1);
     emit_indent(out, indent);
     fprintf(out, "}\n");
 }
 
-static void emit_stmt_c(FILE *out, const DiIrProgram *program, const DiAstStmt *stmt, int indent) {
+static void emit_stmt_c(FILE *out, const DiIrProgram *program, const DiIrDecl *decl, const DiAstStmt *stmt, int indent) {
     if (stmt->kind == DI_AST_VAR_STMT) {
         emit_indent(out, indent);
-        if (strcmp(stmt->as.var_stmt.type.name, "int[]") == 0 &&
-            stmt->as.var_stmt.value != NULL &&
+        if (stmt->as.var_stmt.value != NULL &&
             stmt->as.var_stmt.value->kind == DI_AST_ARRAY_INIT_EXPR) {
             fprintf(out, "int %s[%zu] = ", stmt->as.var_stmt.name, stmt->as.var_stmt.value->as.array_init.item_count);
             emit_expr_c(out, stmt->as.var_stmt.value);
             fprintf(out, ";\n");
         } else {
-            fprintf(out, "%s %s = ", c_type_name(program, stmt->as.var_stmt.type.name), stmt->as.var_stmt.name);
+            fprintf(out, "%s %s = ", c_type_name(program, decl, stmt->as.var_stmt.type.name), stmt->as.var_stmt.name);
             emit_expr_c(out, stmt->as.var_stmt.value);
             fprintf(out, ";\n");
         }
@@ -321,12 +353,12 @@ static void emit_stmt_c(FILE *out, const DiIrProgram *program, const DiAstStmt *
         fprintf(out, "if (");
         emit_expr_c(out, stmt->as.if_stmt.condition);
         fprintf(out, ") {\n");
-        emit_stmt_list_c(out, program, stmt->as.if_stmt.then_block.items, stmt->as.if_stmt.then_block.count, indent + 1);
+        emit_stmt_list_c(out, program, decl, stmt->as.if_stmt.then_block.items, stmt->as.if_stmt.then_block.count, indent + 1);
         emit_indent(out, indent);
         fprintf(out, "}");
         if (stmt->as.if_stmt.else_block.count != 0) {
             fprintf(out, " else {\n");
-            emit_stmt_list_c(out, program, stmt->as.if_stmt.else_block.items, stmt->as.if_stmt.else_block.count, indent + 1);
+            emit_stmt_list_c(out, program, decl, stmt->as.if_stmt.else_block.items, stmt->as.if_stmt.else_block.count, indent + 1);
             emit_indent(out, indent);
             fprintf(out, "}");
         }
@@ -339,9 +371,9 @@ static void emit_stmt_c(FILE *out, const DiIrProgram *program, const DiAstStmt *
         fprintf(out, "while (");
         emit_expr_c(out, stmt->as.while_stmt.condition);
         fprintf(out, ") {\n");
-        emit_stmt_list_c(out, program, stmt->as.while_stmt.body.items, stmt->as.while_stmt.body.count, indent + 1);
+        emit_stmt_list_c(out, program, decl, stmt->as.while_stmt.body.items, stmt->as.while_stmt.body.count, indent + 1);
         if (stmt->as.while_stmt.update != NULL) {
-            emit_stmt_c(out, program, stmt->as.while_stmt.update, indent + 1);
+            emit_stmt_c(out, program, decl, stmt->as.while_stmt.update, indent + 1);
         }
         emit_indent(out, indent);
         fprintf(out, "}\n");
@@ -349,7 +381,7 @@ static void emit_stmt_c(FILE *out, const DiIrProgram *program, const DiAstStmt *
     }
 
     if (stmt->kind == DI_AST_FLUX_STMT) {
-        emit_flux_stmt_c(out, program, stmt, indent);
+        emit_flux_stmt_c(out, program, decl, stmt, indent);
     }
 }
 
@@ -434,10 +466,11 @@ int di_codegen_emit_llvm_ir(const DiIrProgram *program, const char *input_path) 
     return 0;
 }
 
-int di_codegen_build_native(const DiIrProgram *program, const char *input_path, int run_after_build) {
+int di_codegen_build_native(const DiIrProgram *program, const char *input_path, int run_after_build, int codegen_mode) {
     char output_base[256];
     char c_path[300];
     char exe_path[300];
+    char obj_path[300];
     char command[1024];
     FILE *out;
     size_t i;
@@ -451,6 +484,7 @@ int di_codegen_build_native(const DiIrProgram *program, const char *input_path, 
     make_output_base(input_path, output_base, sizeof(output_base));
     snprintf(c_path, sizeof(c_path), "%s.c", output_base);
     snprintf(exe_path, sizeof(exe_path), "%s", output_base);
+    snprintf(obj_path, sizeof(obj_path), "%s.o", output_base);
 
     out = fopen(c_path, "wb");
     if (out == NULL) {
@@ -458,9 +492,14 @@ int di_codegen_build_native(const DiIrProgram *program, const char *input_path, 
         return 1;
     }
 
-    fprintf(out, "#include <stdio.h>\n\n");
-    fprintf(out, "extern void di_runtime_print_int(int x);\n");
-    fprintf(out, "extern void di_runtime_print_str(const char *x);\n\n");
+    if (codegen_mode == DI_CODEGEN_HOSTED) {
+        fprintf(out, "extern void di_runtime_print_int(int x);\n");
+        fprintf(out, "extern void di_runtime_print_str(const char *x);\n");
+        fprintf(out, "extern void di_runtime_print_hex(int x);\n");
+        fprintf(out, "extern int di_runtime_write(int fd, const char *x);\n");
+        fprintf(out, "extern void di_runtime_exit(int status);\n");
+        fprintf(out, "extern void di_runtime_abort(void);\n\n");
+    }
 
     for (i = 0; i < program->decl_count; ++i) {
         const DiIrDecl *decl = &program->decls[i];
@@ -468,7 +507,7 @@ int di_codegen_build_native(const DiIrProgram *program, const char *input_path, 
         if (decl->kind != DI_IR_STRUCT_DECL) continue;
         fprintf(out, "struct %s {\n", decl->name);
         for (j = 0; j < decl->field_count; ++j) {
-            fprintf(out, "    %s %s;\n", c_type_name(program, decl->fields[j].type_name), decl->fields[j].name);
+            fprintf(out, "    %s %s;\n", c_type_name(program, decl, decl->fields[j].type_name), decl->fields[j].name);
         }
         fprintf(out, "};\n\n");
     }
@@ -476,29 +515,52 @@ int di_codegen_build_native(const DiIrProgram *program, const char *input_path, 
     for (i = 0; i < program->decl_count; ++i) {
         const DiIrDecl *decl = &program->decls[i];
         size_t j;
-        if (decl->kind == DI_IR_STRUCT_DECL) continue;
+        if (decl->kind == DI_IR_STRUCT_DECL || decl->kind == DI_IR_EXTERN_FUNCTION) continue;
         fprintf(out, "%s %s(",
-                c_type_name(program, decl->return_type),
+                c_type_name(program, decl, decl->return_type),
                 decl->symbol_name);
         for (j = 0; j < decl->param_count; ++j) {
             if (j != 0) fprintf(out, ", ");
             fprintf(out, "%s %s",
-                    c_type_name(program, decl->params[j].type_name),
+                    c_type_name(program, decl, decl->params[j].type_name),
                     decl->params[j].name);
         }
-        if (decl->kind == DI_IR_EXTERN_FUNCTION) {
-            fprintf(out, ");\n");
-        } else {
-            fprintf(out, ") {\n");
-            emit_stmt_list_c(out, ctx.program, decl->body, decl->body_count, 1);
-            if (strcmp(decl->return_type, "void") == 0) {
-                fprintf(out, "    return;\n");
-            }
-            fprintf(out, "}\n\n");
+        fprintf(out, ");\n");
+    }
+    fprintf(out, "\n");
+
+    for (i = 0; i < program->decl_count; ++i) {
+        const DiIrDecl *decl = &program->decls[i];
+        size_t j;
+        if (decl->kind == DI_IR_STRUCT_DECL || decl->kind == DI_IR_EXTERN_FUNCTION) continue;
+        fprintf(out, "%s %s(",
+                c_type_name(program, decl, decl->return_type),
+                decl->symbol_name);
+        for (j = 0; j < decl->param_count; ++j) {
+            if (j != 0) fprintf(out, ", ");
+            fprintf(out, "%s %s",
+                    c_type_name(program, decl, decl->params[j].type_name),
+                    decl->params[j].name);
         }
+        fprintf(out, ") {\n");
+        emit_stmt_list_c(out, ctx.program, decl, decl->body, decl->body_count, 1);
+        if (strcmp(decl->return_type, "void") == 0) {
+            fprintf(out, "    return;\n");
+        }
+        fprintf(out, "}\n\n");
     }
 
     fclose(out);
+
+    if (codegen_mode == DI_CODEGEN_FREESTANDING) {
+        snprintf(command, sizeof(command), "cc -ffreestanding -c \"%s\" -o \"%s\"", c_path, obj_path);
+        if (system(command) != 0) {
+            di_error("failed to build freestanding object file");
+            return 1;
+        }
+        di_info("built freestanding object at %s", obj_path);
+        return 0;
+    }
 
     snprintf(command, sizeof(command), "cc \"%s\" \"%s\" -o \"%s\"", c_path, DI_RUNTIME_SOURCE, exe_path);
     if (system(command) != 0) {

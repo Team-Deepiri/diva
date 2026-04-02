@@ -16,6 +16,7 @@ if(LLVM_FOUND)
 endif()
 
 include_directories(include)
+set(DI_STDLIB_DIR "${CMAKE_SOURCE_DIR}/stdlib")
 
 set(DI_SOURCES
   src/main.c
@@ -31,6 +32,7 @@ set(DI_SOURCES
 )
 
 add_executable(di ${DI_SOURCES})
+target_compile_definitions(di PRIVATE DI_STDLIB_DIR=\"${DI_STDLIB_DIR}\")
 
 if(LLVM_FOUND)
   if(TARGET LLVM)

@@ -31,13 +31,19 @@ The current repo already includes:
 `Di` currently supports:
 
 - `func` and `extern func`
+- explicit generic functions via `func name[T](...)`
 - `class` declarations with methods
+- `trait` declarations and `impl Trait for Type` conformance checks
 - `var` declarations with optional `::` type annotations
 - `if` / `else`
 - `while condition => update`
 - `flux item in iterable`
 - optional top-level `package` declarations
+- package manifests via `di.mod` for app, lib, and kernel targets
 - relative file imports
+- shipped stdlib modules via `import "std/..."`
+- hosted system hooks via `extern func write`, `print_hex`, `exit`, and `abort`
+- utility stdlib modules for io, int helpers, ranges, logic, and assertions
 - integer, boolean, and string literals
 - arithmetic, comparisons, and boolean operators
 - function and method calls
@@ -63,11 +69,13 @@ func main(): int {
 
 ```sh
 di main.di
-di build main.di
-di run main.di
-di emit-ir main.di
-di watch main.di
+di run .
+di build .
+di check .
+di emit-ir .
+di watch .
 di new my-app
+di new my-lib --lib
 ```
 
 `.di` is the source extension for all `Di` files.
@@ -94,13 +102,16 @@ After installation, the expected workflow is:
 ```sh
 di new hello-di
 cd hello-di
-di main.di
-di build main.di
-di emit-ir main.di
-di watch main.di
+di run .
+di build .
+di check .
+di emit-ir .
+di watch .
 ```
 
-`di new` creates a starter project with a `main.di`, `.gitignore`, and README.
+`di new` now creates a package directory with `di.mod`, `src/`, `.gitignore`, and README.
+
+Package manifests can also declare local dependencies like `dep.math_lib = "../math_lib"`, and source files can import them with `import "pkg/math_lib"`.
 
 ## Install
 

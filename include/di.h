@@ -5,13 +5,16 @@ typedef enum {
     DI_CMD_BUILD = 0,
     DI_CMD_RUN,
     DI_CMD_EMIT_IR,
-    DI_CMD_NEW
+    DI_CMD_NEW,
+    DI_CMD_CHECK
 } DiCommand;
 
 typedef struct {
     DiCommand command;
     const char *input_path;
     const char *project_name;
+    int project_is_library;
+    int project_is_kernel;
     int emit_tokens;
     int emit_ast;
     int emit_ir;

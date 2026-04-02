@@ -3,6 +3,6 @@
 
 #include "ast.h"
 
-int di_sema_check_program(const DiAstProgram *program);
+int di_sema_check_program(const DiAstProgram *program, int require_main);
 
 #endif

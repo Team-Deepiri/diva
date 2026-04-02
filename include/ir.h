@@ -20,6 +20,11 @@ typedef struct {
 } DiIrParam;
 
 typedef struct {
+    const char *param_name;
+    const char *type_name;
+} DiIrGenericBinding;
+
+typedef struct {
     DiIrDeclKind kind;
     const char *name;
     const char *owner_type;
@@ -29,6 +34,8 @@ typedef struct {
     size_t field_count;
     DiIrParam *params;
     size_t param_count;
+    DiIrGenericBinding *generic_bindings;
+    size_t generic_binding_count;
     DiAstStmt **body;
     size_t body_count;
 } DiIrDecl;

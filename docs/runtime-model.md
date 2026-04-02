@@ -7,7 +7,16 @@ The first `Di` runtime model is intentionally conventional.
 - stack locals for primitive values
 - explicit primitive types
 - C runtime shims for I/O
+- hosted runtime shims for `write`, `exit`, `abort`, and hex printing
 - LLVM manages low-level optimization and register allocation
+
+## Package Kinds
+
+`Di` currently has three package kinds through `di.mod`:
+
+- `app`: requires `main` and links a hosted executable
+- `lib`: validates and emits IR without requiring `main`
+- `kernel`: validates without `main` and builds a freestanding object file
 
 ## Why Start Conventional
 

@@ -94,6 +94,15 @@ func add(a: int, b: int): int {
 extern func print_str(x: str): void
 ```
 
+Hosted runtime hooks currently exposed through `extern func` include:
+
+- `print_int(x: int): void`
+- `print_str(x: str): void`
+- `print_hex(x: int): void`
+- `write(fd: int, x: str): int`
+- `exit(status: int): void`
+- `abort(): void`
+
 ### Classes
 
 Classes contain `var` fields and `func` methods:
@@ -226,11 +235,19 @@ Files may optionally declare a package at the top:
 package imports_demo
 ```
 
-Top-level imports use relative `.di` file paths:
+Top-level imports can use relative `.di` file paths:
 
 ```di
 import "math.di"
 ```
+
+Package manifests can also declare dependencies with `dep.<name> = "../path"` and import them by package name:
+
+```di
+import "pkg/math_lib"
+```
+
+`pkg/<name>` resolves to that dependency package's manifest entry file.
 
 Imports are resolved as a file graph and merged into a single program for semantic analysis and code generation.
 
@@ -256,7 +273,9 @@ func main(): int {
 ## Implemented Today
 
 - `func` and `extern func`
+- explicit generic functions with call-site type arguments like `identity[int](7)`
 - class declarations with methods
+- `trait` declarations and `impl Trait for Type` validation
 - `var` bindings with optional `::` type annotations
 - `if` / `else`
 - `while condition => update`
@@ -268,12 +287,17 @@ func main(): int {
 - array indexing and mutation
 - object literals
 - optional top-level `package` declarations
+- package manifests via `di.mod` with `kind = "app" | "lib" | "kernel"`
 - relative file imports
+- shipped standard library imports like `std/math.di` and `std/range.di`
+- utility modules like `std/io.di`, `std/int.di`, and `std/assert.di`
 
 ## Not Implemented Yet
 
-- generics
-- traits
+- generic classes
+- generic methods
+- trait bounds on generic parameters
+- trait-based dynamic dispatch
 - `@field` sugar for receiver access
 - custom packed-value runtime as the default representation
 - NaN boxing

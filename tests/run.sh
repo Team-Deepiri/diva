@@ -126,6 +126,22 @@ assert_output_equals "${ROOT_DIR}/examples/struct_mutation.di" "10"
 assert_output_equals "${ROOT_DIR}/examples/arrays.di" "9"
 assert_output_equals "${ROOT_DIR}/examples/array_mutation.di" "16"
 assert_output_equals "${ROOT_DIR}/examples/imports/main.di" "42"
+assert_output_equals "${ROOT_DIR}/examples/generics_traits.di" "7"
+assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.di" "12
+10
+10
+5
+1
+1"
+assert_output_equals "${ROOT_DIR}/examples/systems_hosted.di" "systems io from di0x12"
+assert_output_equals "${ROOT_DIR}/examples/packages/app_with_dep" "42"
+assert_output_equals "${ROOT_DIR}/examples/utils_demo.di" "util-1
+6
+true
+true
+0x4
+1
+1"
 
 log "checking AST smoke output"
 assert_contains "${ROOT_DIR}/examples/hello.di" "Program"
@@ -143,6 +159,8 @@ assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_ident.di" "unknown i
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/reserved_name.di" "uses a reserved backend identifier"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_import_main.di" "duplicate top-level declaration 'clash'"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/package_mismatch_main.di" "package mismatch:"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/missing_trait_method.di" "does not implement required method 'measure'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_package_dep" "unknown package dependency in import 'pkg/missing_lib'"
 
 log "checking generated project workflow"
 rm -rf "${TEST_ROOT}/generated-app"
@@ -151,24 +169,105 @@ if ! di new "${TEST_ROOT}/generated-app" >"${TEST_ROOT}/new.out" 2>&1; then
     fail "di new failed"
 fi
 
-if ! [ -f "${TEST_ROOT}/generated-app/main.di" ] || ! [ -f "${TEST_ROOT}/generated-app/.gitignore" ]; then
+if ! [ -f "${TEST_ROOT}/generated-app/.gitignore" ]; then
     fail "generated project missing expected files"
+fi
+
+if ! [ -f "${TEST_ROOT}/generated-app/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-app/src/main.di" ]; then
+    fail "generated app package missing manifest or src entry"
 fi
 
 if ! (
     cd "${TEST_ROOT}/generated-app" &&
-    di run main.di >"${TEST_ROOT}/generated.out" 2>&1
+    di run . >"${TEST_ROOT}/generated.out" 2>&1
 ); then
     sed -n '1,120p' "${TEST_ROOT}/generated.out" >&2
     fail "generated project failed to run"
 fi
 
 generated_output=$(strip_di_logs "${TEST_ROOT}/generated.out")
-if [ "${generated_output}" != "hello from di
-10" ]; then
+if [ "${generated_output}" != "hello from di10" ]; then
     printf '[test:error] unexpected generated project output\n' >&2
     printf '[test:error] actual:\n%s\n' "${generated_output}" >&2
     exit 1
+fi
+
+if ! (
+    cd "${TEST_ROOT}/generated-app" &&
+    di check . >"${TEST_ROOT}/generated-check.out" 2>&1
+); then
+    sed -n '1,120p' "${TEST_ROOT}/generated-check.out" >&2
+    fail "generated app package failed di check"
+fi
+
+log "checking generated library workflow"
+rm -rf "${TEST_ROOT}/generated-lib"
+if ! di new "${TEST_ROOT}/generated-lib" --lib >"${TEST_ROOT}/new-lib.out" 2>&1; then
+    sed -n '1,120p' "${TEST_ROOT}/new-lib.out" >&2
+    fail "di new --lib failed"
+fi
+
+if ! [ -f "${TEST_ROOT}/generated-lib/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-lib/src/lib.di" ]; then
+    fail "generated library package missing manifest or src entry"
+fi
+
+if ! (
+    cd "${TEST_ROOT}/generated-lib" &&
+    di check . >"${TEST_ROOT}/generated-lib-check.out" 2>&1
+); then
+    sed -n '1,120p' "${TEST_ROOT}/generated-lib-check.out" >&2
+    fail "generated library package failed di check"
+fi
+
+if ! (
+    cd "${TEST_ROOT}/generated-lib" &&
+    di emit-ir . >"${TEST_ROOT}/generated-lib-ir.out" 2>&1
+); then
+    sed -n '1,120p' "${TEST_ROOT}/generated-lib-ir.out" >&2
+    fail "generated library package failed di emit-ir"
+fi
+
+log "checking generated kernel workflow"
+rm -rf "${TEST_ROOT}/generated-kernel"
+if ! di new "${TEST_ROOT}/generated-kernel" --kernel >"${TEST_ROOT}/new-kernel.out" 2>&1; then
+    sed -n '1,120p' "${TEST_ROOT}/new-kernel.out" >&2
+    fail "di new --kernel failed"
+fi
+
+if ! [ -f "${TEST_ROOT}/generated-kernel/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-kernel/src/boot.di" ]; then
+    fail "generated kernel package missing manifest or boot entry"
+fi
+
+if ! (
+    cd "${TEST_ROOT}/generated-kernel" &&
+    di check . >"${TEST_ROOT}/generated-kernel-check.out" 2>&1
+); then
+    sed -n '1,120p' "${TEST_ROOT}/generated-kernel-check.out" >&2
+    fail "generated kernel package failed di check"
+fi
+
+if ! (
+    cd "${TEST_ROOT}/generated-kernel" &&
+    di build . >"${TEST_ROOT}/generated-kernel-build.out" 2>&1
+); then
+    sed -n '1,120p' "${TEST_ROOT}/generated-kernel-build.out" >&2
+    fail "generated kernel package failed di build"
+fi
+
+log "checking kernel package workflow"
+if ! di check "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-check.out" 2>&1; then
+    sed -n '1,120p' "${TEST_ROOT}/kernel-check.out" >&2
+    fail "kernel package failed di check"
+fi
+
+if ! di emit-ir "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-ir.out" 2>&1; then
+    sed -n '1,120p' "${TEST_ROOT}/kernel-ir.out" >&2
+    fail "kernel package failed di emit-ir"
+fi
+
+if ! di build "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-build.out" 2>&1; then
+    sed -n '1,120p' "${TEST_ROOT}/kernel-build.out" >&2
+    fail "kernel package failed di build"
 fi
 
 log "all tests passed"

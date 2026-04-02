@@ -16,4 +16,4 @@ echo
 echo "Quickstart:"
 echo "  di new hello-di"
 echo "  cd hello-di"
-echo "  di main.di"
+echo "  di run ."

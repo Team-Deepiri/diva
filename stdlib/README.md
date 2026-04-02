@@ -1,11 +1,29 @@
 # Di Standard Library
 
-The standard library starts tiny on purpose.
+The standard library starts small on purpose, but it is now shipped as real `Di` modules.
 
-Early surface area:
+Available modules:
 
-- printing
-- basic math helpers
-- memory/runtime hooks
+- `std/math.di`: `abs`, `max`, `min`, `clamp`
+- `std/logic.di`: `all`, `any`, `bool_to_int`
+- `std/range.di`: `sum_range`, `count_range`, `contains_range`
+- `std/io.di`: `stdout`, `stderr`, `print_bool`, `panic`
+- `std/int.di`: `sign`, `is_even`, `is_odd`, `gcd`
+- `std/assert.di`: `assert_true`, `assert_eq_int`
 
-The first implementations may be backed by C runtime shims before moving into native `Di` code.
+Usage:
+
+```di
+import "std/math.di"
+import "std/range.di"
+import "std/io.di"
+
+func main(): int {
+    print_int(sum_range(0, 5))
+    print_int(clamp(99, 0, 10))
+    print_hex(stdout("ok"))
+    return 0
+}
+```
+
+The install scripts copy `stdlib/` alongside the compiler so `import "std/..."` works from user projects.

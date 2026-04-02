@@ -38,6 +38,9 @@ static DiTokenKind keyword_kind(const char *start, int length) {
     if (length == 5 && strncmp(start, "false", 5) == 0) return DI_TOKEN_FALSE;
     if (length == 7 && strncmp(start, "package", 7) == 0) return DI_TOKEN_PACKAGE;
     if (length == 6 && strncmp(start, "import", 6) == 0) return DI_TOKEN_IMPORT;
+    if (length == 5 && strncmp(start, "trait", 5) == 0) return DI_TOKEN_TRAIT;
+    if (length == 4 && strncmp(start, "impl", 4) == 0) return DI_TOKEN_IMPL;
+    if (length == 3 && strncmp(start, "for", 3) == 0) return DI_TOKEN_FOR;
     return DI_TOKEN_IDENT;
 }
 

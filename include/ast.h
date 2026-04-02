@@ -8,6 +8,8 @@ typedef enum {
     DI_AST_STRUCT_DECL,
     DI_AST_FUNCTION,
     DI_AST_EXTERN_FUNCTION,
+    DI_AST_TRAIT_DECL,
+    DI_AST_IMPL_DECL,
     DI_AST_VAR_STMT,
     DI_AST_ASSIGN_STMT,
     DI_AST_FIELD_ASSIGN_STMT,
@@ -90,6 +92,8 @@ struct DiAstExpr {
             DiAstExpr *callee;
             DiAstExpr **args;
             size_t arg_count;
+            DiAstType *generic_args;
+            size_t generic_arg_count;
             const char *resolved_name;
         } call;
         struct {
@@ -179,6 +183,8 @@ struct DiAstDecl {
     DiAstKind kind;
     const char *name;
     const char *owner_type;
+    char **generic_params;
+    size_t generic_param_count;
     DiAstParam *params;
     size_t param_count;
     DiAstType return_type;
@@ -186,6 +192,8 @@ struct DiAstDecl {
     size_t body_count;
     DiAstField *fields;
     size_t field_count;
+    DiAstDecl **trait_methods;
+    size_t trait_method_count;
 };
 
 typedef struct {
@@ -208,8 +216,11 @@ int di_ast_program_add_import(DiAstProgram *program, const char *import_path);
 int di_ast_decl_add_param(DiAstDecl *decl, DiAstParam param);
 int di_ast_decl_add_stmt(DiAstDecl *decl, DiAstStmt *stmt);
 int di_ast_decl_add_field(DiAstDecl *decl, DiAstField field);
+int di_ast_decl_add_generic_param(DiAstDecl *decl, const char *name);
+int di_ast_decl_add_trait_method(DiAstDecl *decl, DiAstDecl *method);
 int di_ast_block_add_stmt(DiAstBlock *block, DiAstStmt *stmt);
 int di_ast_call_add_arg(DiAstExpr *expr, DiAstExpr *arg);
+int di_ast_call_add_generic_arg(DiAstExpr *expr, DiAstType type);
 int di_ast_struct_init_add_field(DiAstExpr *expr, DiAstInitField field);
 int di_ast_array_add_item(DiAstExpr *expr, DiAstExpr *item);
 const char *di_binary_op_name(DiBinaryOp op);

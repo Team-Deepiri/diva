@@ -17,9 +17,9 @@
 static void print_usage(void) {
     fprintf(stderr,
             "usage:\n"
-            "  di <file.di>\n"
-            "  di <build|run|emit-ir|watch> <file.di> [--ast] [--tokens]\n"
-            "  di new <project-name>\n");
+            "  di <file.di|package-dir>\n"
+            "  di <build|run|emit-ir|check|watch> <file.di|package-dir> [--ast] [--tokens]\n"
+            "  di new <project-name> [--lib|--kernel]\n");
 }
 
 static int has_di_extension(const char *path) {
@@ -44,6 +44,80 @@ static long long file_mtime(const char *path) {
 #endif
 }
 
+static int path_is_directory(const char *path) {
+    struct stat info;
+    if (stat(path, &info) != 0) {
+        return 0;
+    }
+#ifdef _WIN32
+    return (info.st_mode & _S_IFDIR) != 0;
+#else
+    return S_ISDIR(info.st_mode);
+#endif
+}
+
+static char *trim_in_place(char *text) {
+    char *end;
+    while (*text == ' ' || *text == '\t' || *text == '\r' || *text == '\n') {
+        text++;
+    }
+    end = text + strlen(text);
+    while (end > text &&
+           (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n')) {
+        end--;
+    }
+    *end = '\0';
+    return text;
+}
+
+static int read_manifest_entry_path(const char *target, char *buffer, size_t buffer_size) {
+    char manifest_path[512];
+    FILE *file;
+    char line[512];
+
+    if (!path_is_directory(target)) {
+        snprintf(buffer, buffer_size, "%s", target);
+        return 1;
+    }
+
+    snprintf(manifest_path, sizeof(manifest_path), "%s/di.mod", target);
+    file = fopen(manifest_path, "rb");
+    if (file == NULL) {
+        return 0;
+    }
+
+    while (fgets(line, sizeof(line), file) != NULL) {
+        char *trimmed = trim_in_place(line);
+        char *equals;
+        if (*trimmed == '\0' || *trimmed == '#') {
+            continue;
+        }
+        equals = strchr(trimmed, '=');
+        if (equals == NULL) {
+            continue;
+        }
+        *equals = '\0';
+        if (strcmp(trim_in_place(trimmed), "entry") == 0) {
+            char *value = trim_in_place(equals + 1);
+            size_t len = strlen(value);
+            if (len >= 2 && value[0] == '"' && value[len - 1] == '"') {
+                value[len - 1] = '\0';
+                value++;
+            }
+            if (strcmp(target, ".") == 0) {
+                snprintf(buffer, buffer_size, "%s", value);
+            } else {
+                snprintf(buffer, buffer_size, "%s/%s", target, value);
+            }
+            fclose(file);
+            return 1;
+        }
+    }
+
+    fclose(file);
+    return 0;
+}
+
 static void di_sleep_ms(int ms) {
 #ifdef _WIN32
     Sleep((DWORD)ms);
@@ -55,26 +129,32 @@ static void di_sleep_ms(int ms) {
 static int run_watch_loop(DiOptions *options) {
     long long last_seen;
     int first_build = 1;
+    char watched_path[512];
 
     if (options->input_path == NULL) {
         di_error("watch requires an input file");
         return 1;
     }
 
-    last_seen = file_mtime(options->input_path);
+    if (!read_manifest_entry_path(options->input_path, watched_path, sizeof(watched_path))) {
+        di_error("watch could not resolve target: %s", options->input_path);
+        return 1;
+    }
+
+    last_seen = file_mtime(watched_path);
     if (last_seen < 0) {
-        di_error("could not stat watched file: %s", options->input_path);
+        di_error("could not stat watched file: %s", watched_path);
         return 1;
     }
 
     options->run_after_build = 1;
     options->command = DI_CMD_RUN;
-    di_info("watching %s", options->input_path);
+    di_info("watching %s", watched_path);
 
     for (;;) {
-        long long current = file_mtime(options->input_path);
+        long long current = file_mtime(watched_path);
         if (current < 0) {
-            di_error("could not stat watched file: %s", options->input_path);
+            di_error("could not stat watched file: %s", watched_path);
             return 1;
         }
         if (first_build || current != last_seen) {
@@ -101,7 +181,7 @@ int main(int argc, char **argv) {
     memset(&options, 0, sizeof(options));
     options.command = DI_CMD_BUILD;
 
-    if (argc == 2 && has_di_extension(argv[1])) {
+    if (argc == 2 && (has_di_extension(argv[1]) || path_is_directory(argv[1]))) {
         options.command = DI_CMD_RUN;
         options.input_path = argv[1];
         options.run_after_build = 1;
@@ -115,6 +195,20 @@ int main(int argc, char **argv) {
         }
         options.command = DI_CMD_NEW;
         options.project_name = argv[2];
+        for (int i = 3; i < argc; ++i) {
+            if (strcmp(argv[i], "--lib") == 0) {
+                options.project_is_library = 1;
+            } else if (strcmp(argv[i], "--kernel") == 0) {
+                options.project_is_kernel = 1;
+            } else {
+                di_error("unknown flag for new: %s", argv[i]);
+                return 1;
+            }
+        }
+        if (options.project_is_library && options.project_is_kernel) {
+            di_error("new can use only one of --lib or --kernel");
+            return 1;
+        }
         return di_driver_run(&options);
     }
 
@@ -124,8 +218,8 @@ int main(int argc, char **argv) {
     }
 
     options.input_path = argv[2];
-    if (!has_di_extension(options.input_path)) {
-        di_error("di expects a .di source file: %s", options.input_path);
+    if (!has_di_extension(options.input_path) && !path_is_directory(options.input_path)) {
+        di_error("di expects a .di source file or package directory: %s", options.input_path);
         return 1;
     }
 
@@ -135,6 +229,8 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[1], "emit-ir") == 0) {
         options.command = DI_CMD_EMIT_IR;
         options.emit_ir = 1;
+    } else if (strcmp(argv[1], "check") == 0) {
+        options.command = DI_CMD_CHECK;
     } else if (strcmp(argv[1], "watch") == 0) {
         watch_mode = 1;
         options.command = DI_CMD_RUN;

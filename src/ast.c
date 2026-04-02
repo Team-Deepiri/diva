@@ -108,6 +108,30 @@ int di_ast_decl_add_field(DiAstDecl *decl, DiAstField field) {
     return 1;
 }
 
+int di_ast_decl_add_generic_param(DiAstDecl *decl, const char *name) {
+    char **params;
+
+    params = (char **)di_realloc_array(decl->generic_params, decl->generic_param_count + 1, sizeof(char *));
+    if (params == NULL) {
+        return 0;
+    }
+    decl->generic_params = params;
+    decl->generic_params[decl->generic_param_count++] = (char *)name;
+    return 1;
+}
+
+int di_ast_decl_add_trait_method(DiAstDecl *decl, DiAstDecl *method) {
+    DiAstDecl **methods;
+
+    methods = (DiAstDecl **)di_realloc_array(decl->trait_methods, decl->trait_method_count + 1, sizeof(DiAstDecl *));
+    if (methods == NULL) {
+        return 0;
+    }
+    decl->trait_methods = methods;
+    decl->trait_methods[decl->trait_method_count++] = method;
+    return 1;
+}
+
 int di_ast_block_add_stmt(DiAstBlock *block, DiAstStmt *stmt) {
     DiAstStmt **items = (DiAstStmt **)di_realloc_array(block->items, block->count + 1, sizeof(DiAstStmt *));
     if (items == NULL) {
@@ -125,6 +149,20 @@ int di_ast_call_add_arg(DiAstExpr *expr, DiAstExpr *arg) {
     }
     expr->as.call.args = args;
     expr->as.call.args[expr->as.call.arg_count++] = arg;
+    return 1;
+}
+
+int di_ast_call_add_generic_arg(DiAstExpr *expr, DiAstType type) {
+    DiAstType *args;
+
+    args = (DiAstType *)di_realloc_array(expr->as.call.generic_args,
+                                         expr->as.call.generic_arg_count + 1,
+                                         sizeof(DiAstType));
+    if (args == NULL) {
+        return 0;
+    }
+    expr->as.call.generic_args = args;
+    expr->as.call.generic_args[expr->as.call.generic_arg_count++] = type;
     return 1;
 }
 
@@ -201,6 +239,10 @@ static void dump_expr(const DiAstExpr *expr, int indent) {
         case DI_AST_CALL_EXPR:
             printf("Call\n");
             dump_expr(expr->as.call.callee, indent + 1);
+            for (i = 0; i < expr->as.call.generic_arg_count; ++i) {
+                dump_indent(indent + 1);
+                printf("TypeArg(%s)\n", expr->as.call.generic_args[i].name);
+            }
             for (i = 0; i < expr->as.call.arg_count; ++i) {
                 dump_expr(expr->as.call.args[i], indent + 1);
             }
@@ -363,10 +405,27 @@ void di_ast_dump_program(const DiAstProgram *program) {
             }
             continue;
         }
+        if (decl->kind == DI_AST_TRAIT_DECL) {
+            printf("trait %s\n", decl->name);
+            for (j = 0; j < decl->trait_method_count; ++j) {
+                const DiAstDecl *method = decl->trait_methods[j];
+                dump_indent(2);
+                printf("Required(%s -> %s)\n", method->name, method->return_type.name);
+            }
+            continue;
+        }
+        if (decl->kind == DI_AST_IMPL_DECL) {
+            printf("impl %s for %s\n", decl->name, decl->owner_type);
+            continue;
+        }
         if (decl->owner_type != NULL) {
             printf("%s %s.%s -> %s\n", di_ast_kind_name(decl->kind), decl->owner_type, decl->name, decl->return_type.name);
         } else {
             printf("%s %s -> %s\n", di_ast_kind_name(decl->kind), decl->name, decl->return_type.name);
+        }
+        for (j = 0; j < decl->generic_param_count; ++j) {
+            dump_indent(2);
+            printf("Generic(%s)\n", decl->generic_params[j]);
         }
         for (j = 0; j < decl->param_count; ++j) {
             dump_indent(2);
@@ -394,6 +453,13 @@ static void free_expr(DiAstExpr *expr) {
             break;
         case DI_AST_CALL_EXPR:
             free_expr(expr->as.call.callee);
+            if (expr->as.call.generic_arg_count != 0) {
+                free((char *)expr->as.call.resolved_name);
+            }
+            for (i = 0; i < expr->as.call.generic_arg_count; ++i) {
+                free((char *)expr->as.call.generic_args[i].name);
+            }
+            free(expr->as.call.generic_args);
             for (i = 0; i < expr->as.call.arg_count; ++i) {
                 free_expr(expr->as.call.args[i]);
             }
@@ -519,6 +585,10 @@ void di_ast_program_free(DiAstProgram *program) {
         free((char *)decl->name);
         free((char *)decl->owner_type);
         free((char *)decl->return_type.name);
+        for (j = 0; j < decl->generic_param_count; ++j) {
+            free(decl->generic_params[j]);
+        }
+        free(decl->generic_params);
         for (j = 0; j < decl->field_count; ++j) {
             free((char *)decl->fields[j].name);
             free((char *)decl->fields[j].type.name);
@@ -533,6 +603,19 @@ void di_ast_program_free(DiAstProgram *program) {
             free_stmt(decl->body[j]);
         }
         free(decl->body);
+        for (j = 0; j < decl->trait_method_count; ++j) {
+            DiAstDecl *method = decl->trait_methods[j];
+            size_t k;
+            free((char *)method->name);
+            free((char *)method->return_type.name);
+            for (k = 0; k < method->param_count; ++k) {
+                free((char *)method->params[k].name);
+                free((char *)method->params[k].type.name);
+            }
+            free(method->params);
+            free(method);
+        }
+        free(decl->trait_methods);
         free(decl);
     }
 
@@ -552,6 +635,8 @@ const char *di_ast_kind_name(DiAstKind kind) {
         case DI_AST_STRUCT_DECL: return "struct_decl";
         case DI_AST_FUNCTION: return "function";
         case DI_AST_EXTERN_FUNCTION: return "extern_function";
+        case DI_AST_TRAIT_DECL: return "trait_decl";
+        case DI_AST_IMPL_DECL: return "impl_decl";
         case DI_AST_VAR_STMT: return "var_stmt";
         case DI_AST_ASSIGN_STMT: return "assign_stmt";
         case DI_AST_FIELD_ASSIGN_STMT: return "field_assign_stmt";

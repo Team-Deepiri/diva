@@ -37,6 +37,50 @@
     ],
     "description": "Import another Di source file"
   },
+  "Package Dependency Import": {
+    "prefix": "pkgimport",
+    "body": [
+      "import \"pkg/${1:dependency_name}\""
+    ],
+    "description": "Import another Di package dependency"
+  },
+  "Manifest": {
+    "prefix": "dimod",
+    "body": [
+      "name = \"${1:my_package}\"",
+      "kind = \"${2:app}\"",
+      "entry = \"${3:src/main.di}\""
+    ],
+    "description": "Create a di.mod manifest"
+  },
+  "Manifest Dependency": {
+    "prefix": "didep",
+    "body": [
+      "dep.${1:math_lib} = \"${2:../math_lib}\""
+    ],
+    "description": "Add a package dependency to di.mod"
+  },
+  "Std IO Import": {
+    "prefix": "stdio",
+    "body": [
+      "import \"std/io.di\""
+    ],
+    "description": "Import Di std io helpers"
+  },
+  "Std Math Import": {
+    "prefix": "stdmath",
+    "body": [
+      "import \"std/math.di\""
+    ],
+    "description": "Import Di std math helpers"
+  },
+  "Std Assert Import": {
+    "prefix": "stdassert",
+    "body": [
+      "import \"std/assert.di\""
+    ],
+    "description": "Import Di std assertion helpers"
+  },
   "Function": {
     "prefix": "func",
     "body": [
@@ -45,6 +89,41 @@
       "}"
     ],
     "description": "Create a Di function"
+  },
+  "Generic Function": {
+    "prefix": "genfunc",
+    "body": [
+      "func ${1:name}[${2:T}](${3:value}: ${2:T}): ${2:T} {",
+      "    return ${3:value}",
+      "}"
+    ],
+    "description": "Create a Di generic function"
+  },
+  "Trait": {
+    "prefix": "trait",
+    "body": [
+      "trait ${1:Name} {",
+      "    func ${2:method}(): ${3:int}",
+      "}"
+    ],
+    "description": "Create a Di trait declaration"
+  },
+  "Impl": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:Trait} for ${2:Type}"
+    ],
+    "description": "Create a Di trait implementation declaration"
+  },
+  "Kernel Entry": {
+    "prefix": "kmain",
+    "body": [
+      "func kmain(): int {",
+      "    $0",
+      "    return 0",
+      "}"
+    ],
+    "description": "Create a Di kernel entry function"
   },
   "If Else": {
     "prefix": "if",

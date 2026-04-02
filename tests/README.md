@@ -7,7 +7,7 @@ It currently checks:
 - example program integration runs
 - AST smoke output for a simple program
 - semantic failure cases with expected diagnostics
-- generated-project SDK workflow through `di new`
+- generated app and library package workflows through `di new` and `di new --lib`
 
 ## Run
 
