@@ -1,3 +1,3 @@
 name = "di_frontend"
 kind = "lib"
-entry = "src/tokens.di"
+entry = "src/tokens.diri"

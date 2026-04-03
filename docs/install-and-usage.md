@@ -1,6 +1,6 @@
 # Di Install And Usage
 
-This guide shows how to install the `Di` compiler and start running `.di` programs.
+This guide shows how to install the `Di` compiler and start running `.diri` programs.
 
 ## What You Get
 
@@ -8,7 +8,7 @@ The repository includes:
 
 - a **bootstrap** `di` compiler binary (Linux x86-64) and LLVM IR runtime under `runtime/`
 - install scripts for Linux / WSL (Windows: use WSL)
-- a local VS Code / Cursor extension for `.di` files
+- a local VS Code / Cursor extension for `.diri` files
 
 There is **no compiler source tree** in this repository (only the bootstrap `di` binary and Di / LLVM IR artifacts).
 
@@ -88,11 +88,11 @@ Install the local editor extension only:
 ./scripts/install-extension.ps1
 ```
 
-The language name is `Di` and source files use the `.di` extension.
+The language name is `Di` and source files use the `.diri` extension.
 
 ## First Program
 
-Create a file named `main.di`:
+Create a file named `main.diri`:
 
 ```di
 extern func print_int(x: int): void
@@ -109,7 +109,7 @@ Semicolons are optional in `Di`. The compiler still accepts them, but the recomm
 Run it:
 
 ```sh
-di run main.di
+di run main.diri
 ```
 
 ## Basic CLI
@@ -117,7 +117,7 @@ di run main.di
 Common commands:
 
 ```sh
-di main.di
+di main.diri
 di build .
 di run .
 di check .
@@ -129,7 +129,7 @@ di new hello-lib --lib
 
 Notes:
 
-- `di main.di` builds and runs a single `.di` file
+- `di main.diri` builds and runs a single `.diri` file
 - `di build .` builds the current package directory
 - `di check .` validates a package without native linking
 - `di emit-ir .` writes LLVM IR into `build/`
@@ -148,7 +148,7 @@ di run .
 The generated project includes:
 
 - `di.mod`
-- `src/main.di` for apps or `src/lib.di` for libraries
+- `src/main.diri` for apps or `src/lib.diri` for libraries
 - `.gitignore`
 - `README.md`
 
@@ -159,7 +159,7 @@ Package manifests can declare local dependencies:
 ```txt
 name = "app_with_dep"
 kind = "app"
-entry = "src/main.di"
+entry = "src/main.diri"
 dep.math_lib = "../math_lib"
 ```
 
@@ -207,7 +207,7 @@ sh tests/run.sh
 - install `cc` (typically `gcc` or `clang` as `/usr/bin/cc`) for linking user code with the runtime object
 - optional: install `clang` so the install script can compile `runtime/runtime.ll` instead of copying the prebuilt object
 
-### Editor does not recognize `.di`
+### Editor does not recognize `.diri`
 
 - reinstall the local extension with the install script
 - reload Cursor or VS Code

@@ -1,5 +1,5 @@
 {
-  "scopeName": "source.di",
+  "scopeName": "source.diri",
   "name": "Di",
   "patterns": [
     { "include": "#comments" },
@@ -15,7 +15,7 @@
     "comments": {
       "patterns": [
         {
-          "name": "comment.line.double-slash.di",
+          "name": "comment.line.double-slash.diri",
           "match": "//.*$"
         }
       ]
@@ -23,7 +23,7 @@
     "keywords": {
       "patterns": [
         {
-          "name": "keyword.control.di",
+          "name": "keyword.control.diri",
           "match": "\\b(func|extern|class|var|if|else|while|flux|in|return|true|false|package|import|trait|impl|for)\\b"
         }
       ]
@@ -31,7 +31,7 @@
     "types": {
       "patterns": [
         {
-          "name": "storage.type.di",
+          "name": "storage.type.diri",
           "match": "\\b(int|bool|str|void)\\b"
         }
       ]
@@ -39,12 +39,12 @@
     "strings": {
       "patterns": [
         {
-          "name": "string.quoted.double.di",
+          "name": "string.quoted.double.diri",
           "begin": "\"",
           "end": "\"",
           "patterns": [
             {
-              "name": "constant.character.escape.di",
+              "name": "constant.character.escape.diri",
               "match": "\\\\."
             }
           ]
@@ -54,7 +54,7 @@
     "numbers": {
       "patterns": [
         {
-          "name": "constant.numeric.integer.di",
+          "name": "constant.numeric.integer.diri",
           "match": "\\b\\d+\\b"
         }
       ]
@@ -62,7 +62,7 @@
     "functions": {
       "patterns": [
         {
-          "name": "entity.name.function.di",
+          "name": "entity.name.function.diri",
           "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()"
         }
       ]
@@ -70,7 +70,7 @@
     "fields": {
       "patterns": [
         {
-          "name": "variable.other.member.di",
+          "name": "variable.other.member.diri",
           "match": "(?<=\\.)[A-Za-z_][A-Za-z0-9_]*\\b"
         }
       ]
@@ -78,7 +78,7 @@
     "operators": {
       "patterns": [
         {
-          "name": "keyword.operator.di",
+          "name": "keyword.operator.diri",
           "match": "(==|!=|<=|>=|=>|::|\\.\\.|=|\\+|\\-|\\*|/|\\.|:|,|\\[|\\]|<|>|&|\\||!)"
         }
       ]

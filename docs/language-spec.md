@@ -6,7 +6,7 @@ This document describes the current implemented surface of `Di`.
 
 `Di` is a compiled language with:
 
-- `.di` source files
+- `.diri` source files
 - `di` as the CLI command
 - explicit function signatures
 - `var` bindings with optional type annotations
@@ -25,13 +25,13 @@ The current language direction is:
 
 ## File Extension
 
-All `Di` source files use the `.di` extension.
+All `Di` source files use the `.diri` extension.
 
 Examples:
 
-- `main.di`
-- `math.di`
-- `game_loop.di`
+- `main.diri`
+- `math.diri`
+- `game_loop.diri`
 
 ## Program Structure
 
@@ -103,7 +103,7 @@ Hosted runtime hooks currently exposed through `extern func` include:
 - `exit(status: int): void`
 - `abort(): void`
 
-Additional hosted hooks used for self-hosting (declared in `stdlib/std/host.di`, implemented in the hosted native runtime — see `runtime/runtime.ll`) include:
+Additional hosted hooks used for self-hosting (declared in `stdlib/std/host.diri`, implemented in the hosted native runtime — see `runtime/runtime.ll`) include:
 
 - `host_argc(): int`, `host_argv(index: int): str`
 - `file_size(path: str): int`, `read_file(path: str): str`
@@ -112,7 +112,7 @@ Additional hosted hooks used for self-hosting (declared in `stdlib/std/host.di`,
 
 See `docs/selfhost-bootstrap.md`.
 
-Dynamic structures for self-hosting (`stdlib/std/vec.di`):
+Dynamic structures for self-hosting (`stdlib/std/vec.diri`):
 
 - `int_vec_new`, `int_vec_push`, `int_vec_len`, `int_vec_get`, `int_vec_free`
 - `str_builder_new`, `str_builder_append`, `str_builder_len`, `str_builder_to_str`, `str_builder_free`
@@ -249,10 +249,10 @@ Files may optionally declare a package at the top:
 package imports_demo
 ```
 
-Top-level imports can use relative `.di` file paths:
+Top-level imports can use relative `.diri` file paths:
 
 ```di
-import "math.di"
+import "math.diri"
 ```
 
 Package manifests can also declare dependencies with `dep.<name> = "../path"` and import them by package name:
@@ -268,7 +268,7 @@ Imports are resolved as a file graph and merged into a single program for semant
 ## Example
 
 ```di
-import "math.di"
+import "math.diri"
 
 extern func print_int(x: int): void
 
@@ -303,8 +303,8 @@ func main(): int {
 - optional top-level `package` declarations
 - package manifests via `di.mod` with `kind = "app" | "lib" | "kernel"`
 - relative file imports
-- shipped standard library imports like `std/math.di` and `std/range.di`
-- utility modules like `std/io.di`, `std/int.di`, and `std/assert.di`
+- shipped standard library imports like `std/math.diri` and `std/range.diri`
+- utility modules like `std/io.diri`, `std/int.diri`, and `std/assert.diri`
 
 ## Not Implemented Yet
 

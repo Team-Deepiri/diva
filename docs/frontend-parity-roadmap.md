@@ -11,4 +11,4 @@ Parity work tracks:
 
 Gate: `di check` / `di build` on the full example tree using only the Di compiler pipeline (no seed subprocess).
 
-Current repo state: the app entry [`compiler/src/main.di`](../compiler/src/main.di) remains the bootstrap driver; library stubs under `compiler/frontend/`, `compiler/mir/`, and `compiler/backend/` compile independently via `di check <path>` for incremental integration.
+Current repo state: the app entry [`compiler/src/main.diri`](../compiler/src/main.diri) remains the bootstrap driver; library stubs under `compiler/frontend/`, `compiler/mir/`, and `compiler/backend/` compile independently via `di check <path>` for incremental integration.

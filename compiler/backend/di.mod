@@ -1,3 +1,3 @@
 name = "di_backend_elf"
 kind = "lib"
-entry = "src/elf_x86_64.di"
+entry = "src/elf_x86_64.diri"

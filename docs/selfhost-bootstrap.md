@@ -4,13 +4,13 @@ This document tracks what the hosted Di runtime exposes so a Di-implemented comp
 
 ## Bootstrap driver (`compiler/`)
 
-The repository includes a small Di app (`compiler/src/main.di`) that builds to a hosted executable behaving like `di` by forwarding CLI arguments to the **seed** compiler binary. Set `DI_BOOTSTRAP` to an absolute path (e.g. `bootstrap/di-linux-amd64` in the repo). The driver uses `host_getenv` and `host_system`; the runtime implements them via `getenv` / `system` in LLVM IR (`runtime/runtime.ll`), compiled with `clang` at install when available, or copied from `bootstrap/runtime-linux-amd64.o` when `NO_CLANG=1`.
+The repository includes a small Di app (`compiler/src/main.diri`) that builds to a hosted executable behaving like `di` by forwarding CLI arguments to the **seed** compiler binary. Set `DI_BOOTSTRAP` to an absolute path (e.g. `bootstrap/di-linux-amd64` in the repo). The driver uses `host_getenv` and `host_system`; the runtime implements them via `getenv` / `system` in LLVM IR (`runtime/runtime.ll`), compiled with `clang` at install when available, or copied from `bootstrap/runtime-linux-amd64.o` when `NO_CLANG=1`.
 
 This is a **practical bridge** so `PATH` can point at a Di-built `di` while the toolchain remains the checked-in bootstrap binary. A full self-host replaces this with lexer, parser, sema, IR, and codegen entirely in Di.
 
 ## Process and file I/O
 
-Import `std/host.di`. The hosted runtime (LLVM IR in `runtime/runtime.ll`) provides:
+Import `std/host.diri`. The hosted runtime (LLVM IR in `runtime/runtime.ll`) provides:
 
 - `host_argc` / `host_argv` — populated by the process entry before `di_user_main` runs.
 - `file_size` — returns the size in bytes of a regular file, or `-1` on failure.
@@ -35,7 +35,7 @@ Stable hosted/link conventions (`di_user_main`, runtime symbol names) and the `N
 
 ## Dynamic data structures
 
-Import `std/vec.di`. Handles are opaque `int` ids into a small runtime slot table in the hosted runtime.
+Import `std/vec.diri`. Handles are opaque `int` ids into a small runtime slot table in the hosted runtime.
 
 **Int vector**
 

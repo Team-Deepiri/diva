@@ -2,14 +2,14 @@
 
 _A lightweight programming language for semantic analysis, textual IR emission, and native executable generation._
 
-This repository is **Di source only** (`.di` standard library, examples, tests, docs). The reference compiler ships as a **bootstrap Linux amd64** `di` binary under `bootstrap/`; the hosted runtime is **LLVM IR** (`runtime/runtime.ll` → `runtime.o`).
+This repository is **Di source only** (`.diri` standard library, examples, tests, docs). The reference compiler ships as a **bootstrap Linux amd64** `di` binary under `bootstrap/`; the hosted runtime is **LLVM IR** (`runtime/runtime.ll` → `runtime.o`).
 
 ## Repository layout
 
 - `bootstrap/` — prebuilt `di` (Linux x86-64) and `runtime-linux-amd64.o` fallback for installs without `clang`
 - `compiler/` — Di package that installs as `di` and forwards to the seed binary (`DI_BOOTSTRAP`); see `compiler/README.md`
 - `runtime/` — `runtime.ll` (LLVM IR hosted runtime; no C sources in-repo)
-- `stdlib/` — standard library `.di` modules
+- `stdlib/` — standard library `.diri` modules
 - `docs/` — language and architecture notes
 - `examples/` — sample programs
 - `tests/` — compiler integration tests (`tests/run.sh`)
@@ -55,7 +55,7 @@ func main(): int {
 ## CLI
 
 ```sh
-di main.di
+di main.diri
 di run .
 di build .
 di check .

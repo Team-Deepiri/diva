@@ -1,6 +1,6 @@
 # MIR / LIR layer
 
-The MIR layer ([`compiler/mir/src/mir.di`](../compiler/mir/src/mir.di)) is the backend boundary between semantic analysis and code generation.
+The MIR layer ([`compiler/mir/src/mir.diri`](../compiler/mir/src/mir.diri)) is the backend boundary between semantic analysis and code generation.
 
 Goals:
 

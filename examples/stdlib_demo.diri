@@ -1,6 +1,6 @@
-import "std/math.di"
-import "std/logic.di"
-import "std/range.di"
+import "std/math.diri"
+import "std/logic.diri"
+import "std/range.diri"
 
 extern func print_int(x: int): void
 

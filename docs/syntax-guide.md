@@ -1,6 +1,6 @@
 # Di Syntax Guide
 
-`Di` is a compiled programming language with `.di` source files.
+`Di` is a compiled programming language with `.diri` source files.
 
 This guide is the quick-reference version of the language docs. For the fuller reference, see `docs/language-spec.md`.
 
@@ -141,7 +141,7 @@ package imports_demo
 ```
 
 ```di
-import "math.di"
+import "math.diri"
 ```
 
 Imports are resolved as a file graph before semantic analysis.

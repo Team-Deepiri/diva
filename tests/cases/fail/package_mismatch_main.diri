@@ -1,6 +1,6 @@
 package main_pkg
 
-import "package_mismatch_other.di";
+import "package_mismatch_other.diri";
 
 func main(): int {
     return helper();

@@ -31,10 +31,10 @@ export DI_STDLIB_DIR="${ROOT_DIR}/stdlib"
 RUNO="${HOME}/.local/share/di/runtime/runtime.o"
 export DI_RUNTIME_O="${RUNO}"
 
-if ! di run "${ROOT_DIR}/examples/hello.di" >"${TEST_HOME}/out.txt" 2>&1; then
+if ! di run "${ROOT_DIR}/examples/hello.diri" >"${TEST_HOME}/out.txt" 2>&1; then
   sed -n '1,80p' "${TEST_HOME}/out.txt" >&2
-  echo "[verify-no-clang] di run hello.di failed" >&2
+  echo "[verify-no-clang] di run hello.diri failed" >&2
   exit 1
 fi
 
-echo "[verify-no-clang] OK (install + hello.di under NO_CLANG=1)"
+echo "[verify-no-clang] OK (install + hello.diri under NO_CLANG=1)"

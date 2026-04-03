@@ -1,4 +1,4 @@
-import "std/host.di"
+import "std/host.diri"
 
 extern func print_int(x: int): void
 

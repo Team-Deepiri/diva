@@ -98,7 +98,7 @@ Already present today:
 
 ## Phase 11: Alternate Source Frontends
 
-- keep `.di` as the canonical source extension
+- keep `.diri` as the canonical source extension
 - optionally support alternate source extensions or plain-text input modes later
 - treat `.txt` compilation as a frontend/input policy decision, not a different execution model
 - keep ASCII/bit-driven source experiments separate from the main language path

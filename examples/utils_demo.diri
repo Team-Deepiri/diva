@@ -1,6 +1,6 @@
-import "std/io.di"
-import "std/int.di"
-import "std/assert.di"
+import "std/io.diri"
+import "std/int.diri"
+import "std/assert.diri"
 
 func main(): int {
     print_int(sign(0 - 9))

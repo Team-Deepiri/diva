@@ -1,0 +1,28 @@
+extern func print_int(x: int): void
+extern func print_str(x: str): void
+extern func print_hex(x: int): void
+extern func write(fd: int, x: str): int
+extern func exit(status: int): void
+extern func abort(): void
+
+func stdout(text: str): int {
+    return write(1, text)
+}
+
+func stderr(text: str): int {
+    return write(2, text)
+}
+
+func print_bool(value: bool): int {
+    if value {
+        print_str("true")
+        return 1
+    }
+    print_str("false")
+    return 0
+}
+
+func panic(message: str): void {
+    print_str(message)
+    abort()
+}

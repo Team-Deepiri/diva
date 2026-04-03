@@ -1,7 +1,7 @@
 // Bootstrap driver: forwards CLI to the seed compiler (DI_BOOTSTRAP or bootstrap/di-linux-amd64).
 // Full self-hosting replaces this with the compiler implemented in Di (see docs/selfhost-bootstrap.md).
-import "std/host.di"
-import "std/vec.di"
+import "std/host.diri"
+import "std/vec.diri"
 
 func bootstrap_path(): str {
     var p = host_getenv("DI_BOOTSTRAP")

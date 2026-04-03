@@ -10,7 +10,7 @@ sh "${ROOT_DIR}/scripts/install-extension.sh" "${1:-${HOME}/.cursor/extensions}"
 echo
 echo "Di SDK install complete."
 echo "Compiler: ${HOME}/.local/bin/di"
-echo "File type: .di"
+echo "File type: .diri"
 echo "Extension target: ${1:-${HOME}/.cursor/extensions}"
 echo
 echo "Quickstart:"

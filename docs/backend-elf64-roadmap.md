@@ -10,4 +10,4 @@ Fallback lane (still no clang):
 
 - Emit **GNU assembler** syntax to a `.s` file and invoke **`as`** + **`ld`**.
 
-Constants and versioning live in [`compiler/backend/src/elf_x86_64.di`](../compiler/backend/src/elf_x86_64.di).
+Constants and versioning live in [`compiler/backend/src/elf_x86_64.diri`](../compiler/backend/src/elf_x86_64.diri).

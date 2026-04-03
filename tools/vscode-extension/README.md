@@ -1,10 +1,10 @@
 # Di Extension
 
-This extension registers the `Di` language for `.di` files.
+This extension registers the `Di` language for `.diri` files.
 
 Included today:
 
-- `.di` file association
+- `.diri` file association
 - comment and bracket configuration
 - syntax highlighting for the current language surface
 - starter snippets for new files and common control flow

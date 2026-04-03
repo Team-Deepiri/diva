@@ -1,4 +1,4 @@
-import "std/vec.di"
+import "std/vec.diri"
 
 extern func print_int(x: int): void
 extern func print_str(x: str): void

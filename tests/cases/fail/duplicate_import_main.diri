@@ -1,0 +1,8 @@
+package duplicate_demo
+
+import "duplicate_import_a.diri";
+import "duplicate_import_b.diri";
+
+func main(): int {
+    return clash();
+}
