@@ -287,7 +287,7 @@ func main(): int {
 - array indexing and mutation
 - object literals
 - optional top-level `package` declarations
-- package manifests via `diva.mod` with `kind = "app" | "lib" | "kernel"`
+- package manifests via `package.diva` with `kind = "app" | "lib" | "kernel"`
 - relative file imports
 - shipped standard library imports like `std/math.diva` and `std/range.diva`
 - utility modules like `std/io.diva`, `std/int.diva`, and `std/assert.diva`

@@ -1,6 +1,6 @@
 # Diva compiler package (`diva_compiler`)
 
-Installable **app** package (`diva.mod`): builds the **`diva` driver** you get on `PATH` after `./scripts/install.sh`.
+Installable **app** package (`package.diva`): builds the **`diva` driver** you get on `PATH` after `./scripts/install.sh`.
 
 ## What runs on your machine
 

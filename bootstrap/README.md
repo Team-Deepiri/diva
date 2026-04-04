@@ -29,4 +29,4 @@ Canonical sources use **`.diva`**. The CLI may still accept **`.di`** for compat
 
 ## Manifest filename
 
-Package manifests remain **`diva.mod`** (toolchain contract until the seed is rebuilt with a new name).
+Package manifests remain **`package.diva`** (toolchain contract until the seed is rebuilt with a new name).

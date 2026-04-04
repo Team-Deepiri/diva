@@ -8,7 +8,7 @@
 |--------|------|
 | **`bootstrap/diva-linux-amd64`** | **Full compiler** today: lex, parse, sema, C codegen + link, pseudo–LLVM IR text. Pinned Linux amd64 seed; rebuild only from an older git snapshot (see `bootstrap/README.md`). |
 | **`runtime/runtime.ll`** + **`bootstrap/runtime-linux-amd64.o`** | Hosted runtime (argv, I/O, `std/host` / `std/vec` helpers). Linked as **`runtime.o`**; `cc` is used as the **system linker driver only**. |
-| **`compiler/`** (installable **`diva.mod`** app) | **Diva-built driver** (`install.sh` compiles it with the seed): `diva lex` runs the **Diva lexer** (`src/lexer.diva`); other commands forward to the seed. Installed under `$XDG_DATA_HOME/diva/libexec/diva-driver` with a **`diva` wrapper** (and `di` → `diva` symlink) that sets `DIVA_BOOTSTRAP` / `DI_BOOTSTRAP`. |
+| **`compiler/`** (installable **`package.diva`** app) | **Diva-built driver** (`install.sh` compiles it with the seed): `diva lex` runs the **Diva lexer** (`src/lexer.diva`); other commands forward to the seed. Installed under `$XDG_DATA_HOME/diva/libexec/diva-driver` with a **`diva` wrapper** (and `di` → `diva` symlink) that sets `DIVA_BOOTSTRAP` / `DI_BOOTSTRAP`. |
 | **`compiler/{mir,backend}/`** | MIR / ELF scaffolding for future backend work in Diva. |
 | **`compiler/frontend/`** | `diva check` shares [`src/lexer.diva`](compiler/src/lexer.diva). |
 
@@ -45,7 +45,7 @@
 - `while condition => update`
 - `flux item in iterable`
 - optional top-level `package` declarations
-- package manifests via `diva.mod` for app, lib, and kernel targets
+- package manifests via `package.diva` for app, lib, and kernel targets
 - relative file imports
 - shipped stdlib modules via `import "std/..."`
 - hosted system hooks via `extern func write`, `print_hex`, `exit`, and `abort`
@@ -115,7 +115,7 @@ diva emit-ir .
 diva watch .
 ```
 
-`diva new` creates a package directory with `diva.mod`, `src/`, `.gitignore`, and README (manifest name unchanged for the toolchain).
+`diva new` creates a package directory with `package.diva`, `src/`, `.gitignore`, and README (manifest name unchanged for the toolchain).
 
 Package manifests can also declare local dependencies like `dep.math_lib = "../math_lib"`, and source files can import them with `import "pkg/math_lib"`.
 

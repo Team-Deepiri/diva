@@ -129,7 +129,7 @@ Notes:
 - `di build .` builds the current package directory
 - `di check .` validates a package without native linking
 - `di emit-ir .` writes LLVM IR into `build/`
-- `diva watch .` watches the package entry file from `diva.mod`
+- `diva watch .` watches the package entry file from `package.diva`
 - `diva new hello-di` creates an app package
 - `diva new hello-lib --lib` creates a library package
 
@@ -143,7 +143,7 @@ diva run .
 
 The generated project includes:
 
-- `diva.mod`
+- `package.diva`
 - `src/main.diva` for apps or `src/lib.diva` for libraries
 - `.gitignore`
 - `README.md`
@@ -165,7 +165,7 @@ Then source files can import a dependency package by name:
 import "pkg/math_lib"
 ```
 
-`pkg/<name>` resolves to the dependency package entry from that package's own `diva.mod`.
+`pkg/<name>` resolves to the dependency package entry from that package's own `package.diva`.
 
 ## Build From Source
 

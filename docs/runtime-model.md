@@ -12,7 +12,7 @@ The first `Diva` runtime model is intentionally conventional.
 
 ## Package Kinds
 
-`Diva` currently has three package kinds through `diva.mod`:
+`Diva` currently has three package kinds through `package.diva`:
 
 - `app`: requires `main` and links a hosted executable
 - `lib`: validates and emits IR without requiring `main`
