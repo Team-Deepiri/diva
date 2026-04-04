@@ -1,0 +1,34 @@
+import "std/io.diva"
+import "std/fmt.diva"
+import "std/csv.diva"
+
+func main(): int {
+    var doc = csv_builder_new()
+
+    var hdr = csv_row_builder_new()
+    csv_row_add(hdr, "name", 1)
+    csv_row_add(hdr, "language", 0)
+    csv_row_add(hdr, "year", 0)
+    csv_builder_add_row(doc, csv_row_finish(hdr))
+
+    var r1 = csv_row_builder_new()
+    csv_row_add(r1, "diva", 1)
+    csv_row_add(r1, "diva", 0)
+    csv_row_add_int(r1, 2026, 0)
+    csv_builder_add_row(doc, csv_row_finish(r1))
+
+    var r2 = csv_row_builder_new()
+    csv_row_add(r2, "rust", 1)
+    csv_row_add(r2, "rust", 0)
+    csv_row_add_int(r2, 2015, 0)
+    csv_builder_add_row(doc, csv_row_finish(r2))
+
+    var output = csv_builder_finish(doc)
+    println("generated csv:")
+    stdout(output)
+
+    println(fmt_int("lines: ", csv_count_lines(output)))
+    println(fmt_str("field(0,0): ", csv_get_field(csv_get_line(output, 0), 0)))
+    println(fmt_str("field(1,2): ", csv_get_field(csv_get_line(output, 1), 2)))
+    return 0
+}
