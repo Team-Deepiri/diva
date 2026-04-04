@@ -1,0 +1,224 @@
+// Diva IR — backend-neutral intermediate representation.
+//
+// Design:
+//   Module  → string table + list of functions
+//   Function → name, params, return type, list of basic blocks
+//   Block   → label, list of instructions
+//   Instruction → opcode, result vreg, operand1, operand2, extra
+//
+// All stored as int_vec handles. Virtual registers (vregs) are plain ints >= 0.
+// Type tags: 0 = void, 1 = int, 2 = bool, 3 = str, 4 = ptr
+
+import "std/vec.diva"
+import "std/host.diva"
+
+// --- IR types ---
+
+func ir_ty_void(): int { return 0 }
+func ir_ty_int(): int  { return 1 }
+func ir_ty_bool(): int { return 2 }
+func ir_ty_str(): int  { return 3 }
+func ir_ty_ptr(): int  { return 4 }
+
+// --- IR opcodes ---
+
+func ir_nop(): int       { return 0 }
+func ir_const(): int     { return 1 }
+func ir_const_str(): int { return 2 }
+func ir_add(): int       { return 3 }
+func ir_sub(): int       { return 4 }
+func ir_mul(): int       { return 5 }
+func ir_div(): int       { return 6 }
+func ir_mod(): int       { return 7 }
+func ir_neg(): int       { return 8 }
+func ir_eq(): int        { return 9 }
+func ir_ne(): int        { return 10 }
+func ir_lt(): int        { return 11 }
+func ir_le(): int        { return 12 }
+func ir_gt(): int        { return 13 }
+func ir_ge(): int        { return 14 }
+func ir_and(): int       { return 15 }
+func ir_or(): int        { return 16 }
+func ir_not(): int       { return 17 }
+func ir_load(): int      { return 18 }
+func ir_store(): int     { return 19 }
+func ir_call(): int      { return 20 }
+func ir_ret(): int       { return 21 }
+func ir_ret_void(): int  { return 22 }
+func ir_br(): int        { return 23 }
+func ir_br_cond(): int   { return 24 }
+func ir_alloca(): int    { return 25 }
+func ir_param(): int     { return 26 }
+func ir_copy(): int      { return 27 }
+func ir_phi(): int       { return 28 }
+func ir_str_arg(): int   { return 29 }
+
+func ir_op_name(op: int): str {
+    if op == 0  { return "nop" }
+    if op == 1  { return "const" }
+    if op == 2  { return "const.str" }
+    if op == 3  { return "add" }
+    if op == 4  { return "sub" }
+    if op == 5  { return "mul" }
+    if op == 6  { return "div" }
+    if op == 7  { return "mod" }
+    if op == 8  { return "neg" }
+    if op == 9  { return "eq" }
+    if op == 10 { return "ne" }
+    if op == 11 { return "lt" }
+    if op == 12 { return "le" }
+    if op == 13 { return "gt" }
+    if op == 14 { return "ge" }
+    if op == 15 { return "and" }
+    if op == 16 { return "or" }
+    if op == 17 { return "not" }
+    if op == 18 { return "load" }
+    if op == 19 { return "store" }
+    if op == 20 { return "call" }
+    if op == 21 { return "ret" }
+    if op == 22 { return "ret.void" }
+    if op == 23 { return "br" }
+    if op == 24 { return "br.cond" }
+    if op == 25 { return "alloca" }
+    if op == 26 { return "param" }
+    if op == 27 { return "copy" }
+    if op == 28 { return "phi" }
+    if op == 29 { return "str.arg" }
+    return "???"
+}
+
+// --- Instruction: [opcode, result, op1, op2, extra] ---
+
+func ir_inst(op: int, result: int, a: int, b: int, extra: int): int {
+    var inst = int_vec_new()
+    int_vec_push(inst, op)
+    int_vec_push(inst, result)
+    int_vec_push(inst, a)
+    int_vec_push(inst, b)
+    int_vec_push(inst, extra)
+    return inst
+}
+
+func inst_op(i: int): int     { return int_vec_get(i, 0) }
+func inst_result(i: int): int { return int_vec_get(i, 1) }
+func inst_a(i: int): int      { return int_vec_get(i, 2) }
+func inst_b(i: int): int      { return int_vec_get(i, 3) }
+func inst_extra(i: int): int  { return int_vec_get(i, 4) }
+
+// --- Basic block: [label_id, insts_handle (int_vec of inst handles)] ---
+
+func ir_block_new(label: int): int {
+    var blk = int_vec_new()
+    int_vec_push(blk, label)
+    int_vec_push(blk, int_vec_new())
+    return blk
+}
+
+func block_label(blk: int): int {
+    return int_vec_get(blk, 0)
+}
+
+func block_insts(blk: int): int {
+    return int_vec_get(blk, 1)
+}
+
+func block_append(blk: int, inst: int): int {
+    int_vec_push(int_vec_get(blk, 1), inst)
+    return 0
+}
+
+func block_inst_count(blk: int): int {
+    return int_vec_len(int_vec_get(blk, 1))
+}
+
+func block_get_inst(blk: int, idx: int): int {
+    return int_vec_get(int_vec_get(blk, 1), idx)
+}
+
+// --- Function: [name_idx, param_count, ret_type, blocks_handle, local_count] ---
+
+func ir_func_new(name_idx: int, param_count: int, ret_type: int): int {
+    var f = int_vec_new()
+    int_vec_push(f, name_idx)
+    int_vec_push(f, param_count)
+    int_vec_push(f, ret_type)
+    int_vec_push(f, int_vec_new())
+    int_vec_push(f, 0)
+    return f
+}
+
+func func_name_idx(f: int): int    { return int_vec_get(f, 0) }
+func func_param_count(f: int): int { return int_vec_get(f, 1) }
+func func_ret_type(f: int): int    { return int_vec_get(f, 2) }
+func func_blocks(f: int): int      { return int_vec_get(f, 3) }
+func func_local_count(f: int): int { return int_vec_get(f, 4) }
+
+func func_add_block(f: int, blk: int): int {
+    int_vec_push(int_vec_get(f, 3), blk)
+    return 0
+}
+
+func func_block_count(f: int): int {
+    return int_vec_len(int_vec_get(f, 3))
+}
+
+func func_get_block(f: int, idx: int): int {
+    return int_vec_get(int_vec_get(f, 3), idx)
+}
+
+// --- Module: [strings_handle, functions_handle, extern_names_handle] ---
+
+func ir_module_new(): int {
+    var m = int_vec_new()
+    int_vec_push(m, int_vec_new())
+    int_vec_push(m, int_vec_new())
+    int_vec_push(m, int_vec_new())
+    return m
+}
+
+func mod_strings(m: int): int   { return int_vec_get(m, 0) }
+func mod_funcs(m: int): int     { return int_vec_get(m, 1) }
+func mod_externs(m: int): int   { return int_vec_get(m, 2) }
+
+func mod_add_func(m: int, f: int): int {
+    int_vec_push(int_vec_get(m, 1), f)
+    return 0
+}
+
+func mod_func_count(m: int): int {
+    return int_vec_len(int_vec_get(m, 1))
+}
+
+func mod_get_func(m: int, idx: int): int {
+    return int_vec_get(int_vec_get(m, 1), idx)
+}
+
+func mod_add_extern(m: int, name_idx: int): int {
+    int_vec_push(int_vec_get(m, 2), name_idx)
+    return 0
+}
+
+func mod_extern_count(m: int): int {
+    return int_vec_len(int_vec_get(m, 2))
+}
+
+// --- String table (module-level, stores str indices) ---
+
+var ir_strtab = 0
+var ir_strtab_count = 0
+
+func strtab_init(): int {
+    ir_strtab = int_vec_new()
+    ir_strtab_count = 0
+    return 0
+}
+
+func strtab_add(s: str): int {
+    var idx = ir_strtab_count
+    ir_strtab_count = ir_strtab_count + 1
+    return idx
+}
+
+func strtab_count(): int {
+    return ir_strtab_count
+}

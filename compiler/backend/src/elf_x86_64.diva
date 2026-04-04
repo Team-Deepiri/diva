@@ -1,22 +1,66 @@
-// Linux x86_64 ELF64 relocatable object emitter — skeleton constants and hooks.
-// Primary path: emit ET_REL .o bytes from MIR; fallback lane: assembler text + `as` (no clang).
+// Linux x86_64 ELF64 — assembler + linker integration.
+// Uses GNU `as` and `ld` (no clang) to produce native executables from assembly.
 
-func elf_magic_0(): int {
-    return 127
+import "std/host.diva"
+import "std/io.diva"
+import "std/vec.diva"
+
+// --- ELF constants ---
+
+func elf_magic_0(): int    { return 127 }
+func elf_class_64(): int   { return 2 }
+func e_machine_x86_64(): int { return 62 }
+func et_rel(): int         { return 1 }
+func et_exec(): int        { return 2 }
+
+// --- Assembler integration ---
+
+func assemble_file(asm_path: str, obj_path: str): int {
+    var cmd = str_builder_new()
+    if cmd == 0 { return 1 }
+    str_builder_append(cmd, "as -o ")
+    str_builder_append(cmd, obj_path)
+    str_builder_append(cmd, " ")
+    str_builder_append(cmd, asm_path)
+    var c = str_builder_to_str(cmd)
+    str_builder_free(cmd)
+    return host_system(c)
 }
 
-func elf_class_64(): int {
+func link_file(obj_path: str, out_path: str, runtime_o: str): int {
+    var cmd = str_builder_new()
+    if cmd == 0 { return 1 }
+    str_builder_append(cmd, "ld -o ")
+    str_builder_append(cmd, out_path)
+    str_builder_append(cmd, " ")
+    str_builder_append(cmd, obj_path)
+    if str_len(runtime_o) > 0 {
+        str_builder_append(cmd, " ")
+        str_builder_append(cmd, runtime_o)
+    }
+    str_builder_append(cmd, " -lc -dynamic-linker /lib64/ld-linux-x86-64.so.2")
+    var c = str_builder_to_str(cmd)
+    str_builder_free(cmd)
+    return host_system(c)
+}
+
+func link_with_gcc(obj_path: str, out_path: str, runtime_o: str): int {
+    var cmd = str_builder_new()
+    if cmd == 0 { return 1 }
+    str_builder_append(cmd, "cc -o ")
+    str_builder_append(cmd, out_path)
+    str_builder_append(cmd, " ")
+    str_builder_append(cmd, obj_path)
+    if str_len(runtime_o) > 0 {
+        str_builder_append(cmd, " ")
+        str_builder_append(cmd, runtime_o)
+    }
+    str_builder_append(cmd, " -no-pie")
+    var c = str_builder_to_str(cmd)
+    str_builder_free(cmd)
+    return host_system(c)
+}
+
+func backend_elf_version(): int {
     return 2
-}
-
-func e_machine_x86_64(): int {
-    return 62
-}
-
-func et_rel(): int {
-    return 1
-}
-
-func backend_elf_stub_version(): int {
-    return 1
 }

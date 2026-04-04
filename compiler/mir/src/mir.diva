@@ -1,5 +1,8 @@
-// Backend-neutral MIR/LIR scaffolding (expanded as the Diva compiler grows).
-// Lowering targets: Diva MIR text dump, then ELF/x86_64 in ../backend.
+// Diva MIR (Mid-level IR) layer — bridges typed AST and backend codegen.
+// The real IR definitions live in compiler/src/ir.diva.
+// This package provides the MIR abstraction boundary for the compiler pipeline.
+
+import "std/vec.diva"
 
 class MirBlock {
     var id :: int
@@ -11,5 +14,9 @@ class MirFn {
 }
 
 func mir_layer_version(): int {
-    return 1
+    return 2
+}
+
+func mir_pipeline_stage(): str {
+    return "Diva source -> tokens -> AST -> Diva IR -> x86_64 asm -> native"
 }
