@@ -1,0 +1,23 @@
+import "std/io.diva"
+import "std/fmt.diva"
+import "std/pattern.diva"
+
+func main(): int {
+    println(fmt_int("glob *.diva vs main.diva:  ", glob_match("*.diva", "main.diva")))
+    println(fmt_int("glob src/* vs src/main:    ", glob_match("src/*", "src/main")))
+    println(fmt_int("glob *.txt vs main.diva:   ", glob_match("*.txt", "main.diva")))
+    println(fmt_int("glob he?lo vs hello:       ", glob_match("he?lo", "hello")))
+
+    var replaced = str_replace("hello world hello", "hello", "diva")
+    println(fmt_str("replace: ", replaced))
+
+    var first = str_replace_first("aaa bbb aaa", "aaa", "zzz")
+    println(fmt_str("replace_first: ", first))
+
+    println(fmt_int("count 'aa' in 'aaaaaa': ", str_count("aaaaaa", "aa")))
+
+    println(fmt_str("reverse 'diva': ", str_reverse("diva")))
+    println(fmt_int("is_blank '   ': ", str_is_blank("   ")))
+    println(fmt_int("is_empty '':    ", str_is_empty("")))
+    return 0
+}

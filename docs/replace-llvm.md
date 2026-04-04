@@ -1,12 +1,12 @@
-# Replacing LLVM In Di
+# Replacing LLVM In Diva
 
-This plan is the practical path to making `Di` independent from LLVM without derailing the compiler.
+This plan is the practical path to making `Diva` independent from LLVM without derailing the compiler.
 
 The core idea is:
 
 ```text
-Now:   Di source -> AST -> current IR -> LLVM IR / generated C -> native build
-Later: Di source -> AST -> typed IR -> Di IR -> Di backend -> assembly -> machine code
+Now:   Diva source -> AST -> current IR -> LLVM IR / generated C -> native build
+Later: Diva source -> AST -> typed IR -> Diva IR -> Diva backend -> assembly -> machine code
 ```
 
 The strategy is to treat LLVM as a temporary backend, not as the permanent shape of the compiler.
@@ -23,11 +23,11 @@ That is usually the wrong tradeoff for a young language. The compiler needs to f
 - modules and packages
 - self-hosting milestones
 
-LLVM is useful because it removes years of backend complexity while `Di` is still deciding what the language is.
+LLVM is useful because it removes years of backend complexity while `Diva` is still deciding what the language is.
 
 ## Stage 1: Keep LLVM For Now
 
-Goal: get `Di` self-hosting as quickly as possible.
+Goal: get `Diva` self-hosting as quickly as possible.
 
 Priorities:
 
@@ -44,23 +44,23 @@ What to avoid:
 
 Exit criteria:
 
-- `Di` compiles nontrivial programs reliably
+- `Diva` compiles nontrivial programs reliably
 - the compiler can compile more and more of itself
 - LLVM is helping progress instead of shaping language design
 
-## Stage 2: Introduce A Real Di IR
+## Stage 2: Introduce A Real Diva IR
 
 Goal: make LLVM just one backend target.
 
 Desired pipeline:
 
 ```text
-Di source -> AST -> typed IR -> Di IR -> LLVM backend -> machine code
+Diva source -> AST -> typed IR -> Diva IR -> LLVM backend -> machine code
 ```
 
 This is the architectural turning point.
 
-`Di IR` should describe Di semantics directly instead of mirroring LLVM details. It should be:
+`Diva IR` should describe Diva semantics directly instead of mirroring LLVM details. It should be:
 
 - backend-independent
 - explicit about control flow
@@ -85,15 +85,15 @@ Likely intermediate layers:
 
 1. `AST`
 2. `Typed IR`
-3. `Di IR`
+3. `Diva IR`
 4. backend-specific lowering
 
 Recommended rules:
 
 - keep LLVM-specific concepts out of frontend and semantic phases
-- lower from semantic structures into `Di IR` only once types are resolved
+- lower from semantic structures into `Diva IR` only once types are resolved
 - define stable IR data structures before adding optimization passes
-- add text dump support for `Di IR` early so it can be inspected like LLVM IR today
+- add text dump support for `Diva IR` early so it can be inspected like LLVM IR today
 
 Exit criteria:
 
@@ -115,7 +115,7 @@ Initial scope:
 Desired pipeline:
 
 ```text
-Di source -> AST -> typed IR -> Di IR -> x86_64 codegen -> assembly -> object/executable
+Diva source -> AST -> typed IR -> Diva IR -> x86_64 codegen -> assembly -> object/executable
 ```
 
 Implementation order:
@@ -147,7 +147,7 @@ Avoid at first:
 
 Exit criteria:
 
-- `Di` can compile small real programs without LLVM
+- `Diva` can compile small real programs without LLVM
 - generated binaries are correct on one supported target
 - the backend is understandable enough to evolve safely
 
@@ -157,9 +157,9 @@ Goal: turn LLVM from a requirement into a compatibility backend.
 
 At this point:
 
-- the default path can use the native Di backend
+- the default path can use the native Diva backend
 - LLVM can remain available for comparison, debugging, or unsupported targets
-- backend bugs can be isolated by comparing `Di IR -> LLVM` vs `Di IR -> native`
+- backend bugs can be isolated by comparing `Diva IR -> LLVM` vs `Diva IR -> native`
 
 This transition is safer than a hard cutover because it preserves a known-good reference target while the native backend matures.
 
@@ -169,14 +169,14 @@ Given the current compiler shape, the next practical steps are:
 
 1. formalize the current internal IR story and separate AST from backend lowering more clearly
 2. introduce a typed, backend-neutral IR layer before any direct LLVM replacement work
-3. add an explicit `Di IR` dump mode for debugging and regression testing
+3. add an explicit `Diva IR` dump mode for debugging and regression testing
 4. move LLVM-specific lowering behind a backend boundary
 5. only then prototype a tiny `x86_64` backend for a restricted subset of the language
 
 ## Design Principles
 
 - self-hosting is more important than backend purity in the short term
-- backend independence comes from `Di IR`, not from deleting LLVM quickly
+- backend independence comes from `Diva IR`, not from deleting LLVM quickly
 - minimal correct codegen is better than ambitious incomplete codegen
 - every new backend stage should be inspectable with dumps and tests
 - LLVM should be replaced only after it has been successfully demoted to an interchangeable target
@@ -186,7 +186,7 @@ Given the current compiler shape, the next practical steps are:
 The serious path is:
 
 1. use LLVM now
-2. build a real `Di IR`
+2. build a real `Diva IR`
 3. replace LLVM later with a narrow native backend
 
-That sequence gives `Di` the best chance to become both self-hosting and eventually fully independent.
+That sequence gives `Diva` the best chance to become both self-hosting and eventually fully independent.

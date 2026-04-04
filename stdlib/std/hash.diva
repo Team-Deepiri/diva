@@ -1,0 +1,92 @@
+import "std/host.diva"
+import "std/vec.diva"
+
+func fnv1a(s: str): int {
+    var h = 2166136261
+    var n = str_len(s)
+    var i = 0
+    while i < n {
+        var c = str_byte(s, i)
+        h = h * 16777619
+        h = h + c
+        i = i + 1
+    }
+    if h < 0 {
+        h = 0 - h
+    }
+    return h
+}
+
+func djb2(s: str): int {
+    var h = 5381
+    var n = str_len(s)
+    var i = 0
+    while i < n {
+        h = h * 33 + str_byte(s, i)
+        i = i + 1
+    }
+    if h < 0 {
+        h = 0 - h
+    }
+    return h
+}
+
+func sdbm(s: str): int {
+    var h = 0
+    var n = str_len(s)
+    var i = 0
+    while i < n {
+        var c = str_byte(s, i)
+        h = c + h * 65599
+        i = i + 1
+    }
+    if h < 0 {
+        h = 0 - h
+    }
+    return h
+}
+
+func hash_combine(a: int, b: int): int {
+    var h = a * 31 + b
+    if h < 0 {
+        h = 0 - h
+    }
+    return h
+}
+
+func hash_int(x: int): int {
+    var h = x * 2654435761
+    if h < 0 {
+        h = 0 - h
+    }
+    return h
+}
+
+func hash_pair(a: int, b: int): int {
+    return hash_combine(hash_int(a), hash_int(b))
+}
+
+func checksum_vec(handle: int): int {
+    var n = int_vec_len(handle)
+    var sum = 0
+    var i = 0
+    while i < n {
+        sum = sum + int_vec_get(handle, i)
+        i = i + 1
+    }
+    if sum < 0 {
+        sum = 0 - sum
+    }
+    return sum
+}
+
+func checksum_str(s: str): int {
+    var n = str_len(s)
+    var sum = 0
+    var i = 0
+    while i < n {
+        sum = sum + str_byte(s, i)
+        i = i + 1
+    }
+    return sum
+}

@@ -1,10 +1,10 @@
-# Di Extension
+# Diva Extension
 
-This extension registers the `Di` language for `.di` files.
+This extension registers the `Diva` language for `.diva` files.
 
 Included today:
 
-- `.di` file association
+- `.diva` file association
 - comment and bracket configuration
 - syntax highlighting for the current language surface
 - starter snippets for new files and common control flow
@@ -15,13 +15,13 @@ You can install it locally by copying this folder into your editor extensions di
 
 VS Code example:
 
-- Linux: `~/.vscode/extensions/diri-lang`
-- Windows: `%USERPROFILE%\\.vscode\\extensions\\diri-lang`
+- Linux: `~/.vscode/extensions/diva-lang`
+- Windows: `%USERPROFILE%\\.vscode\\extensions\\diva-lang`
 
 Cursor example:
 
-- Linux: `~/.cursor/extensions/diri-lang`
-- Windows: `%USERPROFILE%\\.cursor\\extensions\\diri-lang`
+- Linux: `~/.cursor/extensions/diva-lang`
+- Windows: `%USERPROFILE%\\.cursor\\extensions\\diva-lang`
 
 ## Covered Syntax
 

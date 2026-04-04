@@ -1,0 +1,151 @@
+import "std/host.diva"
+import "std/vec.diva"
+import "std/str.diva"
+
+func path_separator(): str {
+    return "/"
+}
+
+func path_join(a: str, b: str): str {
+    var alen = str_len(a)
+    if alen == 0 {
+        return b
+    }
+    if str_len(b) == 0 {
+        return a
+    }
+    var last = str_byte(a, alen - 1)
+    var sb = str_builder_new()
+    if sb == 0 {
+        return ""
+    }
+    str_builder_append(sb, a)
+    if last != 47 {
+        str_builder_append(sb, "/")
+    }
+    str_builder_append(sb, b)
+    var result = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return result
+}
+
+func path_dirname(p: str): str {
+    var n = str_len(p)
+    if n == 0 {
+        return "."
+    }
+    var i = n - 1
+    while i >= 0 {
+        if str_byte(p, i) == 47 {
+            if i == 0 {
+                return "/"
+            }
+            return str_slice(p, 0, i)
+        }
+        i = i - 1
+    }
+    return "."
+}
+
+func path_basename(p: str): str {
+    var n = str_len(p)
+    if n == 0 {
+        return ""
+    }
+    var i = n - 1
+    while i >= 0 {
+        if str_byte(p, i) == 47 {
+            return str_slice(p, i + 1, n - i - 1)
+        }
+        i = i - 1
+    }
+    return p
+}
+
+func path_extension(p: str): str {
+    var base = path_basename(p)
+    var n = str_len(base)
+    if n == 0 {
+        return ""
+    }
+    var i = n - 1
+    while i > 0 {
+        if str_byte(base, i) == 46 {
+            return str_slice(base, i, n - i)
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+func path_stem(p: str): str {
+    var base = path_basename(p)
+    var n = str_len(base)
+    if n == 0 {
+        return ""
+    }
+    var i = n - 1
+    while i > 0 {
+        if str_byte(base, i) == 46 {
+            return str_slice(base, 0, i)
+        }
+        i = i - 1
+    }
+    return base
+}
+
+func path_is_absolute(p: str): int {
+    if str_len(p) == 0 {
+        return 0
+    }
+    if str_byte(p, 0) == 47 {
+        return 1
+    }
+    return 0
+}
+
+func path_is_relative(p: str): int {
+    if path_is_absolute(p) == 1 {
+        return 0
+    }
+    return 1
+}
+
+func path_has_extension(p: str, ext: str): int {
+    return str_eq(path_extension(p), ext)
+}
+
+func path_with_extension(p: str, ext: str): str {
+    var dir = path_dirname(p)
+    var stem = path_stem(p)
+    var sb = str_builder_new()
+    if sb == 0 {
+        return ""
+    }
+    if str_eq(dir, ".") == 0 {
+        str_builder_append(sb, dir)
+        str_builder_append(sb, "/")
+    }
+    str_builder_append(sb, stem)
+    str_builder_append(sb, ext)
+    var result = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return result
+}
+
+func path_join3(a: str, b: str, c: str): str {
+    return path_join(path_join(a, b), c)
+}
+
+func path_depth(p: str): int {
+    var n = str_len(p)
+    var count = 0
+    var i = 0
+    while i < n {
+        if str_byte(p, i) == 47 {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}

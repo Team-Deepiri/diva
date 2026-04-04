@@ -1,0 +1,8 @@
+package duplicate_demo
+
+import "duplicate_import_a.diva";
+import "duplicate_import_b.diva";
+
+func main(): int {
+    return clash();
+}

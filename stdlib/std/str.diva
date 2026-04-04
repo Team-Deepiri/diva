@@ -1,0 +1,207 @@
+import "std/host.diva"
+import "std/vec.diva"
+
+func str_starts_with(s: str, prefix: str): int {
+    var plen = str_len(prefix)
+    if str_len(s) < plen {
+        return 0
+    }
+    var i = 0
+    while i < plen {
+        if str_byte(s, i) != str_byte(prefix, i) {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+func str_ends_with(s: str, suffix: str): int {
+    var slen = str_len(s)
+    var xlen = str_len(suffix)
+    if slen < xlen {
+        return 0
+    }
+    var off = slen - xlen
+    var i = 0
+    while i < xlen {
+        if str_byte(s, off + i) != str_byte(suffix, i) {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+func str_contains(haystack: str, needle: str): int {
+    var hlen = str_len(haystack)
+    var nlen = str_len(needle)
+    if nlen == 0 {
+        return 1
+    }
+    if hlen < nlen {
+        return 0
+    }
+    var i = 0
+    while i <= hlen - nlen {
+        var match = 1
+        var j = 0
+        while j < nlen {
+            if str_byte(haystack, i + j) != str_byte(needle, j) {
+                match = 0
+                j = nlen
+            }
+            j = j + 1
+        }
+        if match == 1 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func str_index_of(haystack: str, needle: str): int {
+    var hlen = str_len(haystack)
+    var nlen = str_len(needle)
+    if nlen == 0 {
+        return 0
+    }
+    if hlen < nlen {
+        return 0 - 1
+    }
+    var i = 0
+    while i <= hlen - nlen {
+        var match = 1
+        var j = 0
+        while j < nlen {
+            if str_byte(haystack, i + j) != str_byte(needle, j) {
+                match = 0
+                j = nlen
+            }
+            j = j + 1
+        }
+        if match == 1 {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func str_repeat(s: str, count: int): str {
+    var b = str_builder_new()
+    if b == 0 {
+        return ""
+    }
+    var i = 0
+    while i < count {
+        str_builder_append(b, s)
+        i = i + 1
+    }
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func str_concat(a: str, b: str): str {
+    var sb = str_builder_new()
+    if sb == 0 {
+        return ""
+    }
+    str_builder_append(sb, a)
+    str_builder_append(sb, b)
+    var result = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return result
+}
+
+func str_trim_left(s: str): str {
+    var n = str_len(s)
+    var i = 0
+    while i < n {
+        var c = str_byte(s, i)
+        if c != 32 {
+            if c != 9 {
+                if c != 10 {
+                    if c != 13 {
+                        return str_slice(s, i, n - i)
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+func str_trim_right(s: str): str {
+    var n = str_len(s)
+    var i = n - 1
+    while i >= 0 {
+        var c = str_byte(s, i)
+        if c != 32 {
+            if c != 9 {
+                if c != 10 {
+                    if c != 13 {
+                        return str_slice(s, 0, i + 1)
+                    }
+                }
+            }
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+func str_trim(s: str): str {
+    return str_trim_right(str_trim_left(s))
+}
+
+func str_to_upper_byte(c: int): int {
+    if c >= 97 {
+        if c <= 122 {
+            return c - 32
+        }
+    }
+    return c
+}
+
+func str_to_lower_byte(c: int): int {
+    if c >= 65 {
+        if c <= 90 {
+            return c + 32
+        }
+    }
+    return c
+}
+
+func str_is_digit(c: int): int {
+    if c >= 48 {
+        if c <= 57 {
+            return 1
+        }
+    }
+    return 0
+}
+
+func str_is_alpha(c: int): int {
+    if c >= 65 {
+        if c <= 90 {
+            return 1
+        }
+    }
+    if c >= 97 {
+        if c <= 122 {
+            return 1
+        }
+    }
+    return 0
+}
+
+func str_is_alnum(c: int): int {
+    if str_is_alpha(c) == 1 {
+        return 1
+    }
+    return str_is_digit(c)
+}

@@ -1,0 +1,342 @@
+// AST node representation for the Diva compiler.
+// Each node is an int_vec handle: [kind, ...payload].
+// Child references are node handles (ints). -1 means "absent".
+
+import "std/vec.diva"
+
+// --- Node kinds ---
+
+func nd_file(): int        { return 1 }
+func nd_import(): int      { return 2 }
+func nd_func(): int        { return 3 }
+func nd_extern_func(): int { return 4 }
+func nd_param(): int       { return 5 }
+func nd_var_decl(): int    { return 6 }
+func nd_if(): int          { return 7 }
+func nd_while(): int       { return 8 }
+func nd_return(): int      { return 9 }
+func nd_block(): int       { return 10 }
+func nd_call(): int        { return 11 }
+func nd_binop(): int       { return 12 }
+func nd_unary(): int       { return 13 }
+func nd_int_lit(): int     { return 14 }
+func nd_str_lit(): int     { return 15 }
+func nd_bool_lit(): int    { return 16 }
+func nd_ident(): int       { return 17 }
+func nd_assign(): int      { return 18 }
+func nd_field(): int       { return 19 }
+func nd_index(): int       { return 20 }
+func nd_class(): int       { return 21 }
+func nd_type_name(): int   { return 22 }
+func nd_array_lit(): int   { return 23 }
+func nd_flux(): int        { return 24 }
+func nd_range(): int       { return 25 }
+func nd_method_call(): int { return 26 }
+func nd_package_decl(): int { return 27 }
+func nd_trait(): int       { return 28 }
+func nd_impl(): int        { return 29 }
+func nd_type_array(): int  { return 30 }
+func nd_obj_lit(): int     { return 31 }
+func nd_field_init(): int  { return 32 }
+func nd_expr_stmt(): int   { return 33 }
+func nd_class_field(): int { return 34 }
+func nd_generic_call(): int { return 35 }
+
+// --- Binary operator sub-kinds (stored in binop payload) ---
+
+func binop_add(): int  { return 1 }
+func binop_sub(): int  { return 2 }
+func binop_mul(): int  { return 3 }
+func binop_div(): int  { return 4 }
+func binop_mod(): int  { return 5 }
+func binop_eq(): int   { return 6 }
+func binop_ne(): int   { return 7 }
+func binop_lt(): int   { return 8 }
+func binop_le(): int   { return 9 }
+func binop_gt(): int   { return 10 }
+func binop_ge(): int   { return 11 }
+func binop_and(): int  { return 12 }
+func binop_or(): int   { return 13 }
+
+// --- Unary operator sub-kinds ---
+
+func unop_neg(): int   { return 1 }
+func unop_not(): int   { return 2 }
+
+// --- Node constructors ---
+
+// File: [kind, children_handle] where children_handle is int_vec of node handles
+func ast_file(children: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_file())
+    int_vec_push(n, children)
+    return n
+}
+
+// Import: [kind, tok_idx] tok_idx points to the string literal token
+func ast_import(tok_idx: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_import())
+    int_vec_push(n, tok_idx)
+    return n
+}
+
+// Package: [kind, tok_idx]
+func ast_package(tok_idx: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_package_decl())
+    int_vec_push(n, tok_idx)
+    return n
+}
+
+// Function: [kind, name_tok, params_handle, ret_type_node, body_node]
+func ast_func(name_tok: int, params: int, ret_type: int, body: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_func())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, params)
+    int_vec_push(n, ret_type)
+    int_vec_push(n, body)
+    return n
+}
+
+// Extern func: [kind, name_tok, params_handle, ret_type_node]
+func ast_extern_func(name_tok: int, params: int, ret_type: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_extern_func())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, params)
+    int_vec_push(n, ret_type)
+    return n
+}
+
+// Param: [kind, name_tok, type_node]
+func ast_param(name_tok: int, type_node: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_param())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, type_node)
+    return n
+}
+
+// Var decl: [kind, name_tok, type_node (-1 if none), init_expr]
+func ast_var_decl(name_tok: int, type_node: int, init: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_var_decl())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, type_node)
+    int_vec_push(n, init)
+    return n
+}
+
+// If: [kind, cond, then_body, else_body (-1 if none)]
+func ast_if(cond: int, then_body: int, else_body: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_if())
+    int_vec_push(n, cond)
+    int_vec_push(n, then_body)
+    int_vec_push(n, else_body)
+    return n
+}
+
+// While: [kind, cond, body, update (-1 if none)]
+func ast_while(cond: int, body: int, update: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_while())
+    int_vec_push(n, cond)
+    int_vec_push(n, body)
+    int_vec_push(n, update)
+    return n
+}
+
+// Return: [kind, expr (-1 for bare return)]
+func ast_return(expr: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_return())
+    int_vec_push(n, expr)
+    return n
+}
+
+// Block: [kind, stmts_handle] where stmts_handle is int_vec of node handles
+func ast_block(stmts: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_block())
+    int_vec_push(n, stmts)
+    return n
+}
+
+// Call: [kind, callee_node, args_handle]
+func ast_call(callee: int, args: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_call())
+    int_vec_push(n, callee)
+    int_vec_push(n, args)
+    return n
+}
+
+// Method call: [kind, obj_node, method_tok, args_handle]
+func ast_method_call(obj: int, method_tok: int, args: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_method_call())
+    int_vec_push(n, obj)
+    int_vec_push(n, method_tok)
+    int_vec_push(n, args)
+    return n
+}
+
+// Binop: [kind, op_kind, left, right]
+func ast_binop(op: int, left: int, right: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_binop())
+    int_vec_push(n, op)
+    int_vec_push(n, left)
+    int_vec_push(n, right)
+    return n
+}
+
+// Unary: [kind, op_kind, operand]
+func ast_unary(op: int, operand: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_unary())
+    int_vec_push(n, op)
+    int_vec_push(n, operand)
+    return n
+}
+
+// Int literal: [kind, value]
+func ast_int_lit(value: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_int_lit())
+    int_vec_push(n, value)
+    return n
+}
+
+// String literal: [kind, tok_idx]
+func ast_str_lit(tok_idx: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_str_lit())
+    int_vec_push(n, tok_idx)
+    return n
+}
+
+// Bool literal: [kind, value (0 or 1)]
+func ast_bool_lit(value: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_bool_lit())
+    int_vec_push(n, value)
+    return n
+}
+
+// Identifier: [kind, tok_idx]
+func ast_ident(tok_idx: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_ident())
+    int_vec_push(n, tok_idx)
+    return n
+}
+
+// Assignment: [kind, target_node, value_node]
+func ast_assign(target: int, value: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_assign())
+    int_vec_push(n, target)
+    int_vec_push(n, value)
+    return n
+}
+
+// Field access: [kind, obj_node, field_tok]
+func ast_field(obj: int, field_tok: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_field())
+    int_vec_push(n, obj)
+    int_vec_push(n, field_tok)
+    return n
+}
+
+// Index: [kind, obj_node, index_expr]
+func ast_index(obj: int, idx: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_index())
+    int_vec_push(n, obj)
+    int_vec_push(n, idx)
+    return n
+}
+
+// Array literal: [kind, elems_handle]
+func ast_array_lit(elems: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_array_lit())
+    int_vec_push(n, elems)
+    return n
+}
+
+// Range: [kind, start_expr, end_expr]
+func ast_range(start: int, end: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_range())
+    int_vec_push(n, start)
+    int_vec_push(n, end)
+    return n
+}
+
+// Flux: [kind, var_tok, iterable_node, body_node]
+func ast_flux(var_tok: int, iterable: int, body: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_flux())
+    int_vec_push(n, var_tok)
+    int_vec_push(n, iterable)
+    int_vec_push(n, body)
+    return n
+}
+
+// Type name: [kind, tok_idx]
+func ast_type_name(tok_idx: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_type_name())
+    int_vec_push(n, tok_idx)
+    return n
+}
+
+// Array type: [kind, elem_type_node]
+func ast_type_array(elem: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_type_array())
+    int_vec_push(n, elem)
+    return n
+}
+
+// Class: [kind, name_tok, members_handle (int_vec of field/method nodes)]
+func ast_class(name_tok: int, members: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_class())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, members)
+    return n
+}
+
+// Class field: [kind, name_tok, type_node]
+func ast_class_field(name_tok: int, type_node: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_class_field())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, type_node)
+    return n
+}
+
+// Expr statement: [kind, expr_node]
+func ast_expr_stmt(expr: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_expr_stmt())
+    int_vec_push(n, expr)
+    return n
+}
+
+// --- Node accessors ---
+
+func ast_kind(node: int): int {
+    return int_vec_get(node, 0)
+}
+
+func ast_child(node: int, idx: int): int {
+    return int_vec_get(node, idx + 1)
+}

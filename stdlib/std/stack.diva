@@ -1,0 +1,92 @@
+import "std/vec.diva"
+
+func stack_new(): int {
+    return int_vec_new()
+}
+
+func stack_push(handle: int, value: int): int {
+    return int_vec_push(handle, value)
+}
+
+func stack_pop(handle: int): int {
+    var n = int_vec_len(handle)
+    if n == 0 {
+        return 0 - 1
+    }
+    var top = int_vec_get(handle, n - 1)
+    var fresh = int_vec_new()
+    var i = 0
+    while i < n - 1 {
+        int_vec_push(fresh, int_vec_get(handle, i))
+        i = i + 1
+    }
+    return top
+}
+
+func stack_peek(handle: int): int {
+    var n = int_vec_len(handle)
+    if n == 0 {
+        return 0 - 1
+    }
+    return int_vec_get(handle, n - 1)
+}
+
+func stack_size(handle: int): int {
+    return int_vec_len(handle)
+}
+
+func stack_is_empty(handle: int): int {
+    if int_vec_len(handle) == 0 {
+        return 1
+    }
+    return 0
+}
+
+func stack_clear(handle: int): int {
+    int_vec_free(handle)
+    return int_vec_new()
+}
+
+func stack_free(handle: int): int {
+    int_vec_free(handle)
+    return 0
+}
+
+func stack_dup(handle: int): int {
+    var n = int_vec_len(handle)
+    if n == 0 {
+        return 0 - 1
+    }
+    var top = int_vec_get(handle, n - 1)
+    int_vec_push(handle, top)
+    return top
+}
+
+func stack_swap(handle: int): int {
+    var n = int_vec_len(handle)
+    if n < 2 {
+        return 0 - 1
+    }
+    var a = int_vec_get(handle, n - 1)
+    var b = int_vec_get(handle, n - 2)
+    var fresh = int_vec_new()
+    var i = 0
+    while i < n - 2 {
+        int_vec_push(fresh, int_vec_get(handle, i))
+        i = i + 1
+    }
+    int_vec_push(fresh, a)
+    int_vec_push(fresh, b)
+    return fresh
+}
+
+func stack_to_vec(handle: int): int {
+    var n = int_vec_len(handle)
+    var copy = int_vec_new()
+    var i = 0
+    while i < n {
+        int_vec_push(copy, int_vec_get(handle, i))
+        i = i + 1
+    }
+    return copy
+}

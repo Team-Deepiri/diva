@@ -1,0 +1,184 @@
+import "std/vec.diva"
+
+// Integer matrix stored as a flat int_vec with rows*cols layout.
+// Meta handle: [rows, cols, data_handle]
+
+func matrix_new(rows: int, cols: int): int {
+    var meta = int_vec_new()
+    int_vec_push(meta, rows)
+    int_vec_push(meta, cols)
+    var data = int_vec_new()
+    var total = rows * cols
+    var i = 0
+    while i < total {
+        int_vec_push(data, 0)
+        i = i + 1
+    }
+    int_vec_push(meta, data)
+    return meta
+}
+
+func matrix_rows(meta: int): int {
+    return int_vec_get(meta, 0)
+}
+
+func matrix_cols(meta: int): int {
+    return int_vec_get(meta, 1)
+}
+
+func matrix_get(meta: int, row: int, col: int): int {
+    var cols = int_vec_get(meta, 1)
+    var data = int_vec_get(meta, 2)
+    return int_vec_get(data, row * cols + col)
+}
+
+func matrix_set(meta: int, row: int, col: int, val: int): int {
+    var rows = int_vec_get(meta, 0)
+    var cols = int_vec_get(meta, 1)
+    var data = int_vec_get(meta, 2)
+    var new_data = int_vec_new()
+    var total = rows * cols
+    var target = row * cols + col
+    var i = 0
+    while i < total {
+        if i == target {
+            int_vec_push(new_data, val)
+        } else {
+            int_vec_push(new_data, int_vec_get(data, i))
+        }
+        i = i + 1
+    }
+    int_vec_free(data)
+    var new_meta = int_vec_new()
+    int_vec_push(new_meta, rows)
+    int_vec_push(new_meta, cols)
+    int_vec_push(new_meta, new_data)
+    int_vec_free(meta)
+    return new_meta
+}
+
+func matrix_add(a: int, b: int): int {
+    var rows = int_vec_get(a, 0)
+    var cols = int_vec_get(a, 1)
+    var result = matrix_new(rows, cols)
+    var r = 0
+    while r < rows {
+        var c = 0
+        while c < cols {
+            var sum = matrix_get(a, r, c) + matrix_get(b, r, c)
+            result = matrix_set(result, r, c, sum)
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return result
+}
+
+func matrix_scale(meta: int, factor: int): int {
+    var rows = int_vec_get(meta, 0)
+    var cols = int_vec_get(meta, 1)
+    var result = matrix_new(rows, cols)
+    var r = 0
+    while r < rows {
+        var c = 0
+        while c < cols {
+            result = matrix_set(result, r, c, matrix_get(meta, r, c) * factor)
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return result
+}
+
+func matrix_multiply(a: int, b: int): int {
+    var ar = int_vec_get(a, 0)
+    var ac = int_vec_get(a, 1)
+    var bc = int_vec_get(b, 1)
+    var result = matrix_new(ar, bc)
+    var r = 0
+    while r < ar {
+        var c = 0
+        while c < bc {
+            var sum = 0
+            var k = 0
+            while k < ac {
+                sum = sum + matrix_get(a, r, k) * matrix_get(b, k, c)
+                k = k + 1
+            }
+            result = matrix_set(result, r, c, sum)
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return result
+}
+
+func matrix_transpose(meta: int): int {
+    var rows = int_vec_get(meta, 0)
+    var cols = int_vec_get(meta, 1)
+    var result = matrix_new(cols, rows)
+    var r = 0
+    while r < rows {
+        var c = 0
+        while c < cols {
+            result = matrix_set(result, c, r, matrix_get(meta, r, c))
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return result
+}
+
+func matrix_identity(size: int): int {
+    var m = matrix_new(size, size)
+    var i = 0
+    while i < size {
+        m = matrix_set(m, i, i, 1)
+        i = i + 1
+    }
+    return m
+}
+
+func matrix_trace(meta: int): int {
+    var rows = int_vec_get(meta, 0)
+    var cols = int_vec_get(meta, 1)
+    var n = rows
+    if cols < n {
+        n = cols
+    }
+    var sum = 0
+    var i = 0
+    while i < n {
+        sum = sum + matrix_get(meta, i, i)
+        i = i + 1
+    }
+    return sum
+}
+
+func matrix_row_sum(meta: int, row: int): int {
+    var cols = int_vec_get(meta, 1)
+    var sum = 0
+    var c = 0
+    while c < cols {
+        sum = sum + matrix_get(meta, row, c)
+        c = c + 1
+    }
+    return sum
+}
+
+func matrix_col_sum(meta: int, col: int): int {
+    var rows = int_vec_get(meta, 0)
+    var sum = 0
+    var r = 0
+    while r < rows {
+        sum = sum + matrix_get(meta, r, col)
+        r = r + 1
+    }
+    return sum
+}
+
+func matrix_free(meta: int): int {
+    int_vec_free(int_vec_get(meta, 2))
+    int_vec_free(meta)
+    return 0
+}

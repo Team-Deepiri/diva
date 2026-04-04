@@ -1,0 +1,182 @@
+// Token kind constants and token stream accessors for the Diva compiler.
+// A token stream is an int_vec of [kind, start, length] triples.
+
+import "std/host.diva"
+import "std/vec.diva"
+
+// --- Token kinds ---
+
+func tk_eof(): int       { return 0 }
+func tk_ident(): int     { return 1 }
+func tk_int_lit(): int   { return 2 }
+func tk_str_lit(): int   { return 3 }
+
+func tk_func(): int      { return 10 }
+func tk_extern(): int    { return 11 }
+func tk_var(): int       { return 12 }
+func tk_let(): int       { return 13 }
+func tk_if(): int        { return 14 }
+func tk_else(): int      { return 15 }
+func tk_while(): int     { return 16 }
+func tk_return(): int    { return 17 }
+func tk_import(): int    { return 18 }
+func tk_package(): int   { return 19 }
+func tk_class(): int     { return 20 }
+func tk_trait(): int     { return 21 }
+func tk_impl(): int      { return 22 }
+func tk_flux(): int      { return 23 }
+func tk_in(): int        { return 24 }
+func tk_true(): int      { return 25 }
+func tk_false(): int     { return 26 }
+func tk_void(): int      { return 27 }
+func tk_int_kw(): int    { return 28 }
+func tk_str_kw(): int    { return 29 }
+func tk_bool_kw(): int   { return 30 }
+func tk_struct(): int    { return 31 }
+func tk_for(): int       { return 32 }
+func tk_self(): int      { return 33 }
+
+func tk_lparen(): int    { return 40 }
+func tk_rparen(): int    { return 41 }
+func tk_lbrace(): int    { return 42 }
+func tk_rbrace(): int    { return 43 }
+func tk_lbrack(): int    { return 44 }
+func tk_rbrack(): int    { return 45 }
+func tk_comma(): int     { return 46 }
+func tk_semi(): int      { return 47 }
+func tk_colon(): int     { return 48 }
+func tk_dot(): int       { return 49 }
+func tk_plus(): int      { return 50 }
+func tk_minus(): int     { return 51 }
+func tk_star(): int      { return 52 }
+func tk_slash(): int     { return 53 }
+func tk_lt(): int        { return 54 }
+func tk_gt(): int        { return 55 }
+func tk_bang(): int      { return 56 }
+func tk_amp(): int       { return 57 }
+func tk_pipe(): int      { return 58 }
+func tk_eq(): int        { return 59 }
+func tk_eqeq(): int     { return 60 }
+func tk_ne(): int        { return 61 }
+func tk_le(): int        { return 62 }
+func tk_ge(): int        { return 63 }
+func tk_fatarrow(): int  { return 64 }
+func tk_dotdot(): int    { return 65 }
+func tk_coloncolon(): int { return 66 }
+func tk_percent(): int   { return 67 }
+
+// --- Token stream ---
+
+func tok_stream_new(): int {
+    return int_vec_new()
+}
+
+func tok_stream_push(stream: int, kind: int, start: int, length: int): int {
+    int_vec_push(stream, kind)
+    int_vec_push(stream, start)
+    int_vec_push(stream, length)
+    return 0
+}
+
+func tok_count(stream: int): int {
+    return int_vec_len(stream) / 3
+}
+
+func tok_kind(stream: int, index: int): int {
+    return int_vec_get(stream, index * 3)
+}
+
+func tok_start(stream: int, index: int): int {
+    return int_vec_get(stream, index * 3 + 1)
+}
+
+func tok_len(stream: int, index: int): int {
+    return int_vec_get(stream, index * 3 + 2)
+}
+
+func tok_text(src: str, stream: int, index: int): str {
+    var s = tok_start(stream, index)
+    var l = tok_len(stream, index)
+    return str_slice(src, s, l)
+}
+
+func tok_int_value(src: str, stream: int, index: int): int {
+    var s = tok_start(stream, index)
+    var l = tok_len(stream, index)
+    var result = 0
+    var i = 0
+    while i < l {
+        result = result * 10 + (str_byte(src, s + i) - 48)
+        i = i + 1
+    }
+    return result
+}
+
+func tok_str_value(src: str, stream: int, index: int): str {
+    var s = tok_start(stream, index) + 1
+    var l = tok_len(stream, index) - 2
+    if l <= 0 {
+        return ""
+    }
+    return str_slice(src, s, l)
+}
+
+// --- Token kind names (for diagnostics) ---
+
+func tk_name(kind: int): str {
+    if kind == 0  { return "EOF" }
+    if kind == 1  { return "IDENT" }
+    if kind == 2  { return "INT" }
+    if kind == 3  { return "STRING" }
+    if kind == 10 { return "KW_FUNC" }
+    if kind == 11 { return "KW_EXTERN" }
+    if kind == 12 { return "KW_VAR" }
+    if kind == 13 { return "KW_LET" }
+    if kind == 14 { return "KW_IF" }
+    if kind == 15 { return "KW_ELSE" }
+    if kind == 16 { return "KW_WHILE" }
+    if kind == 17 { return "KW_RETURN" }
+    if kind == 18 { return "KW_IMPORT" }
+    if kind == 19 { return "KW_PACKAGE" }
+    if kind == 20 { return "KW_CLASS" }
+    if kind == 21 { return "KW_TRAIT" }
+    if kind == 22 { return "KW_IMPL" }
+    if kind == 23 { return "KW_FLUX" }
+    if kind == 24 { return "KW_IN" }
+    if kind == 25 { return "KW_TRUE" }
+    if kind == 26 { return "KW_FALSE" }
+    if kind == 27 { return "KW_VOID" }
+    if kind == 28 { return "KW_INT" }
+    if kind == 29 { return "KW_STR" }
+    if kind == 30 { return "KW_BOOL" }
+    if kind == 31 { return "KW_STRUCT" }
+    if kind == 40 { return "LPAREN" }
+    if kind == 41 { return "RPAREN" }
+    if kind == 42 { return "LBRACE" }
+    if kind == 43 { return "RBRACE" }
+    if kind == 44 { return "LBRACK" }
+    if kind == 45 { return "RBRACK" }
+    if kind == 46 { return "COMMA" }
+    if kind == 47 { return "SEMI" }
+    if kind == 48 { return "COLON" }
+    if kind == 49 { return "DOT" }
+    if kind == 50 { return "PLUS" }
+    if kind == 51 { return "MINUS" }
+    if kind == 52 { return "STAR" }
+    if kind == 53 { return "SLASH" }
+    if kind == 54 { return "LT" }
+    if kind == 55 { return "GT" }
+    if kind == 56 { return "BANG" }
+    if kind == 57 { return "AMP" }
+    if kind == 58 { return "PIPE" }
+    if kind == 59 { return "EQ" }
+    if kind == 60 { return "EQEQ" }
+    if kind == 61 { return "NE" }
+    if kind == 62 { return "LE" }
+    if kind == 63 { return "GE" }
+    if kind == 64 { return "FATARROW" }
+    if kind == 65 { return "DOTDOT" }
+    if kind == 66 { return "COLONCOLON" }
+    if kind == 67 { return "PERCENT" }
+    return "???"
+}

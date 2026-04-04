@@ -1,0 +1,591 @@
+// AST -> Diva IR lowering.
+// Walks the AST produced by the parser and emits Diva IR instructions.
+// All mutable state uses the cell pattern (cell.diva) to avoid module-level var.
+
+import "std/host.diva"
+import "std/io.diva"
+import "std/vec.diva"
+import "tokens.diva"
+import "ast.diva"
+import "ir.diva"
+import "cell.diva"
+
+// --- Builder context ---
+// ctx = int_vec:
+//   [0] = mod handle (direct)
+//   [1] = func_cell (current function)
+//   [2] = blk_cell  (current basic block)
+//   [3] = vreg_cell (virtual register counter)
+//   [4] = label_cell (label counter)
+//   [5] = names_cell (local name hashes vec handle)
+//   [6] = slots_cell (local slot ids vec handle)
+//   [7] = array_lens_cell (parallel: 1 = scalar, N = int[] length)
+//   [8] = str_vec (int_vec of string literal token indices)
+//   [9] = toks handle (direct)
+//   [10] = strtab_cell (string table counter)
+
+func bctx_new(src: str, toks: int): int {
+    var ctx = int_vec_new()
+    int_vec_push(ctx, ir_module_new())       // [0] mod
+    int_vec_push(ctx, mut_new(0))            // [1] func_cell
+    int_vec_push(ctx, mut_new(0))            // [2] blk_cell
+    int_vec_push(ctx, mut_new(0))            // [3] vreg_cell
+    int_vec_push(ctx, mut_new(0))            // [4] label_cell
+    int_vec_push(ctx, mut_new(int_vec_new())) // [5] names_cell
+    int_vec_push(ctx, mut_new(int_vec_new())) // [6] slots_cell
+    int_vec_push(ctx, mut_new(int_vec_new())) // [7] array_lens_cell (parallel to names/slots; 1 = scalar)
+    int_vec_push(ctx, int_vec_new())          // [8] str_vec
+    int_vec_push(ctx, toks)                   // [9] toks
+    int_vec_push(ctx, mut_new(0))            // [10] strtab_cell
+    return ctx
+}
+
+func bctx_mod(ctx: int): int     { return int_vec_get(ctx, 0) }
+func bctx_func(ctx: int): int    { return mut_get(int_vec_get(ctx, 1)) }
+func bctx_blk(ctx: int): int     { return mut_get(int_vec_get(ctx, 2)) }
+func bctx_vreg(ctx: int): int    { return mut_get(int_vec_get(ctx, 3)) }
+func bctx_label(ctx: int): int   { return mut_get(int_vec_get(ctx, 4)) }
+func bctx_names(ctx: int): int   { return mut_get(int_vec_get(ctx, 5)) }
+func bctx_slots(ctx: int): int   { return mut_get(int_vec_get(ctx, 6)) }
+func bctx_array_lens(ctx: int): int { return mut_get(int_vec_get(ctx, 7)) }
+func bctx_str_vec(ctx: int): int { return int_vec_get(ctx, 8) }
+func bctx_toks(ctx: int): int    { return int_vec_get(ctx, 9) }
+func bctx_strtab(ctx: int): int  { return mut_get(int_vec_get(ctx, 10)) }
+
+func bctx_set_func(ctx: int, v: int): int  { return mut_set(int_vec_get(ctx, 1), v) }
+func bctx_set_blk(ctx: int, v: int): int   { return mut_set(int_vec_get(ctx, 2), v) }
+func bctx_set_vreg(ctx: int, v: int): int  { return mut_set(int_vec_get(ctx, 3), v) }
+func bctx_set_label(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 4), v) }
+func bctx_set_names(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 5), v) }
+func bctx_set_slots(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 6), v) }
+func bctx_set_array_lens(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 7), v) }
+
+// --- String table (counter stored in strtab_cell) ---
+
+func ib_strtab_add(ctx: int, s: str): int {
+    var idx = bctx_strtab(ctx)
+    mut_set(int_vec_get(ctx, 10), idx + 1)
+    return idx
+}
+
+// --- Helper functions ---
+
+func ib_fresh_vreg(ctx: int): int {
+    var r = bctx_vreg(ctx)
+    bctx_set_vreg(ctx, r + 1)
+    return r
+}
+
+func ib_fresh_label(ctx: int): int {
+    var l = bctx_label(ctx)
+    bctx_set_label(ctx, l + 1)
+    return l
+}
+
+func ib_emit(ctx: int, inst: int): int {
+    block_append(bctx_blk(ctx), inst)
+    return 0
+}
+
+func ib_new_block(ctx: int): int {
+    var l = ib_fresh_label(ctx)
+    var blk = ir_block_new(l)
+    func_add_block(bctx_func(ctx), blk)
+    bctx_set_blk(ctx, blk)
+    return blk
+}
+
+func ib_tok_text(ctx: int, src: str, tok_idx: int): str {
+    return tok_text(src, bctx_toks(ctx), tok_idx)
+}
+
+// --- Local variable name -> slot mapping ---
+
+func ib_name_hash(name: str): int {
+    var h = 5381
+    var n = str_len(name)
+    var i = 0
+    while i < n {
+        h = h * 33 + str_byte(name, i)
+        i = i + 1
+    }
+    if h < 0 { h = 0 - h }
+    return h
+}
+
+func ib_scope_push(ctx: int): int { return int_vec_len(bctx_names(ctx)) }
+
+func ib_scope_pop(ctx: int, mark: int): int {
+    var names = bctx_names(ctx)
+    var slots = bctx_slots(ctx)
+    var lens = bctx_array_lens(ctx)
+    if int_vec_len(names) > mark {
+        var fresh_n = int_vec_new()
+        var fresh_s = int_vec_new()
+        var fresh_l = int_vec_new()
+        var i = 0
+        while i < mark {
+            int_vec_push(fresh_n, int_vec_get(names, i))
+            int_vec_push(fresh_s, int_vec_get(slots, i))
+            int_vec_push(fresh_l, int_vec_get(lens, i))
+            i = i + 1
+        }
+        int_vec_free(names)
+        int_vec_free(slots)
+        int_vec_free(lens)
+        bctx_set_names(ctx, fresh_n)
+        bctx_set_slots(ctx, fresh_s)
+        bctx_set_array_lens(ctx, fresh_l)
+    }
+    return 0
+}
+
+func ib_define_local(ctx: int, name: str): int {
+    var slot = ib_fresh_vreg(ctx)
+    int_vec_push(bctx_names(ctx), ib_name_hash(name))
+    int_vec_push(bctx_slots(ctx), slot)
+    int_vec_push(bctx_array_lens(ctx), 1)
+    return slot
+}
+
+// Reserve n consecutive vregs; record one name -> base slot and array length n.
+func ib_define_array_local(ctx: int, name: str, n: int): int {
+    var base = ib_fresh_vreg(ctx)
+    var j = 1
+    while j < n {
+        ib_fresh_vreg(ctx)
+        j = j + 1
+    }
+    int_vec_push(bctx_names(ctx), ib_name_hash(name))
+    int_vec_push(bctx_slots(ctx), base)
+    int_vec_push(bctx_array_lens(ctx), n)
+    return base
+}
+
+func ib_lookup_local(ctx: int, name: str): int {
+    var h = ib_name_hash(name)
+    var names = bctx_names(ctx)
+    var n = int_vec_len(names)
+    var i = n - 1
+    while i >= 0 {
+        if int_vec_get(names, i) == h {
+            return int_vec_get(bctx_slots(ctx), i)
+        }
+        i = i - 1
+    }
+    return 0 - 1
+}
+
+func ib_lookup_array_len(ctx: int, name: str): int {
+    var h = ib_name_hash(name)
+    var names = bctx_names(ctx)
+    var lens = bctx_array_lens(ctx)
+    var i = int_vec_len(names) - 1
+    while i >= 0 {
+        if int_vec_get(names, i) == h {
+            return int_vec_get(lens, i)
+        }
+        i = i - 1
+    }
+    return 1
+}
+
+// --- Expression lowering ---
+
+func lower_expr(ctx: int, src: str, node: int): int {
+    var kind = ast_kind(node)
+
+    if kind == nd_int_lit() {
+        var val = ast_child(node, 0)
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), r, val, 0, 0))
+        return r
+    }
+
+    if kind == nd_bool_lit() {
+        var val = ast_child(node, 0)
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), r, val, 0, 0))
+        return r
+    }
+
+    if kind == nd_str_lit() {
+        var tok_idx = ast_child(node, 0)
+        var str_id = int_vec_len(bctx_str_vec(ctx))
+        int_vec_push(bctx_str_vec(ctx), tok_idx)
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const_str(), r, str_id, 0, 0))
+        return r
+    }
+
+    if kind == nd_ident() {
+        var tok_idx = ast_child(node, 0)
+        var name = ib_tok_text(ctx, src, tok_idx)
+        var slot = ib_lookup_local(ctx, name)
+        if slot < 0 {
+            var r = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
+            return r
+        }
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), r, slot, 0, 0))
+        return r
+    }
+
+    if kind == nd_binop() {
+        var op = ast_child(node, 0)
+        var left = lower_expr(ctx, src, ast_child(node, 1))
+        var right = lower_expr(ctx, src, ast_child(node, 2))
+        var r = ib_fresh_vreg(ctx)
+        var irop = ir_nop()
+        if op == binop_add() { irop = ir_add() }
+        if op == binop_sub() { irop = ir_sub() }
+        if op == binop_mul() { irop = ir_mul() }
+        if op == binop_div() { irop = ir_div() }
+        if op == binop_mod() { irop = ir_mod() }
+        if op == binop_eq()  { irop = ir_eq() }
+        if op == binop_ne()  { irop = ir_ne() }
+        if op == binop_lt()  { irop = ir_lt() }
+        if op == binop_le()  { irop = ir_le() }
+        if op == binop_gt()  { irop = ir_gt() }
+        if op == binop_ge()  { irop = ir_ge() }
+        if op == binop_and() { irop = ir_and() }
+        if op == binop_or()  { irop = ir_or() }
+        ib_emit(ctx, ir_inst(irop, r, left, right, 0))
+        return r
+    }
+
+    if kind == nd_unary() {
+        var op = ast_child(node, 0)
+        var operand = lower_expr(ctx, src, ast_child(node, 1))
+        var r = ib_fresh_vreg(ctx)
+        if op == unop_neg() {
+            ib_emit(ctx, ir_inst(ir_neg(), r, operand, 0, 0))
+        } else {
+            ib_emit(ctx, ir_inst(ir_not(), r, operand, 0, 0))
+        }
+        return r
+    }
+
+    if kind == nd_call() {
+        var callee = ast_child(node, 0)
+        var args_h = ast_child(node, 1)
+        var argc = int_vec_len(args_h)
+        var arg_regs = int_vec_new()
+        var i = 0
+        while i < argc {
+            int_vec_push(arg_regs, lower_expr(ctx, src, int_vec_get(args_h, i)))
+            i = i + 1
+        }
+        var fname_idx = 0
+        if ast_kind(callee) == nd_ident() {
+            fname_idx = ast_child(callee, 0)
+        }
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_call(), r, fname_idx, argc, arg_regs))
+        // arg_regs is stored on the instruction; do not free (would corrupt call operands).
+        return r
+    }
+
+    if kind == nd_method_call() {
+        var obj_reg = lower_expr(ctx, src, ast_child(node, 0))
+        var method_tok = ast_child(node, 1)
+        var args_h = ast_child(node, 2)
+        var argc = int_vec_len(args_h)
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_call(), r, method_tok, argc + 1, obj_reg))
+        return r
+    }
+
+    if kind == nd_index() {
+        var obj = ast_child(node, 0)
+        var idx_node = ast_child(node, 1)
+        if ast_kind(obj) == nd_ident() {
+            var name = ib_tok_text(ctx, src, ast_child(obj, 0))
+            var base = ib_lookup_local(ctx, name)
+            var alen = ib_lookup_array_len(ctx, name)
+            if base >= 0 & alen > 1 {
+                if ast_kind(idx_node) == nd_int_lit() {
+                    var off = ast_child(idx_node, 0)
+                    if off >= 0 & off < alen {
+                        var slot = base + off
+                        var r = ib_fresh_vreg(ctx)
+                        ib_emit(ctx, ir_inst(ir_load(), r, slot, 0, 0))
+                        return r
+                    }
+                }
+            }
+        }
+    }
+
+    var r = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
+    return r
+}
+
+// --- Statement lowering ---
+// lower_stmt calls lower_block (defined later); seed supports forward refs.
+
+func lower_stmt(ctx: int, src: str, node: int): int {
+    var kind = ast_kind(node)
+
+    if kind == nd_var_decl() {
+        var name_tok = ast_child(node, 0)
+        var type_node = ast_child(node, 1)
+        var init = ast_child(node, 2)
+        var name = ib_tok_text(ctx, src, name_tok)
+
+        if type_node >= 0 {
+            if ast_kind(type_node) == nd_type_array() {
+                if init >= 0 {
+                    if ast_kind(init) == nd_array_lit() {
+                        var elems = ast_child(init, 0)
+                        var ne = int_vec_len(elems)
+                        if ne > 0 {
+                            var base = ib_define_array_local(ctx, name, ne)
+                            var j = 0
+                            while j < ne {
+                                var slot = base + j
+                                ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
+                                var ev = lower_expr(ctx, src, int_vec_get(elems, j))
+                                ib_emit(ctx, ir_inst(ir_store(), slot, ev, 0, 0))
+                                j = j + 1
+                            }
+                            return 0
+                        }
+                    }
+                }
+            }
+        }
+
+        var slot = ib_define_local(ctx, name)
+        ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
+        if init >= 0 {
+            var val = lower_expr(ctx, src, init)
+            ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+        }
+        return 0
+    }
+
+    if kind == nd_assign() {
+        var target = ast_child(node, 0)
+        var value = ast_child(node, 1)
+        var val = lower_expr(ctx, src, value)
+        if ast_kind(target) == nd_ident() {
+            var name = ib_tok_text(ctx, src, ast_child(target, 0))
+            var slot = ib_lookup_local(ctx, name)
+            if slot >= 0 {
+                ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+            }
+        } else {
+            if ast_kind(target) == nd_index() {
+                var obj = ast_child(target, 0)
+                var idx_node = ast_child(target, 1)
+                if ast_kind(obj) == nd_ident() {
+                    var name = ib_tok_text(ctx, src, ast_child(obj, 0))
+                    var base = ib_lookup_local(ctx, name)
+                    var alen = ib_lookup_array_len(ctx, name)
+                    if base >= 0 & alen > 1 {
+                        if ast_kind(idx_node) == nd_int_lit() {
+                            var off = ast_child(idx_node, 0)
+                            if off >= 0 & off < alen {
+                                var slot = base + off
+                                ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return 0
+    }
+
+    if kind == nd_return() {
+        var expr = ast_child(node, 0)
+        if expr < 0 {
+            ib_emit(ctx, ir_inst(ir_ret_void(), 0, 0, 0, 0))
+        } else {
+            var val = lower_expr(ctx, src, expr)
+            ib_emit(ctx, ir_inst(ir_ret(), 0, val, 0, 0))
+        }
+        return 0
+    }
+
+    if kind == nd_if() {
+        var cond_reg = lower_expr(ctx, src, ast_child(node, 0))
+        var then_lbl = ib_fresh_label(ctx)
+        var else_lbl = ib_fresh_label(ctx)
+        var end_lbl  = ib_fresh_label(ctx)
+        var has_else = ast_child(node, 2)
+
+        if has_else < 0 {
+            ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, then_lbl, end_lbl, 0))
+        } else {
+            ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, then_lbl, else_lbl, 0))
+        }
+
+        var then_blk = ir_block_new(then_lbl)
+        func_add_block(bctx_func(ctx), then_blk)
+        bctx_set_blk(ctx, then_blk)
+        lower_block(ctx, src, ast_child(node, 1))
+        ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
+
+        if has_else >= 0 {
+            var else_blk = ir_block_new(else_lbl)
+            func_add_block(bctx_func(ctx), else_blk)
+            bctx_set_blk(ctx, else_blk)
+            lower_block(ctx, src, has_else)
+            ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
+        }
+
+        var end_blk = ir_block_new(end_lbl)
+        func_add_block(bctx_func(ctx), end_blk)
+        bctx_set_blk(ctx, end_blk)
+        return 0
+    }
+
+    if kind == nd_while() {
+        var cond_lbl = ib_fresh_label(ctx)
+        var body_lbl = ib_fresh_label(ctx)
+        var end_lbl  = ib_fresh_label(ctx)
+
+        ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+
+        var cond_blk = ir_block_new(cond_lbl)
+        func_add_block(bctx_func(ctx), cond_blk)
+        bctx_set_blk(ctx, cond_blk)
+        var cond_reg = lower_expr(ctx, src, ast_child(node, 0))
+        ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, body_lbl, end_lbl, 0))
+
+        var body_blk = ir_block_new(body_lbl)
+        func_add_block(bctx_func(ctx), body_blk)
+        bctx_set_blk(ctx, body_blk)
+        lower_block(ctx, src, ast_child(node, 1))
+        var update = ast_child(node, 2)
+        if update >= 0 {
+            lower_expr(ctx, src, update)
+        }
+        ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+
+        var end_blk = ir_block_new(end_lbl)
+        func_add_block(bctx_func(ctx), end_blk)
+        bctx_set_blk(ctx, end_blk)
+        return 0
+    }
+
+    if kind == nd_expr_stmt() {
+        lower_expr(ctx, src, ast_child(node, 0))
+        return 0
+    }
+
+    if kind == nd_block() {
+        lower_block(ctx, src, node)
+        return 0
+    }
+
+    return 0
+}
+
+func lower_block(ctx: int, src: str, node: int): int {
+    if node < 0 { return 0 }
+    var kind = ast_kind(node)
+    if kind == nd_block() {
+        var stmts = ast_child(node, 0)
+        var n = int_vec_len(stmts)
+        var scope = ib_scope_push(ctx)
+        var i = 0
+        while i < n {
+            lower_stmt(ctx, src, int_vec_get(stmts, i))
+            i = i + 1
+        }
+        ib_scope_pop(ctx, scope)
+    } else {
+        lower_stmt(ctx, src, node)
+    }
+    return 0
+}
+
+// --- Function lowering ---
+
+func lower_func(ctx: int, src: str, node: int): int {
+    var name_tok = ast_child(node, 0)
+    var params_h = ast_child(node, 1)
+    var ret_type = ast_child(node, 2)
+    var body     = ast_child(node, 3)
+
+    var pcount = int_vec_len(params_h)
+
+    var ret_ty = ir_ty_int()
+    if ret_type >= 0 {
+        if ast_kind(ret_type) == nd_type_name() {
+            var tname = ib_tok_text(ctx, src, ast_child(ret_type, 0))
+            if str_eq(tname, "void") == 1 { ret_ty = ir_ty_void() }
+            if str_eq(tname, "str") == 1  { ret_ty = ir_ty_str() }
+            if str_eq(tname, "bool") == 1 { ret_ty = ir_ty_bool() }
+        }
+    }
+
+    var f = ir_func_new(name_tok, pcount, ret_ty)
+    bctx_set_func(ctx, f)
+    bctx_set_vreg(ctx, 0)
+    bctx_set_label(ctx, 0)
+
+    var scope = ib_scope_push(ctx)
+
+    var entry = ir_block_new(ib_fresh_label(ctx))
+    func_add_block(f, entry)
+    bctx_set_blk(ctx, entry)
+
+    var i = 0
+    while i < pcount {
+        var p = int_vec_get(params_h, i)
+        var pname = ib_tok_text(ctx, src, ast_child(p, 0))
+        var slot = ib_define_local(ctx, pname)
+        ib_emit(ctx, ir_inst(ir_param(), slot, i, 0, 0))
+        i = i + 1
+    }
+
+    lower_block(ctx, src, body)
+
+    ib_scope_pop(ctx, scope)
+    mod_add_func(bctx_mod(ctx), f)
+    return 0
+}
+
+func lower_extern(ctx: int, src: str, node: int): int {
+    var name_tok = ast_child(node, 0)
+    mod_add_extern(bctx_mod(ctx), name_tok)
+    return 0
+}
+
+// --- File lowering ---
+
+func lower_file(ctx: int, src: str, file_node: int): int {
+    var children = ast_child(file_node, 0)
+    var n = int_vec_len(children)
+    var i = 0
+    while i < n {
+        var child = int_vec_get(children, i)
+        var kind = ast_kind(child)
+        if kind == nd_func() {
+            lower_func(ctx, src, child)
+        }
+        if kind == nd_extern_func() {
+            lower_extern(ctx, src, child)
+        }
+        i = i + 1
+    }
+    return bctx_mod(ctx)
+}
+
+// --- Public entry point ---
+// Returns int_vec: [module_handle, str_vec_handle]
+
+func build_ir(src: str, toks: int, file_node: int): int {
+    var ctx = bctx_new(src, toks)
+    var m = lower_file(ctx, src, file_node)
+    var result = int_vec_new()
+    int_vec_push(result, m)
+    int_vec_push(result, bctx_str_vec(ctx))
+    return result
+}

@@ -1,22 +1,22 @@
-# Di Standard Library
+# Diva Standard Library
 
-The standard library starts small on purpose, but it is now shipped as real `Di` modules.
+The standard library starts small on purpose, but it is now shipped as real `Diva` modules.
 
 Available modules:
 
-- `std/math.di`: `abs`, `max`, `min`, `clamp`
-- `std/logic.di`: `all`, `any`, `bool_to_int`
-- `std/range.di`: `sum_range`, `count_range`, `contains_range`
-- `std/io.di`: `stdout`, `stderr`, `print_bool`, `panic`
-- `std/int.di`: `sign`, `is_even`, `is_odd`, `gcd`
-- `std/assert.di`: `assert_true`, `assert_eq_int`
+- `std/math.diva`: `abs`, `max`, `min`, `clamp`
+- `std/logic.diva`: `all`, `any`, `bool_to_int`
+- `std/range.diva`: `sum_range`, `count_range`, `contains_range`
+- `std/io.diva`: `stdout`, `stderr`, `print_bool`, `panic`
+- `std/int.diva`: `sign`, `is_even`, `is_odd`, `gcd`
+- `std/assert.diva`: `assert_true`, `assert_eq_int`
 
 Usage:
 
 ```di
-import "std/math.di"
-import "std/range.di"
-import "std/io.di"
+import "std/math.diva"
+import "std/range.diva"
+import "std/io.diva"
 
 func main(): int {
     print_int(sum_range(0, 5))

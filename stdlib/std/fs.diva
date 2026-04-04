@@ -1,0 +1,115 @@
+import "std/host.diva"
+import "std/io.diva"
+import "std/vec.diva"
+import "std/str.diva"
+import "std/path.diva"
+
+func read_text(path: str): str {
+    return read_file(path)
+}
+
+func file_len(path: str): int {
+    return file_size(path)
+}
+
+func exists(path: str): int {
+    var sz = file_size(path)
+    if sz >= 0 {
+        return 1
+    }
+    return 0
+}
+
+func is_diva_file(path: str): int {
+    return path_has_extension(path, ".diva")
+}
+
+func count_lines(text: str): int {
+    var n = str_len(text)
+    if n == 0 {
+        return 0
+    }
+    var count = 1
+    var i = 0
+    while i < n {
+        if str_byte(text, i) == 10 {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    if str_byte(text, n - 1) == 10 {
+        count = count - 1
+    }
+    return count
+}
+
+func get_line(text: str, line_index: int): str {
+    var n = str_len(text)
+    var cur = 0
+    var start = 0
+    var i = 0
+    while i < n {
+        if str_byte(text, i) == 10 {
+            if cur == line_index {
+                var len = i - start
+                if len > 0 {
+                    if str_byte(text, i - 1) == 13 {
+                        len = len - 1
+                    }
+                }
+                return str_slice(text, start, len)
+            }
+            cur = cur + 1
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if cur == line_index {
+        return str_slice(text, start, n - start)
+    }
+    return ""
+}
+
+func split_lines(text: str): int {
+    var n = str_len(text)
+    var lines = int_vec_new()
+    var start = 0
+    var i = 0
+    var line_count = 0
+    while i < n {
+        if str_byte(text, i) == 10 {
+            line_count = line_count + 1
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start < n {
+        line_count = line_count + 1
+    }
+    int_vec_push(lines, line_count)
+    return lines
+}
+
+func read_or_die(path: str, message: str): str {
+    var sz = file_size(path)
+    if sz < 0 {
+        stderr(message)
+        stderr(": ")
+        stderr(path)
+        stderr("\n")
+        exit(1)
+    }
+    return read_file(path)
+}
+
+func file_ext_matches(path: str, ext: str): int {
+    return path_has_extension(path, ext)
+}
+
+func is_empty_file(path: str): int {
+    var sz = file_size(path)
+    if sz == 0 {
+        return 1
+    }
+    return 0
+}

@@ -1,0 +1,18 @@
+import "std/io.diva"
+import "std/color.diva"
+import "std/fmt.diva"
+
+func main(): int {
+    println(bold("=== Diva Color Demo ==="))
+    println(red("  this is red"))
+    println(green("  this is green"))
+    println(yellow("  this is yellow"))
+    println(blue("  this is blue"))
+    println(magenta("  this is magenta"))
+    println(cyan("  this is cyan"))
+    println(bold_red("  bold red error"))
+    println(bold_green("  bold green success"))
+    println(bold_yellow("  bold yellow warning"))
+    println(dim("  this is dim"))
+    return 0
+}

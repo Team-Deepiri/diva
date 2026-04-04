@@ -1,0 +1,142 @@
+import "std/vec.diva"
+
+func sort_int_vec(handle: int): int {
+    var n = int_vec_len(handle)
+    if n <= 1 {
+        return 0
+    }
+    var i = 0
+    while i < n - 1 {
+        var min_idx = i
+        var j = i + 1
+        while j < n {
+            if int_vec_get(handle, j) < int_vec_get(handle, min_idx) {
+                min_idx = j
+            }
+            j = j + 1
+        }
+        if min_idx != i {
+            var tmp = int_vec_get(handle, i)
+            var sorted = int_vec_new()
+            var k = 0
+            while k < n {
+                if k == i {
+                    int_vec_push(sorted, int_vec_get(handle, min_idx))
+                }
+                if k == min_idx {
+                    int_vec_push(sorted, tmp)
+                }
+                if k != i {
+                    if k != min_idx {
+                        int_vec_push(sorted, int_vec_get(handle, k))
+                    }
+                }
+                k = k + 1
+            }
+            k = 0
+            while k < n {
+                int_vec_push(handle, int_vec_get(sorted, k))
+                k = k + 1
+            }
+            int_vec_free(sorted)
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func vec_reverse(handle: int): int {
+    var n = int_vec_len(handle)
+    var rev = int_vec_new()
+    if rev == 0 {
+        return 0
+    }
+    var i = n - 1
+    while i >= 0 {
+        int_vec_push(rev, int_vec_get(handle, i))
+        i = i - 1
+    }
+    return rev
+}
+
+func vec_sum(handle: int): int {
+    var n = int_vec_len(handle)
+    var total = 0
+    var i = 0
+    while i < n {
+        total = total + int_vec_get(handle, i)
+        i = i + 1
+    }
+    return total
+}
+
+func vec_max(handle: int): int {
+    var n = int_vec_len(handle)
+    if n == 0 {
+        return 0
+    }
+    var best = int_vec_get(handle, 0)
+    var i = 1
+    while i < n {
+        var v = int_vec_get(handle, i)
+        if v > best {
+            best = v
+        }
+        i = i + 1
+    }
+    return best
+}
+
+func vec_min(handle: int): int {
+    var n = int_vec_len(handle)
+    if n == 0 {
+        return 0
+    }
+    var best = int_vec_get(handle, 0)
+    var i = 1
+    while i < n {
+        var v = int_vec_get(handle, i)
+        if v < best {
+            best = v
+        }
+        i = i + 1
+    }
+    return best
+}
+
+func vec_contains(handle: int, value: int): int {
+    var n = int_vec_len(handle)
+    var i = 0
+    while i < n {
+        if int_vec_get(handle, i) == value {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func vec_index_of(handle: int, value: int): int {
+    var n = int_vec_len(handle)
+    var i = 0
+    while i < n {
+        if int_vec_get(handle, i) == value {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func vec_count(handle: int, value: int): int {
+    var n = int_vec_len(handle)
+    var c = 0
+    var i = 0
+    while i < n {
+        if int_vec_get(handle, i) == value {
+            c = c + 1
+        }
+        i = i + 1
+    }
+    return c
+}

@@ -1,0 +1,54 @@
+import "std/io.diva"
+import "std/fmt.diva"
+import "std/vec.diva"
+import "std/algo.diva"
+import "std/sort.diva"
+import "std/host.diva"
+
+func main(): int {
+    var v = int_vec_new()
+    int_vec_push(v, 3)
+    int_vec_push(v, 1)
+    int_vec_push(v, 4)
+    int_vec_push(v, 1)
+    int_vec_push(v, 5)
+    int_vec_push(v, 9)
+    int_vec_push(v, 2)
+    int_vec_push(v, 6)
+
+    sort_int_vec(v)
+    stdout("sorted: ")
+    var i = 0
+    while i < int_vec_len(v) {
+        stdout(int_to_str(int_vec_get(v, i)))
+        stdout(" ")
+        i = i + 1
+    }
+    stdout("\n")
+
+    var idx = binary_search(v, 5)
+    println(fmt_int("binary_search(5) = ", idx))
+
+    println(fmt_int("is_sorted = ", vec_is_sorted(v)))
+    println(fmt_int("is_prime(17) = ", is_prime(17)))
+    println(fmt_int("fibonacci(10) = ", fibonacci(10)))
+    println(fmt_int("factorial(6) = ", factorial(6)))
+    println(fmt_int("pow(2,10) = ", pow_int(2, 10)))
+    println(fmt_int("next_prime(20) = ", next_prime(20)))
+
+    var uniq = vec_unique(v)
+    stdout("unique: ")
+    i = 0
+    while i < int_vec_len(uniq) {
+        stdout(int_to_str(int_vec_get(uniq, i)))
+        stdout(" ")
+        i = i + 1
+    }
+    stdout("\n")
+
+    println(fmt_int("avg = ", vec_avg(v)))
+
+    int_vec_free(v)
+    int_vec_free(uniq)
+    return 0
+}

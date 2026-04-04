@@ -1,0 +1,34 @@
+import "std/io.diva"
+import "std/fmt.diva"
+import "std/vec.diva"
+import "std/random.diva"
+
+func main(): int {
+    rng_seed(42)
+
+    stdout("5 random numbers [0,100): ")
+    var i = 0
+    while i < 5 {
+        stdout(int_to_str(rng_range(0, 100)))
+        stdout(" ")
+        i = i + 1
+    }
+    stdout("\n")
+
+    println(fmt_int("dice roll (d6): ", rng_dice(6)))
+    println(fmt_int("coin flip: ", rng_coin()))
+
+    var pool = rng_vec(8, 1, 50)
+    stdout("random pool: ")
+    i = 0
+    while i < int_vec_len(pool) {
+        stdout(int_to_str(int_vec_get(pool, i)))
+        stdout(" ")
+        i = i + 1
+    }
+    stdout("\n")
+
+    println(fmt_int("pick from pool: ", rng_pick(pool)))
+    int_vec_free(pool)
+    return 0
+}

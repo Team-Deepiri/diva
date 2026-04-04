@@ -1,0 +1,110 @@
+import "std/vec.diva"
+
+func queue_new(): int {
+    return int_vec_new()
+}
+
+func queue_enqueue(handle: int, value: int): int {
+    return int_vec_push(handle, value)
+}
+
+func queue_dequeue(handle: int): int {
+    var n = int_vec_len(handle)
+    if n == 0 {
+        return 0 - 1
+    }
+    return int_vec_get(handle, 0)
+}
+
+func queue_front(handle: int): int {
+    var n = int_vec_len(handle)
+    if n == 0 {
+        return 0 - 1
+    }
+    return int_vec_get(handle, 0)
+}
+
+func queue_back(handle: int): int {
+    var n = int_vec_len(handle)
+    if n == 0 {
+        return 0 - 1
+    }
+    return int_vec_get(handle, n - 1)
+}
+
+func queue_size(handle: int): int {
+    return int_vec_len(handle)
+}
+
+func queue_is_empty(handle: int): int {
+    if int_vec_len(handle) == 0 {
+        return 1
+    }
+    return 0
+}
+
+func queue_rest(handle: int): int {
+    var n = int_vec_len(handle)
+    var fresh = int_vec_new()
+    var i = 1
+    while i < n {
+        int_vec_push(fresh, int_vec_get(handle, i))
+        i = i + 1
+    }
+    return fresh
+}
+
+func queue_clear(handle: int): int {
+    int_vec_free(handle)
+    return int_vec_new()
+}
+
+func queue_free(handle: int): int {
+    int_vec_free(handle)
+    return 0
+}
+
+func queue_to_vec(handle: int): int {
+    var n = int_vec_len(handle)
+    var copy = int_vec_new()
+    var i = 0
+    while i < n {
+        int_vec_push(copy, int_vec_get(handle, i))
+        i = i + 1
+    }
+    return copy
+}
+
+func queue_contains(handle: int, value: int): int {
+    var n = int_vec_len(handle)
+    var i = 0
+    while i < n {
+        if int_vec_get(handle, i) == value {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func priority_insert(handle: int, value: int): int {
+    var n = int_vec_len(handle)
+    var fresh = int_vec_new()
+    var inserted = 0
+    var i = 0
+    while i < n {
+        var cur = int_vec_get(handle, i)
+        if inserted == 0 {
+            if value <= cur {
+                int_vec_push(fresh, value)
+                inserted = 1
+            }
+        }
+        int_vec_push(fresh, cur)
+        i = i + 1
+    }
+    if inserted == 0 {
+        int_vec_push(fresh, value)
+    }
+    return fresh
+}

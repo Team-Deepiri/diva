@@ -1,0 +1,135 @@
+import "std/host.diva"
+import "std/io.diva"
+import "std/vec.diva"
+import "std/str.diva"
+
+func exec(cmd: str): int {
+    return host_system(cmd)
+}
+
+func exec_or_die(cmd: str, message: str): int {
+    var rc = host_system(cmd)
+    if rc != 0 {
+        stderr(message)
+        stderr(" (exit ")
+        stderr(int_to_str(rc))
+        stderr(")\n")
+        exit(1)
+    }
+    return 0
+}
+
+func shell(parts: str): int {
+    return host_system(parts)
+}
+
+func getenv(name: str): str {
+    return host_getenv(name)
+}
+
+func getenv_or(name: str, fallback: str): str {
+    var val = host_getenv(name)
+    if str_len(val) > 0 {
+        return val
+    }
+    return fallback
+}
+
+func require_env(name: str): str {
+    var val = host_getenv(name)
+    if str_len(val) == 0 {
+        stderr("required environment variable not set: ")
+        stderr(name)
+        stderr("\n")
+        exit(1)
+    }
+    return val
+}
+
+func argv(index: int): str {
+    if index < 0 {
+        return ""
+    }
+    if index >= host_argc() {
+        return ""
+    }
+    return host_argv(index)
+}
+
+func argc(): int {
+    return host_argc()
+}
+
+func program_name(): str {
+    if host_argc() > 0 {
+        return host_argv(0)
+    }
+    return ""
+}
+
+func exit_ok(): int {
+    exit(0)
+    return 0
+}
+
+func exit_error(): int {
+    exit(1)
+    return 1
+}
+
+func exit_with(code: int): int {
+    exit(code)
+    return code
+}
+
+func cmd_join(a: str, b: str): str {
+    var sb = str_builder_new()
+    if sb == 0 { return "" }
+    str_builder_append(sb, a)
+    str_builder_append(sb, " ")
+    str_builder_append(sb, b)
+    var result = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return result
+}
+
+func cmd_join3(a: str, b: str, c: str): str {
+    return cmd_join(cmd_join(a, b), c)
+}
+
+func cmd_join4(a: str, b: str, c: str, d: str): str {
+    return cmd_join(cmd_join3(a, b, c), d)
+}
+
+func cmd_pipe(left: str, right: str): str {
+    var sb = str_builder_new()
+    if sb == 0 { return "" }
+    str_builder_append(sb, left)
+    str_builder_append(sb, " | ")
+    str_builder_append(sb, right)
+    var result = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return result
+}
+
+func cmd_and(left: str, right: str): str {
+    var sb = str_builder_new()
+    if sb == 0 { return "" }
+    str_builder_append(sb, left)
+    str_builder_append(sb, " && ")
+    str_builder_append(sb, right)
+    var result = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return result
+}
+
+func cmd_redirect(cmd: str, file: str): str {
+    var sb = str_builder_new()
+    if sb == 0 { return "" }
+    str_builder_append(sb, cmd)
+    str_builder_append(sb, " > ")
+    str_builder_append(sb, file)
+    var result = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return result
+}

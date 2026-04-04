@@ -1,0 +1,26 @@
+import "std/io.diva"
+import "std/fmt.diva"
+import "std/json.diva"
+import "std/vec.diva"
+
+func main(): int {
+    var b = json_builder_new()
+    json_builder_add_str(b, "name", "diva", 1)
+    json_builder_add_str(b, "version", "0.1.0", 0)
+    json_builder_add_int(b, "year", 2026, 0)
+    json_builder_add_bool(b, "bootstrapped", 1, 0)
+    json_builder_add_str(b, "author", "Deepiri", 0)
+    var result = json_builder_finish(b)
+    println("generated json:")
+    println(result)
+
+    var nums = int_vec_new()
+    int_vec_push(nums, 10)
+    int_vec_push(nums, 20)
+    int_vec_push(nums, 30)
+    println(fmt_str("array: ", json_int_array(nums)))
+    int_vec_free(nums)
+
+    println(fmt_str("escaped: ", json_escape("hello \"world\"\nnewline")))
+    return 0
+}

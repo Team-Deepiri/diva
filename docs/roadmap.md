@@ -1,19 +1,19 @@
-# Di Roadmap
+# Diva Roadmap
 
-This roadmap starts from the current Di MVP, not from zero.
+This roadmap starts from the current Diva MVP, not from zero.
 
 Already present today:
 
-- compiler frontend with lexer, parser, AST, and semantic analysis
-- `di` CLI with `build`, `run`, `emit-ir`, `watch`, and `new`
-- generated-C native build path with LLVM IR text output
-- install scripts, examples, tests, and a local editor extension
+- **Pinned seed** `bootstrap/diva-linux-amd64`: full compiler (lexer, parser, AST, semantic analysis, native build via generated C + link, pseudo–LLVM IR text output). No in-tree C sources; seed rebuilt only from git history when needed.
+- **`.diva`** sources everywhere user-facing; **Diva bootstrap driver** in `compiler/` forwards to the seed until a full Diva-implemented compiler exists.
+- `diva` CLI with `build`, `run`, `emit-ir`, `watch`, and `new` (via seed + install layout; `di` symlink optional).
+- Hosted **LLVM IR** runtime (`runtime/runtime.ll` / `runtime.o`), install scripts, examples, tests, and a local editor extension
 
 ## Phase 0: Re-Baseline
 
 - replace old future-tense planning with a current-state roadmap
-- align docs, examples, parser, and editor support around the same Di syntax
-- define clearly what Di is for: a readable compiled systems language
+- align docs, examples, parser, and editor support around the same Diva syntax
+- define clearly what Diva is for: a readable compiled systems language
 - document what is stable now vs experimental
 
 ## Phase 1: Stabilize The Language Core
@@ -60,13 +60,13 @@ Already present today:
 - grow stdlib only after packages and generics are usable
 - build `core`, `mem`, `io`, `str`, `math`, `collections`, `iter`, and `os` layers
 - keep low-level runtime hooks in C and assembly first where needed
-- move higher-level library code into Di over time
+- move higher-level library code into Diva over time
 - establish stable stdlib package boundaries for SDK consumers
 
 ## Phase 7: SDK And Tooling
 
-- define the Di SDK layout: compiler, runtime, stdlib, cache, editor support
-- improve `di new` into multiple templates for apps, libraries, and system targets
+- define the Diva SDK layout: compiler, runtime, stdlib, cache, editor support
+- improve `diva new` into multiple templates for apps, libraries, and system targets
 - add versioning and release packaging
 - strengthen editor tooling beyond syntax highlighting
 - define platform support expectations across Linux, WSL, Windows, and later macOS
@@ -96,7 +96,7 @@ Already present today:
 
 ## Phase 11: Alternate Source Frontends
 
-- keep `.di` as the canonical source extension
+- keep `.diva` as the canonical source extension
 - optionally support alternate source extensions or plain-text input modes later
 - treat `.txt` compilation as a frontend/input policy decision, not a different execution model
 - keep ASCII/bit-driven source experiments separate from the main language path
@@ -107,4 +107,4 @@ Already present today:
 - every syntax change updates examples and the editor extension
 - every compiler feature adds tests
 - every runtime experiment must prove itself with benchmarks
-- every major milestone should move Di closer to being installable and usable by other developers
+- every major milestone should move Diva closer to being installable and usable by other developers

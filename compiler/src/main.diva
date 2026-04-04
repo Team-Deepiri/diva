@@ -1,0 +1,435 @@
+// Diva compiler driver.
+// Native: lex, parse, ir, asm, emit-ir, build, run (single .diva subset), build --ast, compiler-version, pipeline.
+// Packages, kernels, and unsupported syntax forward to the seed when native fails or DIVA_USE_SEED=1.
+
+import "std/host.diva"
+import "std/io.diva"
+import "std/vec.diva"
+import "std/conv.diva"
+import "cell.diva"
+import "tokens.diva"
+import "lexer.diva"
+import "ast.diva"
+import "parser.diva"
+import "ir.diva"
+import "ir_builder.diva"
+import "ir_dump.diva"
+import "codegen_x86.diva"
+import "ast_dump.diva"
+import "sema.diva"
+
+func bootstrap_path(): str {
+    var p = host_getenv("DIVA_BOOTSTRAP")
+    if str_len(p) > 0 {
+        return p
+    }
+    p = host_getenv("DI_BOOTSTRAP")
+    if str_len(p) > 0 {
+        return p
+    }
+    return "bootstrap/diva-linux-amd64"
+}
+
+func env_use_seed(): int {
+    var v = host_getenv("DIVA_USE_SEED")
+    if str_eq(v, "1") == 1 {
+        return 1
+    }
+    return 0
+}
+
+func native_tmp_asm(): str {
+    return "/tmp/diva-native-build.s"
+}
+
+func native_tmp_exe(): str {
+    return "/tmp/diva-native-exe"
+}
+
+func system_exit_code(rc: int): int {
+    if rc < 0 {
+        return 1
+    }
+    if rc == 0 {
+        return 0
+    }
+    if rc < 256 {
+        return rc
+    }
+    return rc / 256
+}
+
+// Run `argv0 asm <src> > asm_out` (shell). Returns host_system status.
+func native_emit_asm_file(src_path: str, asm_out: str): int {
+    var exe = host_argv(0)
+    var b = str_builder_new()
+    str_builder_append(b, "\"")
+    str_builder_append(b, exe)
+    str_builder_append(b, "\" asm \"")
+    str_builder_append(b, src_path)
+    str_builder_append(b, "\" > \"")
+    str_builder_append(b, asm_out)
+    str_builder_append(b, "\" 2>/dev/null")
+    var cmd = str_builder_to_str(b)
+    str_builder_free(b)
+    return host_system(cmd)
+}
+
+func native_link_exe(asm_path: str, exe_path: str): int {
+    var ro = host_getenv("DI_RUNTIME_O")
+    if str_len(ro) == 0 {
+        return 1
+    }
+    var b = str_builder_new()
+    str_builder_append(b, "cc -no-pie -o \"")
+    str_builder_append(b, exe_path)
+    str_builder_append(b, "\" \"")
+    str_builder_append(b, asm_path)
+    str_builder_append(b, "\" \"")
+    str_builder_append(b, ro)
+    str_builder_append(b, "\" 2>/dev/null")
+    var cmd = str_builder_to_str(b)
+    str_builder_free(b)
+    return host_system(cmd)
+}
+
+func forward_to_seed(): int {
+    var b = str_builder_new()
+    if b == 0 {
+        return 1
+    }
+    str_builder_append(b, bootstrap_path())
+    var i = 1
+    while i < host_argc() {
+        str_builder_append(b, " ")
+        str_builder_append(b, host_argv(i))
+        i = i + 1
+    }
+    var cmd = str_builder_to_str(b)
+    str_builder_free(b)
+    var r = host_system(cmd)
+    if r < 0 {
+        return 1
+    }
+    if r == 0 {
+        return 0
+    }
+    if r < 256 {
+        return r
+    }
+    return r / 256
+}
+
+func err_line(msg: str): int {
+    stderr(msg)
+    stderr(char_to_str(10))
+    return 0
+}
+
+func read_source(path: str): str {
+    if file_size(path) < 0 {
+        stderr("error: cannot read file: ")
+        stderr(path)
+        stderr(char_to_str(10))
+        return ""
+    }
+    return read_file(path)
+}
+
+func path_is_diva_file(p: str): int {
+    var n = str_len(p)
+    if n < 5 {
+        return 0
+    }
+    var suf = str_slice(p, n - 5, 5)
+    return str_eq(suf, ".diva")
+}
+
+// Real LF byte from file — Diva `"\n"` in source is two chars (backslash + n), not ASCII 10.
+func newline_str(): str {
+    var s = read_file("compiler/res/lf.txt")
+    if str_len(s) >= 1 {
+        return str_slice(s, 0, 1)
+    }
+    s = read_file("res/lf.txt")
+    if str_len(s) >= 1 {
+        return str_slice(s, 0, 1)
+    }
+    var empty = ""
+    return empty
+}
+
+func cmd_lex(path: str): int {
+    return lex_file_to_stdout(path)
+}
+
+func cmd_parse(path: str): int {
+    var src = read_source(path)
+    if str_len(src) == 0 { return 1 }
+    var stream = lex_source(src)
+    if stream == 0 { err_line("lexer error") return 1 }
+    var pr = parse_source(src, stream, 0)
+    var ast = int_vec_get(pr, 0)
+    var had_err = int_vec_get(pr, 1)
+    if had_err != 0 { err_line("parse failed") return 1 }
+    var children = ast_child(ast, 0)
+    var n = int_vec_len(children)
+    var b = str_builder_new()
+    str_builder_append(b, "parsed ")
+    str_builder_append(b, int_to_str(n))
+    str_builder_append(b, " top-level declarations")
+    print_str(str_builder_to_str(b))
+    str_builder_free(b)
+    return 0
+}
+
+func cmd_ir(path: str): int {
+    var src = read_source(path)
+    if str_len(src) == 0 { return 1 }
+    var stream = lex_source(src)
+    if stream == 0 { return 1 }
+    var pr = parse_source(src, stream, 0)
+    var ast = int_vec_get(pr, 0)
+    if int_vec_get(pr, 1) != 0 { err_line("parse failed") return 1 }
+    if sema_check_file(src, stream, ast) != 0 { return 1 }
+    var ir_result = build_ir(src, stream, ast)
+    var m = int_vec_get(ir_result, 0)
+    dump_module(m, src, stream)
+    return 0
+}
+
+func cmd_asm(path: str): int {
+    var src = read_source(path)
+    if str_len(src) == 0 { return 1 }
+    var stream = lex_source(src)
+    if stream == 0 { return 1 }
+    var pr = parse_source(src, stream, 0)
+    var ast = int_vec_get(pr, 0)
+    if int_vec_get(pr, 1) != 0 { print_str("parse failed") return 1 }
+    if sema_check_file(src, stream, ast) != 0 { return 1 }
+    var ir_result = build_ir(src, stream, ast)
+    var m = int_vec_get(ir_result, 0)
+    var strvec = int_vec_get(ir_result, 1)
+    cg_module_print(m, src, stream, strvec, newline_str())
+    return 0
+}
+
+func cmd_emit_ir(path: str): int {
+    var src = read_source(path)
+    if str_len(src) == 0 { return 1 }
+    var stream = lex_source(src)
+    if stream == 0 { return 1 }
+    var pr = parse_source(src, stream, 1)
+    if int_vec_get(pr, 1) != 0 {
+        if env_use_seed() == 1 {
+            return forward_to_seed()
+        }
+        err_line("emit-ir: native parse failed (set DIVA_USE_SEED=1 to use the bootstrap compiler)")
+        return 1
+    }
+    var ast = int_vec_get(pr, 0)
+    if sema_check_file(src, stream, ast) != 0 { return 1 }
+    var ir_result = build_ir(src, stream, ast)
+    var m = int_vec_get(ir_result, 0)
+    dump_module(m, src, stream)
+    return 0
+}
+
+func cmd_build_ast(path: str): int {
+    var src = read_source(path)
+    if str_len(src) == 0 { return 1 }
+    var stream = lex_source(src)
+    if stream == 0 { return 1 }
+    var pr = parse_source(src, stream, 0)
+    var ast = int_vec_get(pr, 0)
+    if int_vec_get(pr, 1) != 0 {
+        err_line("parse failed")
+        return 1
+    }
+    ast_dump_program(path, src, stream, ast, newline_str())
+    return 0
+}
+
+func pick_build_path(): str {
+    var path = ""
+    var i = 2
+    while i < host_argc() {
+        var a = host_argv(i)
+        if str_byte(a, 0) != 45 {
+            if str_len(path) == 0 {
+                path = a
+            }
+        }
+        i = i + 1
+    }
+    return path
+}
+
+func build_wants_ast(): int {
+    var i = 2
+    while i < host_argc() {
+        if str_eq(host_argv(i), "--ast") == 1 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func cmd_build(): int {
+    var path = pick_build_path()
+    if str_len(path) == 0 {
+        return forward_to_seed()
+    }
+    if path_is_diva_file(path) == 0 {
+        return forward_to_seed()
+    }
+    if build_wants_ast() == 1 {
+        return cmd_build_ast(path)
+    }
+    var src = read_source(path)
+    if str_len(src) == 0 {
+        return forward_to_seed()
+    }
+    var stream = lex_source(src)
+    if stream == 0 {
+        return forward_to_seed()
+    }
+    var pr = parse_source(src, stream, 0)
+    if int_vec_get(pr, 1) != 0 {
+        return forward_to_seed()
+    }
+    var ast = int_vec_get(pr, 0)
+    if sema_file_only_native_subset(ast) == 0 {
+        return forward_to_seed()
+    }
+    if sema_check_file(src, stream, ast) != 0 {
+        return forward_to_seed()
+    }
+    var asm_out = native_tmp_asm()
+    var exe_out = native_tmp_exe()
+    if native_emit_asm_file(path, asm_out) != 0 {
+        return forward_to_seed()
+    }
+    if native_link_exe(asm_out, exe_out) != 0 {
+        return forward_to_seed()
+    }
+    print_str("[native] built executable at ")
+    print_str(exe_out)
+    stdout(newline_str())
+    return 0
+}
+
+func cmd_run_file(path: str): int {
+    if path_is_diva_file(path) == 0 {
+        return forward_to_seed()
+    }
+    var src = read_source(path)
+    if str_len(src) == 0 {
+        return forward_to_seed()
+    }
+    var stream = lex_source(src)
+    if stream == 0 {
+        return forward_to_seed()
+    }
+    var pr = parse_source(src, stream, 0)
+    if int_vec_get(pr, 1) != 0 {
+        return forward_to_seed()
+    }
+    var ast = int_vec_get(pr, 0)
+    if sema_file_only_native_subset(ast) == 0 {
+        return forward_to_seed()
+    }
+    if sema_check_file(src, stream, ast) != 0 {
+        return forward_to_seed()
+    }
+    var asm_out = native_tmp_asm()
+    var exe_out = native_tmp_exe()
+    if native_emit_asm_file(path, asm_out) != 0 {
+        return forward_to_seed()
+    }
+    if native_link_exe(asm_out, exe_out) != 0 {
+        return forward_to_seed()
+    }
+    var rc = host_system(exe_out)
+    return system_exit_code(rc)
+}
+
+func main(): int {
+    if host_argc() < 2 {
+        return forward_to_seed()
+    }
+    var a1 = host_argv(1)
+
+    if str_eq(a1, "lex") == 1 {
+        if host_argc() < 3 {
+            err_line("usage: diva lex <file.diva>")
+            return 1
+        }
+        return cmd_lex(host_argv(2))
+    }
+
+    if str_eq(a1, "parse") == 1 {
+        if host_argc() < 3 {
+            err_line("usage: diva parse <file.diva>")
+            return 1
+        }
+        return cmd_parse(host_argv(2))
+    }
+
+    if str_eq(a1, "ir") == 1 {
+        if host_argc() < 3 {
+            err_line("usage: diva ir <file.diva>")
+            return 1
+        }
+        return cmd_ir(host_argv(2))
+    }
+
+    if str_eq(a1, "asm") == 1 {
+        if host_argc() < 3 {
+            err_line("usage: diva asm <file.diva>")
+            return 1
+        }
+        return cmd_asm(host_argv(2))
+    }
+
+    if str_eq(a1, "emit-ir") == 1 {
+        if host_argc() < 3 {
+            err_line("usage: diva emit-ir <file.diva>")
+            return 1
+        }
+        var p = host_argv(2)
+        if path_is_diva_file(p) == 0 {
+            return forward_to_seed()
+        }
+        return cmd_emit_ir(p)
+    }
+
+    if str_eq(a1, "build") == 1 {
+        return cmd_build()
+    }
+
+    if str_eq(a1, "run") == 1 {
+        if host_argc() < 3 {
+            return forward_to_seed()
+        }
+        return cmd_run_file(host_argv(2))
+    }
+
+    if str_eq(a1, "compiler-version") == 1 {
+        print_str("diva compiler v0.3.0")
+        print_str("  native: lex, parse, sema, ir, asm, emit-ir; build/run for single-file subset")
+        print_str("  seed: packages, kernels, diva check/new, full language (forward path)")
+        return 0
+    }
+
+    if str_eq(a1, "pipeline") == 1 {
+        print_str("Diva compiler pipeline:")
+        print_str("  source.diva -> lexer -> tokens -> parser -> AST")
+        print_str("    -> sema -> IR builder -> Diva IR -> x86_64 codegen -> assembly")
+        print_str("  Host: cc links with DI_RUNTIME_O (.o). LLVM IR is not used in this pipeline.")
+        return 0
+    }
+
+    return forward_to_seed()
+}

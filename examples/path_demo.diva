@@ -1,0 +1,21 @@
+import "std/io.diva"
+import "std/fmt.diva"
+import "std/path.diva"
+
+func main(): int {
+    var p = "/home/user/projects/main.diva"
+    println(fmt_str("path:      ", p))
+    println(fmt_str("dirname:   ", path_dirname(p)))
+    println(fmt_str("basename:  ", path_basename(p)))
+    println(fmt_str("extension: ", path_extension(p)))
+    println(fmt_str("stem:      ", path_stem(p)))
+    println(fmt_int("absolute:  ", path_is_absolute(p)))
+    println(fmt_int("depth:     ", path_depth(p)))
+
+    var joined = path_join3("src", "std", "io.diva")
+    println(fmt_str("join3:     ", joined))
+
+    var swapped = path_with_extension(p, ".ll")
+    println(fmt_str("new ext:   ", swapped))
+    return 0
+}

@@ -1,0 +1,17 @@
+import "std/io.diva"
+import "std/log.diva"
+
+func main(): int {
+    log_set_level(log_level_debug())
+
+    log_debug("initializing application")
+    log_info("application started")
+    log_warn("disk space running low")
+    log_error("failed to connect to database")
+
+    log_kv(log_level_info(), "INFO ", "version", "0.1.0")
+    log_int(log_level_info(), "INFO ", "port", 8080)
+
+    log_trace("this should not appear (level too low)")
+    return 0
+}

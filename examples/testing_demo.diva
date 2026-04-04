@@ -1,0 +1,37 @@
+import "std/io.diva"
+import "std/testing.diva"
+import "std/vec.diva"
+
+func main(): int {
+    test_begin("basic math")
+    assert_eq_int(2 + 2, 4, "2+2 should be 4")
+    test_ok()
+
+    test_begin("string equality")
+    assert_eq_str("diva", "diva", "diva == diva")
+    assert_ne_str("diva", "other", "diva != other")
+    test_ok()
+
+    test_begin("comparisons")
+    assert_gt(10, 5, "10 > 5")
+    assert_lt(3, 7, "3 < 7")
+    assert_ge(5, 5, "5 >= 5")
+    assert_le(4, 4, "4 <= 4")
+    test_ok()
+
+    test_begin("range check")
+    assert_in_range(50, 0, 100, "50 in [0,100]")
+    test_ok()
+
+    test_begin("vec length")
+    var v = int_vec_new()
+    int_vec_push(v, 1)
+    int_vec_push(v, 2)
+    int_vec_push(v, 3)
+    assert_vec_len(v, 3, "vec should have 3 elements")
+    int_vec_free(v)
+    test_ok()
+
+    var rc = test_summary()
+    return rc
+}

@@ -1,0 +1,108 @@
+import "std/host.diva"
+import "std/vec.diva"
+import "std/char.diva"
+
+func hex_encode_byte(b: int): str {
+    var sb = str_builder_new()
+    if sb == 0 {
+        return "00"
+    }
+    var hi = b / 16
+    var lo = b - hi * 16
+    if hi < 10 {
+        str_builder_append(sb, int_to_str(hi))
+    }
+    if hi == 10 { str_builder_append(sb, "a") }
+    if hi == 11 { str_builder_append(sb, "b") }
+    if hi == 12 { str_builder_append(sb, "c") }
+    if hi == 13 { str_builder_append(sb, "d") }
+    if hi == 14 { str_builder_append(sb, "e") }
+    if hi == 15 { str_builder_append(sb, "f") }
+    if lo < 10 {
+        str_builder_append(sb, int_to_str(lo))
+    }
+    if lo == 10 { str_builder_append(sb, "a") }
+    if lo == 11 { str_builder_append(sb, "b") }
+    if lo == 12 { str_builder_append(sb, "c") }
+    if lo == 13 { str_builder_append(sb, "d") }
+    if lo == 14 { str_builder_append(sb, "e") }
+    if lo == 15 { str_builder_append(sb, "f") }
+    var result = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return result
+}
+
+func hex_encode(s: str): str {
+    var n = str_len(s)
+    var sb = str_builder_new()
+    if sb == 0 {
+        return ""
+    }
+    var i = 0
+    while i < n {
+        str_builder_append(sb, hex_encode_byte(str_byte(s, i)))
+        i = i + 1
+    }
+    var result = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return result
+}
+
+func hex_decode_pair(hi_char: int, lo_char: int): int {
+    var hi = hex_digit_value(hi_char)
+    var lo = hex_digit_value(lo_char)
+    if hi < 0 {
+        return 0 - 1
+    }
+    if lo < 0 {
+        return 0 - 1
+    }
+    return hi * 16 + lo
+}
+
+func hex_decode_to_vec(s: str): int {
+    var n = str_len(s)
+    var vec = int_vec_new()
+    var i = 0
+    while i < n - 1 {
+        var val = hex_decode_pair(str_byte(s, i), str_byte(s, i + 1))
+        if val < 0 {
+            int_vec_free(vec)
+            return 0
+        }
+        int_vec_push(vec, val)
+        i = i + 2
+    }
+    return vec
+}
+
+func hex_encode_vec(handle: int): str {
+    var n = int_vec_len(handle)
+    var sb = str_builder_new()
+    if sb == 0 {
+        return ""
+    }
+    var i = 0
+    while i < n {
+        str_builder_append(sb, hex_encode_byte(int_vec_get(handle, i)))
+        i = i + 1
+    }
+    var result = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return result
+}
+
+func hex_is_valid(s: str): int {
+    var n = str_len(s)
+    if n - (n / 2) * 2 != 0 {
+        return 0
+    }
+    var i = 0
+    while i < n {
+        if is_hex_digit(str_byte(s, i)) == 0 {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}

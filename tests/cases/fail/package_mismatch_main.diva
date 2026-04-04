@@ -1,0 +1,7 @@
+package main_pkg
+
+import "package_mismatch_other.diva";
+
+func main(): int {
+    return helper();
+}
