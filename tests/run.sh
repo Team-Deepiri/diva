@@ -84,7 +84,6 @@ assert_ir_contains() {
     file_path=$1
     needle=$2
     output_file="${TEST_ROOT}/command.out"
-    ir_path=
 
     if ! diva emit-ir "${file_path}" >"${output_file}" 2>&1; then
         sed -n '1,120p' "${output_file}" >&2
@@ -97,16 +96,8 @@ assert_ir_contains() {
         return 0
     fi
 
-    ir_path=$(sed -n 's/^\[di\] wrote LLVM IR to //p' "${output_file}" | tail -n 1)
-    if [ -n "${ir_path}" ] && [ -f "${ir_path}" ] && grep -F "${needle}" "${ir_path}" >/dev/null; then
-        return 0
-    fi
-
     printf '[test:error] expected to find "%s" in emit-ir output for %s\n' "${needle}" "${file_path}" >&2
     sed -n '1,160p' "${output_file}.stripped" >&2
-    if [ -n "${ir_path}" ] && [ -f "${ir_path}" ]; then
-        sed -n '1,160p' "${ir_path}" >&2
-    fi
     exit 1
 }
 

@@ -18,18 +18,16 @@ mkdir -p "${STDLIB_DIR}"
 mkdir -p "${BOOTSTRAP_DIR}"
 mkdir -p "${LIBEXEC_DIR}"
 
-if [ "${NO_CLANG:-}" = "1" ]; then
-  if [ ! -f "${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" ]; then
-    echo "NO_CLANG=1: missing ${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" >&2
-    exit 1
-  fi
+# Prefer the committed bootstrap object so the default install never requires clang/LLVM to compile the runtime.
+if [ -f "${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" ]; then
   cp "${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" "${RUNTIME_O}"
+elif [ "${NO_CLANG:-}" = "1" ]; then
+  echo "NO_CLANG=1: missing ${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" >&2
+  exit 1
 elif command -v clang >/dev/null 2>&1 && [ -f "${ROOT_DIR}/runtime/runtime.ll" ]; then
   clang -c -O1 "${ROOT_DIR}/runtime/runtime.ll" -o "${RUNTIME_O}"
-elif [ -f "${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" ]; then
-  cp "${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" "${RUNTIME_O}"
 else
-  echo "Need runtime/runtime.ll and clang, or bootstrap/runtime-linux-amd64.o" >&2
+  echo "Need bootstrap/runtime-linux-amd64.o, or runtime/runtime.ll and clang" >&2
   exit 1
 fi
 

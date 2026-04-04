@@ -19,9 +19,10 @@ import "cell.diva"
 //   [4] = label_cell (label counter)
 //   [5] = names_cell (local name hashes vec handle)
 //   [6] = slots_cell (local slot ids vec handle)
-//   [7] = str_vec (int_vec of string literal token indices)
-//   [8] = toks handle (direct)
-//   [9] = strtab_cell (string table counter)
+//   [7] = array_lens_cell (parallel: 1 = scalar, N = int[] length)
+//   [8] = str_vec (int_vec of string literal token indices)
+//   [9] = toks handle (direct)
+//   [10] = strtab_cell (string table counter)
 
 func bctx_new(src: str, toks: int): int {
     var ctx = int_vec_new()
@@ -32,9 +33,10 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, mut_new(0))            // [4] label_cell
     int_vec_push(ctx, mut_new(int_vec_new())) // [5] names_cell
     int_vec_push(ctx, mut_new(int_vec_new())) // [6] slots_cell
-    int_vec_push(ctx, int_vec_new())          // [7] str_vec
-    int_vec_push(ctx, toks)                   // [8] toks
-    int_vec_push(ctx, mut_new(0))            // [9] strtab_cell
+    int_vec_push(ctx, mut_new(int_vec_new())) // [7] array_lens_cell (parallel to names/slots; 1 = scalar)
+    int_vec_push(ctx, int_vec_new())          // [8] str_vec
+    int_vec_push(ctx, toks)                   // [9] toks
+    int_vec_push(ctx, mut_new(0))            // [10] strtab_cell
     return ctx
 }
 
@@ -45,9 +47,10 @@ func bctx_vreg(ctx: int): int    { return mut_get(int_vec_get(ctx, 3)) }
 func bctx_label(ctx: int): int   { return mut_get(int_vec_get(ctx, 4)) }
 func bctx_names(ctx: int): int   { return mut_get(int_vec_get(ctx, 5)) }
 func bctx_slots(ctx: int): int   { return mut_get(int_vec_get(ctx, 6)) }
-func bctx_str_vec(ctx: int): int { return int_vec_get(ctx, 7) }
-func bctx_toks(ctx: int): int    { return int_vec_get(ctx, 8) }
-func bctx_strtab(ctx: int): int  { return mut_get(int_vec_get(ctx, 9)) }
+func bctx_array_lens(ctx: int): int { return mut_get(int_vec_get(ctx, 7)) }
+func bctx_str_vec(ctx: int): int { return int_vec_get(ctx, 8) }
+func bctx_toks(ctx: int): int    { return int_vec_get(ctx, 9) }
+func bctx_strtab(ctx: int): int  { return mut_get(int_vec_get(ctx, 10)) }
 
 func bctx_set_func(ctx: int, v: int): int  { return mut_set(int_vec_get(ctx, 1), v) }
 func bctx_set_blk(ctx: int, v: int): int   { return mut_set(int_vec_get(ctx, 2), v) }
@@ -55,12 +58,13 @@ func bctx_set_vreg(ctx: int, v: int): int  { return mut_set(int_vec_get(ctx, 3),
 func bctx_set_label(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 4), v) }
 func bctx_set_names(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 5), v) }
 func bctx_set_slots(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 6), v) }
+func bctx_set_array_lens(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 7), v) }
 
 // --- String table (counter stored in strtab_cell) ---
 
 func ib_strtab_add(ctx: int, s: str): int {
     var idx = bctx_strtab(ctx)
-    mut_set(int_vec_get(ctx, 9), idx + 1)
+    mut_set(int_vec_get(ctx, 10), idx + 1)
     return idx
 }
 
@@ -114,19 +118,24 @@ func ib_scope_push(ctx: int): int { return int_vec_len(bctx_names(ctx)) }
 func ib_scope_pop(ctx: int, mark: int): int {
     var names = bctx_names(ctx)
     var slots = bctx_slots(ctx)
+    var lens = bctx_array_lens(ctx)
     if int_vec_len(names) > mark {
         var fresh_n = int_vec_new()
         var fresh_s = int_vec_new()
+        var fresh_l = int_vec_new()
         var i = 0
         while i < mark {
             int_vec_push(fresh_n, int_vec_get(names, i))
             int_vec_push(fresh_s, int_vec_get(slots, i))
+            int_vec_push(fresh_l, int_vec_get(lens, i))
             i = i + 1
         }
         int_vec_free(names)
         int_vec_free(slots)
+        int_vec_free(lens)
         bctx_set_names(ctx, fresh_n)
         bctx_set_slots(ctx, fresh_s)
+        bctx_set_array_lens(ctx, fresh_l)
     }
     return 0
 }
@@ -135,7 +144,22 @@ func ib_define_local(ctx: int, name: str): int {
     var slot = ib_fresh_vreg(ctx)
     int_vec_push(bctx_names(ctx), ib_name_hash(name))
     int_vec_push(bctx_slots(ctx), slot)
+    int_vec_push(bctx_array_lens(ctx), 1)
     return slot
+}
+
+// Reserve n consecutive vregs; record one name -> base slot and array length n.
+func ib_define_array_local(ctx: int, name: str, n: int): int {
+    var base = ib_fresh_vreg(ctx)
+    var j = 1
+    while j < n {
+        ib_fresh_vreg(ctx)
+        j = j + 1
+    }
+    int_vec_push(bctx_names(ctx), ib_name_hash(name))
+    int_vec_push(bctx_slots(ctx), base)
+    int_vec_push(bctx_array_lens(ctx), n)
+    return base
 }
 
 func ib_lookup_local(ctx: int, name: str): int {
@@ -150,6 +174,20 @@ func ib_lookup_local(ctx: int, name: str): int {
         i = i - 1
     }
     return 0 - 1
+}
+
+func ib_lookup_array_len(ctx: int, name: str): int {
+    var h = ib_name_hash(name)
+    var names = bctx_names(ctx)
+    var lens = bctx_array_lens(ctx)
+    var i = int_vec_len(names) - 1
+    while i >= 0 {
+        if int_vec_get(names, i) == h {
+            return int_vec_get(lens, i)
+        }
+        i = i - 1
+    }
+    return 1
 }
 
 // --- Expression lowering ---
@@ -259,6 +297,27 @@ func lower_expr(ctx: int, src: str, node: int): int {
         return r
     }
 
+    if kind == nd_index() {
+        var obj = ast_child(node, 0)
+        var idx_node = ast_child(node, 1)
+        if ast_kind(obj) == nd_ident() {
+            var name = ib_tok_text(ctx, src, ast_child(obj, 0))
+            var base = ib_lookup_local(ctx, name)
+            var alen = ib_lookup_array_len(ctx, name)
+            if base >= 0 & alen > 1 {
+                if ast_kind(idx_node) == nd_int_lit() {
+                    var off = ast_child(idx_node, 0)
+                    if off >= 0 & off < alen {
+                        var slot = base + off
+                        var r = ib_fresh_vreg(ctx)
+                        ib_emit(ctx, ir_inst(ir_load(), r, slot, 0, 0))
+                        return r
+                    }
+                }
+            }
+        }
+    }
+
     var r = ib_fresh_vreg(ctx)
     ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
     return r
@@ -272,8 +331,33 @@ func lower_stmt(ctx: int, src: str, node: int): int {
 
     if kind == nd_var_decl() {
         var name_tok = ast_child(node, 0)
+        var type_node = ast_child(node, 1)
         var init = ast_child(node, 2)
         var name = ib_tok_text(ctx, src, name_tok)
+
+        if type_node >= 0 {
+            if ast_kind(type_node) == nd_type_array() {
+                if init >= 0 {
+                    if ast_kind(init) == nd_array_lit() {
+                        var elems = ast_child(init, 0)
+                        var ne = int_vec_len(elems)
+                        if ne > 0 {
+                            var base = ib_define_array_local(ctx, name, ne)
+                            var j = 0
+                            while j < ne {
+                                var slot = base + j
+                                ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
+                                var ev = lower_expr(ctx, src, int_vec_get(elems, j))
+                                ib_emit(ctx, ir_inst(ir_store(), slot, ev, 0, 0))
+                                j = j + 1
+                            }
+                            return 0
+                        }
+                    }
+                }
+            }
+        }
+
         var slot = ib_define_local(ctx, name)
         ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
         if init >= 0 {
@@ -292,6 +376,25 @@ func lower_stmt(ctx: int, src: str, node: int): int {
             var slot = ib_lookup_local(ctx, name)
             if slot >= 0 {
                 ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+            }
+        } else {
+            if ast_kind(target) == nd_index() {
+                var obj = ast_child(target, 0)
+                var idx_node = ast_child(target, 1)
+                if ast_kind(obj) == nd_ident() {
+                    var name = ib_tok_text(ctx, src, ast_child(obj, 0))
+                    var base = ib_lookup_local(ctx, name)
+                    var alen = ib_lookup_array_len(ctx, name)
+                    if base >= 0 & alen > 1 {
+                        if ast_kind(idx_node) == nd_int_lit() {
+                            var off = ast_child(idx_node, 0)
+                            if off >= 0 & off < alen {
+                                var slot = base + off
+                                ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+                            }
+                        }
+                    }
+                }
             }
         }
         return 0

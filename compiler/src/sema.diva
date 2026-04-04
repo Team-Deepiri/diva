@@ -1,0 +1,72 @@
+// Minimal semantic checks for the native pipeline (single file, no imports).
+// Full typechecking and package resolution remain the seed compiler's job.
+
+import "std/io.diva"
+import "std/conv.diva"
+import "std/vec.diva"
+import "tokens.diva"
+import "ast.diva"
+
+func sema_err(msg: str): int {
+    stderr("sema: ")
+    stderr(msg)
+    stderr(char_to_str(10))
+    return 1
+}
+
+func sema_top_level_func_hashes(file_node: int): int {
+    var children = ast_child(file_node, 0)
+    var n = int_vec_len(children)
+    var seen = int_vec_new()
+    var i = 0
+    while i < n {
+        var ch = int_vec_get(children, i)
+        if ast_kind(ch) == nd_func() {
+            var ht = ast_child(ch, 0)
+            var j = 0
+            var nc = int_vec_len(seen)
+            while j < nc {
+                if int_vec_get(seen, j) == ht {
+                    return sema_err("duplicate top-level function name")
+                }
+                j = j + 1
+            }
+            int_vec_push(seen, ht)
+        }
+        i = i + 1
+    }
+    int_vec_free(seen)
+    return 0
+}
+
+// Returns 0 if ok, 1 on error (messages on stderr).
+func sema_check_file(src: str, toks: int, file_node: int): int {
+    if sema_top_level_func_hashes(file_node) != 0 {
+        return 1
+    }
+    return 0
+}
+
+// 1 = this file is in the native single-file subset (no imports, classes, packages, top-level let).
+func sema_file_only_native_subset(file_node: int): int {
+    var children = ast_child(file_node, 0)
+    var n = int_vec_len(children)
+    var i = 0
+    while i < n {
+        var k = ast_kind(int_vec_get(children, i))
+        if k == nd_import() {
+            return 0
+        }
+        if k == nd_package_decl() {
+            return 0
+        }
+        if k == nd_class() {
+            return 0
+        }
+        if k == nd_var_decl() {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}

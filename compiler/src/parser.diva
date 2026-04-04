@@ -363,9 +363,14 @@ func parse_var_decl(ps: int, src: str): int {
     p_advance(ps)
     var name = p_expect(ps, src, tk_ident())
     var ty = 0 - 1
-    if p_cur(ps) == tk_colon() {
+    if p_cur(ps) == tk_coloncolon() {
         p_advance(ps)
         ty = parse_type(ps, src)
+    } else {
+        if p_cur(ps) == tk_colon() {
+            p_advance(ps)
+            ty = parse_type(ps, src)
+        }
     }
     var init = 0 - 1
     if p_cur(ps) == tk_eq() {
