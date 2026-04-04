@@ -245,7 +245,7 @@ func lower_expr(ctx: int, src: str, node: int): int {
         }
         var r = ib_fresh_vreg(ctx)
         ib_emit(ctx, ir_inst(ir_call(), r, fname_idx, argc, arg_regs))
-        int_vec_free(arg_regs)
+        // arg_regs is stored on the instruction; do not free (would corrupt call operands).
         return r
     }
 

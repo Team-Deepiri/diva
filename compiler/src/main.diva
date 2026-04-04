@@ -1,12 +1,11 @@
 // Diva compiler driver.
-// Native commands: lex, parse, ir, asm, emit-ir, build (--ast | compile+link), run,
-// compiler-version, pipeline. Package/kernel/multi-file paths forward to the seed.
+// Native commands: lex, parse, ir, asm, emit-ir, build --ast, compiler-version, pipeline.
+// build (link) / run forward to the seed for the full language.
 
 import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
 import "std/conv.diva"
-import "std/base64.diva"
 import "cell.diva"
 import "tokens.diva"
 import "lexer.diva"
@@ -82,128 +81,18 @@ func path_is_diva_file(p: str): int {
     return str_eq(suf, ".diva")
 }
 
+// Real LF byte from file — Diva `"\n"` in source is two chars (backslash + n), not ASCII 10.
 func newline_str(): str {
-    return char_to_str(10)
-}
-
-func require_runtime_o(): int {
-    if str_len(host_getenv("DI_RUNTIME_O")) == 0 {
-        err_line("error: DI_RUNTIME_O is not set (runtime object path)")
-        return 0
+    var s = read_file("compiler/res/lf.txt")
+    if str_len(s) >= 1 {
+        return str_slice(s, 0, 1)
     }
-    return 1
-}
-
-// Chunked base64 + GNU as + cc. Diva string literals cannot contain '$', so the runtime
-// path is appended from host_getenv (no shell expansion). Uses fixed /tmp names.
-func native_link_asm_to_exe(asm: str, out_exe: str): int {
-    if require_runtime_o() == 0 {
-        return 1
+    s = read_file("res/lf.txt")
+    if str_len(s) >= 1 {
+        return str_slice(s, 0, 1)
     }
-    var rt = host_getenv("DI_RUNTIME_O")
-    var b64 = base64_encode(asm)
-    var cmd = str_builder_new()
-    if cmd == 0 {
-        return 1
-    }
-    str_builder_append(cmd, "sh -c 'set -e; rm -f /tmp/diva-native.b64 /tmp/diva-native.s /tmp/diva-native.o; ")
-    str_builder_append(cmd, ": > /tmp/diva-native.b64; ")
-    var blen = str_len(b64)
-    var pos = 0
-    var step = 4000
-    while pos < blen {
-        var take = step
-        if pos + take > blen {
-            take = blen - pos
-        }
-        var piece = str_slice(b64, pos, take)
-        str_builder_append(cmd, "printf '%s' '")
-        str_builder_append(cmd, piece)
-        str_builder_append(cmd, "' >> /tmp/diva-native.b64; ")
-        pos = pos + take
-    }
-    str_builder_append(cmd, "base64 -d < /tmp/diva-native.b64 > /tmp/diva-native.s; ")
-    str_builder_append(cmd, "as -o /tmp/diva-native.o /tmp/diva-native.s; ")
-    str_builder_append(cmd, "cc -no-pie -o ")
-    str_builder_append(cmd, out_exe)
-    str_builder_append(cmd, " /tmp/diva-native.o ")
-    str_builder_append(cmd, rt)
-    str_builder_append(cmd, "; rm -f /tmp/diva-native.b64 /tmp/diva-native.s /tmp/diva-native.o'")
-    var c = str_builder_to_str(cmd)
-    str_builder_free(cmd)
-    var r = host_system(c)
-    if r < 0 {
-        return 1
-    }
-    if r < 256 {
-        return r
-    }
-    return r / 256
-}
-
-func native_run_asm(asm: str): int {
-    if require_runtime_o() == 0 {
-        return 1
-    }
-    var rt = host_getenv("DI_RUNTIME_O")
-    var b64 = base64_encode(asm)
-    var cmd = str_builder_new()
-    if cmd == 0 {
-        return 1
-    }
-    str_builder_append(cmd, "sh -c 'set -e; rm -f /tmp/diva-native.b64 /tmp/diva-native.s /tmp/diva-native.o; ")
-    str_builder_append(cmd, ": > /tmp/diva-native.b64; ")
-    var blen = str_len(b64)
-    var pos = 0
-    var step = 4000
-    while pos < blen {
-        var take = step
-        if pos + take > blen {
-            take = blen - pos
-        }
-        var piece = str_slice(b64, pos, take)
-        str_builder_append(cmd, "printf '%s' '")
-        str_builder_append(cmd, piece)
-        str_builder_append(cmd, "' >> /tmp/diva-native.b64; ")
-        pos = pos + take
-    }
-    str_builder_append(cmd, "base64 -d < /tmp/diva-native.b64 > /tmp/diva-native.s; ")
-    str_builder_append(cmd, "as -o /tmp/diva-native.o /tmp/diva-native.s; ")
-    str_builder_append(cmd, "cc -no-pie -o /tmp/diva-native.exe /tmp/diva-native.o ")
-    str_builder_append(cmd, rt)
-    str_builder_append(cmd, "; rm -f /tmp/diva-native.b64 /tmp/diva-native.s /tmp/diva-native.o; ")
-    str_builder_append(cmd, "exec /tmp/diva-native.exe'")
-    var c = str_builder_to_str(cmd)
-    str_builder_free(cmd)
-    var r = host_system(c)
-    if r < 0 {
-        return 1
-    }
-    if r < 256 {
-        return r
-    }
-    return r / 256
-}
-
-func compile_to_asm(path: str): str {
     var empty = ""
-    var src = read_source(path)
-    if str_len(src) == 0 {
-        return empty
-    }
-    var stream = lex_source(src)
-    if stream == 0 {
-        return empty
-    }
-    var pr = parse_source(src, stream)
-    if int_vec_get(pr, 1) != 0 {
-        return empty
-    }
-    var ast = int_vec_get(pr, 0)
-    var ir_result = build_ir(src, stream, ast)
-    var m = int_vec_get(ir_result, 0)
-    var strvec = int_vec_get(ir_result, 1)
-    return cg_module_to_str(m, src, stream, strvec, newline_str())
+    return empty
 }
 
 func cmd_lex(path: str): int {
@@ -215,7 +104,7 @@ func cmd_parse(path: str): int {
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { err_line("lexer error") return 1 }
-    var pr = parse_source(src, stream)
+    var pr = parse_source(src, stream, 0)
     var ast = int_vec_get(pr, 0)
     var had_err = int_vec_get(pr, 1)
     if had_err != 0 { err_line("parse failed") return 1 }
@@ -235,7 +124,7 @@ func cmd_ir(path: str): int {
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
-    var pr = parse_source(src, stream)
+    var pr = parse_source(src, stream, 0)
     var ast = int_vec_get(pr, 0)
     if int_vec_get(pr, 1) != 0 { err_line("parse failed") return 1 }
     var ir_result = build_ir(src, stream, ast)
@@ -249,7 +138,7 @@ func cmd_asm(path: str): int {
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
-    var pr = parse_source(src, stream)
+    var pr = parse_source(src, stream, 0)
     var ast = int_vec_get(pr, 0)
     if int_vec_get(pr, 1) != 0 { print_str("parse failed") return 1 }
     var ir_result = build_ir(src, stream, ast)
@@ -260,7 +149,19 @@ func cmd_asm(path: str): int {
 }
 
 func cmd_emit_ir(path: str): int {
-    return cmd_ir(path)
+    var src = read_source(path)
+    if str_len(src) == 0 { return 1 }
+    var stream = lex_source(src)
+    if stream == 0 { return 1 }
+    var pr = parse_source(src, stream, 1)
+    if int_vec_get(pr, 1) != 0 {
+        return forward_to_seed()
+    }
+    var ast = int_vec_get(pr, 0)
+    var ir_result = build_ir(src, stream, ast)
+    var m = int_vec_get(ir_result, 0)
+    dump_module(m, src, stream)
+    return 0
 }
 
 func cmd_build_ast(path: str): int {
@@ -268,13 +169,13 @@ func cmd_build_ast(path: str): int {
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
-    var pr = parse_source(src, stream)
+    var pr = parse_source(src, stream, 0)
     var ast = int_vec_get(pr, 0)
     if int_vec_get(pr, 1) != 0 {
         err_line("parse failed")
         return 1
     }
-    ast_dump_program(path, src, stream, ast)
+    ast_dump_program(path, src, stream, ast, newline_str())
     return 0
 }
 
@@ -315,22 +216,13 @@ func cmd_build(): int {
     if build_wants_ast() == 1 {
         return cmd_build_ast(path)
     }
-    var asm = compile_to_asm(path)
-    if str_len(asm) == 0 {
-        return forward_to_seed()
-    }
-    return native_link_asm_to_exe(asm, "a.out")
+    // Full compile+link still uses the seed (complete language, packages, kernels).
+    return forward_to_seed()
 }
 
 func cmd_run_file(path: str): int {
-    if path_is_diva_file(path) == 0 {
-        return forward_to_seed()
-    }
-    var asm = compile_to_asm(path)
-    if str_len(asm) == 0 {
-        return forward_to_seed()
-    }
-    return native_run_asm(asm)
+    // Native codegen is not complete for the whole language; run uses the seed.
+    return forward_to_seed()
 }
 
 func main(): int {
@@ -396,8 +288,8 @@ func main(): int {
 
     if str_eq(a1, "compiler-version") == 1 {
         print_str("diva compiler v0.3.0")
-        print_str("  native stages: lex, parse, ir, asm, emit-ir, build, run (single .diva)")
-        print_str("  fallback: seed binary for packages and unimplemented constructs")
+        print_str("  native stages: lex, parse, ir, asm, emit-ir, build --ast")
+        print_str("  seed binary: build (link), run, packages, full language")
         return 0
     }
 

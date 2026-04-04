@@ -9,14 +9,15 @@ import "ast.diva"
 import "cell.diva"
 
 // --- Parser context ---
-// ps = int_vec: [pos_cell, tlen, err_cell, toks_handle]
+// ps = int_vec: [pos_cell, tlen, err_cell, toks_handle, quiet (0=loud, 1=no stderr on error)]
 
-func ps_new(toks: int): int {
+func ps_new(toks: int, quiet: int): int {
     var ps = int_vec_new()
     int_vec_push(ps, mut_new(0))
     int_vec_push(ps, tok_count(toks))
     int_vec_push(ps, mut_new(0))
     int_vec_push(ps, toks)
+    int_vec_push(ps, quiet)
     return ps
 }
 
@@ -24,6 +25,7 @@ func ps_pos(ps: int): int  { return mut_get(int_vec_get(ps, 0)) }
 func ps_tlen(ps: int): int { return int_vec_get(ps, 1) }
 func ps_err(ps: int): int  { return mut_get(int_vec_get(ps, 2)) }
 func ps_toks(ps: int): int { return int_vec_get(ps, 3) }
+func ps_quiet(ps: int): int { return int_vec_get(ps, 4) }
 
 func ps_set_pos(ps: int, v: int): int { return mut_set(int_vec_get(ps, 0), v) }
 func ps_set_err(ps: int): int         { return mut_set(int_vec_get(ps, 2), 1) }
@@ -47,16 +49,18 @@ func p_text(ps: int, src: str, idx: int): str {
 
 func p_expect(ps: int, src: str, kind: int): int {
     if p_cur(ps) != kind {
-        stderr("parse error: expected ")
-        stderr(tk_name(kind))
-        stderr(", got ")
-        stderr(tk_name(p_cur(ps)))
-        if ps_pos(ps) < ps_tlen(ps) {
-            stderr(" '")
-            stderr(p_text(ps, src, ps_pos(ps)))
-            stderr("'")
+        if ps_quiet(ps) == 0 {
+            stderr("parse error: expected ")
+            stderr(tk_name(kind))
+            stderr(", got ")
+            stderr(tk_name(p_cur(ps)))
+            if ps_pos(ps) < ps_tlen(ps) {
+                stderr(" '")
+                stderr(p_text(ps, src, ps_pos(ps)))
+                stderr("'")
+            }
+            stderr("\n")
         }
-        stderr("\n")
         ps_set_err(ps)
         return ps_pos(ps)
     }
@@ -99,7 +103,9 @@ func parse_type(ps: int, src: str): int {
         if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(t) }
         return t
     }
-    stderr("parse error: expected type\n")
+    if ps_quiet(ps) == 0 {
+        stderr("parse error: expected type\n")
+    }
     ps_set_err(ps)
     return 0 - 1
 }
@@ -169,9 +175,11 @@ func parse_primary(ps: int, src: str): int {
         return ast_unary(unop_neg(), parse_primary(ps, src))
     }
 
-    stderr("parse error: unexpected token in expression: ")
-    stderr(tk_name(kind))
-    stderr("\n")
+    if ps_quiet(ps) == 0 {
+        stderr("parse error: unexpected token in expression: ")
+        stderr(tk_name(kind))
+        stderr("\n")
+    }
     ps_set_err(ps)
     return 0 - 1
 }
@@ -499,7 +507,9 @@ func parse_class_decl(ps: int, src: str): int {
             if p_cur(ps) == tk_func() {
                 int_vec_push(members, parse_func_decl(ps, src))
             } else {
-                stderr("parse error: unexpected token in class body\n")
+                if ps_quiet(ps) == 0 {
+                    stderr("parse error: unexpected token in class body\n")
+                }
                 ps_set_err(ps)
             }
         }
@@ -558,9 +568,11 @@ func parse_top_level(ps: int, src: str): int {
         if kind == tk_eof() {
             return ast_file(children)
         } else {
-            stderr("parse error: unexpected top-level token: ")
-            stderr(tk_name(kind))
-            stderr("\n")
+            if ps_quiet(ps) == 0 {
+                stderr("parse error: unexpected top-level token: ")
+                stderr(tk_name(kind))
+                stderr("\n")
+            }
             ps_set_err(ps)
         } } } } } } } } }
         p_skip_semi(ps)
@@ -571,8 +583,8 @@ func parse_top_level(ps: int, src: str): int {
 // --- Public entry point ---
 // Returns int_vec: [ast_node, err_flag]
 
-func parse_source(src: str, stream: int): int {
-    var ps = ps_new(stream)
+func parse_source(src: str, stream: int, quiet: int): int {
+    var ps = ps_new(stream, quiet)
     var ast = parse_top_level(ps, src)
     var result = int_vec_new()
     int_vec_push(result, ast)

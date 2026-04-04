@@ -1,5 +1,5 @@
 // x86_64 assembly codegen from Diva IR (AT&T / gas).
-// Labels: user main() -> di_user_main; other user funcs -> _diva_<name>;
+// Labels: user main() -> main (CRT entry); other user funcs -> _diva_<name>;
 // extern calls -> di_runtime_<name> (matches runtime .o symbols).
 
 import "std/host.diva"
@@ -52,7 +52,7 @@ func stack_offset(slot: int): str {
 func asm_user_label(src: str, toks: int, name_tok: int): str {
     var nm = tok_text(src, toks, name_tok)
     if str_eq(nm, "main") == 1 {
-        return "di_user_main"
+        return "main"
     }
     var b = str_builder_new()
     str_builder_append(b, "_diva_")
@@ -64,6 +64,12 @@ func asm_user_label(src: str, toks: int, name_tok: int): str {
 
 func asm_runtime_label(src: str, toks: int, name_tok: int): str {
     var nm = tok_text(src, toks, name_tok)
+    if str_eq(nm, "host_argc") == 1 {
+        return "di_runtime_argc"
+    }
+    if str_eq(nm, "host_argv") == 1 {
+        return "di_runtime_argv"
+    }
     var b = str_builder_new()
     str_builder_append(b, "di_runtime_")
     str_builder_append(b, nm)
@@ -276,6 +282,10 @@ func cg_func(lp: int, sb: int, nl: str, m: int, src: str, toks: int, f: int, fi:
     var flabel = asm_user_label(src, toks, func_name_tok(f))
     lp_add(lp, "    .globl ") lp_add(lp, flabel) lp_flush_sb(lp, sb, nl)
     lp_add(lp, flabel) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
+
+    if str_eq(flabel, "main") == 1 {
+        lp_add(lp, "    call di_runtime_set_argv") lp_flush_sb(lp, sb, nl)
+    }
 
     lp_add(lp, "    pushq %rbp") lp_flush_sb(lp, sb, nl)
     lp_add(lp, "    movq %rsp, %rbp") lp_flush_sb(lp, sb, nl)
