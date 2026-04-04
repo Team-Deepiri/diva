@@ -1,0 +1,114 @@
+import "std/host.diva"
+import "std/vec.diva"
+
+func str_to_int(s: str): int {
+    var n = str_len(s)
+    if n == 0 {
+        return 0
+    }
+    var neg = 0
+    var i = 0
+    if str_byte(s, 0) == 45 {
+        neg = 1
+        i = 1
+    }
+    var result = 0
+    while i < n {
+        var c = str_byte(s, i)
+        if c < 48 {
+            return result
+        }
+        if c > 57 {
+            return result
+        }
+        result = result * 10 + (c - 48)
+        i = i + 1
+    }
+    if neg == 1 {
+        return 0 - result
+    }
+    return result
+}
+
+func char_to_str(code: int): str {
+    var b = str_builder_new()
+    if b == 0 {
+        return ""
+    }
+    if code == 10 {
+        str_builder_append(b, "\n")
+    }
+    if code == 9 {
+        str_builder_append(b, "\t")
+    }
+    if code == 32 {
+        str_builder_append(b, " ")
+    }
+    if code >= 48 {
+        if code <= 57 {
+            str_builder_append(b, int_to_str(code - 48))
+        }
+    }
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func bool_to_str(value: bool): str {
+    if value {
+        return "true"
+    }
+    return "false"
+}
+
+func int_to_hex(x: int): str {
+    var b = str_builder_new()
+    if b == 0 {
+        return "0x0"
+    }
+    str_builder_append(b, "0x")
+    if x == 0 {
+        str_builder_append(b, "0")
+        var r = str_builder_to_str(b)
+        str_builder_free(b)
+        return r
+    }
+    var neg = 0
+    var val = x
+    if val < 0 {
+        neg = 1
+        val = 0 - val
+    }
+    var digits = str_builder_new()
+    if digits == 0 {
+        str_builder_free(b)
+        return "0x0"
+    }
+    while val > 0 {
+        var rem = val - (val / 16) * 16
+        if rem < 10 {
+            str_builder_append(digits, int_to_str(rem))
+        }
+        if rem == 10 { str_builder_append(digits, "a") }
+        if rem == 11 { str_builder_append(digits, "b") }
+        if rem == 12 { str_builder_append(digits, "c") }
+        if rem == 13 { str_builder_append(digits, "d") }
+        if rem == 14 { str_builder_append(digits, "e") }
+        if rem == 15 { str_builder_append(digits, "f") }
+        val = val / 16
+    }
+    if neg == 1 {
+        str_builder_append(b, "-")
+    }
+    var ds = str_builder_to_str(digits)
+    var dlen = str_len(ds)
+    var i = dlen - 1
+    while i >= 0 {
+        str_builder_append(b, str_slice(ds, i, 1))
+        i = i - 1
+    }
+    str_builder_free(digits)
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}

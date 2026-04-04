@@ -1,0 +1,106 @@
+import "std/host.diva"
+import "std/vec.diva"
+import "std/bitwise.diva"
+
+var rng_state = 123456789
+
+func rng_seed(s: int): int {
+    if s == 0 {
+        rng_state = 1
+    } else {
+        if s < 0 {
+            rng_state = 0 - s
+        } else {
+            rng_state = s
+        }
+    }
+    return 0
+}
+
+func rng_next(): int {
+    rng_state = rng_state * 1103515245 + 12345
+    var val = rng_state / 65536
+    if val < 0 {
+        val = 0 - val
+    }
+    return val
+}
+
+func rng_range(lo: int, hi: int): int {
+    if lo >= hi {
+        return lo
+    }
+    var span = hi - lo
+    var r = rng_next()
+    if r < 0 {
+        r = 0 - r
+    }
+    var remainder = r - (r / span) * span
+    return lo + remainder
+}
+
+func rng_bool(): int {
+    var r = rng_next()
+    if r - (r / 2) * 2 == 0 {
+        return 0
+    }
+    return 1
+}
+
+func rng_shuffle(handle: int): int {
+    var n = int_vec_len(handle)
+    if n <= 1 {
+        return 0
+    }
+    var copy = int_vec_new()
+    var i = 0
+    while i < n {
+        int_vec_push(copy, int_vec_get(handle, i))
+        i = i + 1
+    }
+    var result = int_vec_new()
+    var remaining = n
+    while remaining > 0 {
+        var pick = rng_range(0, remaining)
+        int_vec_push(result, int_vec_get(copy, pick))
+        var temp = int_vec_new()
+        var j = 0
+        while j < int_vec_len(copy) {
+            if j != pick {
+                int_vec_push(temp, int_vec_get(copy, j))
+            }
+            j = j + 1
+        }
+        int_vec_free(copy)
+        copy = temp
+        remaining = remaining - 1
+    }
+    int_vec_free(copy)
+    return result
+}
+
+func rng_pick(handle: int): int {
+    var n = int_vec_len(handle)
+    if n == 0 {
+        return 0
+    }
+    return int_vec_get(handle, rng_range(0, n))
+}
+
+func rng_vec(count: int, lo: int, hi: int): int {
+    var v = int_vec_new()
+    var i = 0
+    while i < count {
+        int_vec_push(v, rng_range(lo, hi))
+        i = i + 1
+    }
+    return v
+}
+
+func rng_dice(sides: int): int {
+    return rng_range(1, sides + 1)
+}
+
+func rng_coin(): int {
+    return rng_bool()
+}

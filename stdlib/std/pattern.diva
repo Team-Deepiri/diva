@@ -1,0 +1,251 @@
+import "std/host.diva"
+import "std/vec.diva"
+import "std/str.diva"
+import "std/char.diva"
+
+func glob_match(pattern: str, text: str): int {
+    var plen = str_len(pattern)
+    var tlen = str_len(text)
+    var pi = 0
+    var ti = 0
+    var star_pi = 0 - 1
+    var star_ti = 0 - 1
+    while ti < tlen {
+        if pi < plen {
+            var pc = str_byte(pattern, pi)
+            var tc = str_byte(text, ti)
+            if pc == 63 {
+                pi = pi + 1
+                ti = ti + 1
+            } else {
+                if pc == 42 {
+                    star_pi = pi
+                    star_ti = ti
+                    pi = pi + 1
+                } else {
+                    if pc == tc {
+                        pi = pi + 1
+                        ti = ti + 1
+                    } else {
+                        if star_pi >= 0 {
+                            pi = star_pi + 1
+                            star_ti = star_ti + 1
+                            ti = star_ti
+                        } else {
+                            return 0
+                        }
+                    }
+                }
+            }
+        } else {
+            if star_pi >= 0 {
+                pi = star_pi + 1
+                star_ti = star_ti + 1
+                ti = star_ti
+            } else {
+                return 0
+            }
+        }
+    }
+    while pi < plen {
+        if str_byte(pattern, pi) != 42 {
+            return 0
+        }
+        pi = pi + 1
+    }
+    return 1
+}
+
+func str_split_by(s: str, delim: int): int {
+    var n = str_len(s)
+    var parts = int_vec_new()
+    var count = 0
+    var start = 0
+    var i = 0
+    while i < n {
+        if str_byte(s, i) == delim {
+            count = count + 1
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start < n {
+        count = count + 1
+    }
+    int_vec_push(parts, count)
+    return parts
+}
+
+func str_replace(s: str, old: str, new_val: str): str {
+    var slen = str_len(s)
+    var olen = str_len(old)
+    if olen == 0 {
+        return s
+    }
+    var b = str_builder_new()
+    if b == 0 { return s }
+    var i = 0
+    while i < slen {
+        if i <= slen - olen {
+            var match = 1
+            var j = 0
+            while j < olen {
+                if str_byte(s, i + j) != str_byte(old, j) {
+                    match = 0
+                    j = olen
+                }
+                j = j + 1
+            }
+            if match == 1 {
+                str_builder_append(b, new_val)
+                i = i + olen
+            } else {
+                str_builder_append(b, str_slice(s, i, 1))
+                i = i + 1
+            }
+        } else {
+            str_builder_append(b, str_slice(s, i, 1))
+            i = i + 1
+        }
+    }
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func str_replace_first(s: str, old: str, new_val: str): str {
+    var slen = str_len(s)
+    var olen = str_len(old)
+    if olen == 0 {
+        return s
+    }
+    var i = 0
+    while i <= slen - olen {
+        var match = 1
+        var j = 0
+        while j < olen {
+            if str_byte(s, i + j) != str_byte(old, j) {
+                match = 0
+                j = olen
+            }
+            j = j + 1
+        }
+        if match == 1 {
+            var b = str_builder_new()
+            if b == 0 { return s }
+            if i > 0 {
+                str_builder_append(b, str_slice(s, 0, i))
+            }
+            str_builder_append(b, new_val)
+            if i + olen < slen {
+                str_builder_append(b, str_slice(s, i + olen, slen - i - olen))
+            }
+            var result = str_builder_to_str(b)
+            str_builder_free(b)
+            return result
+        }
+        i = i + 1
+    }
+    return s
+}
+
+func str_count(s: str, sub: str): int {
+    var slen = str_len(s)
+    var sublen = str_len(sub)
+    if sublen == 0 {
+        return 0
+    }
+    var count = 0
+    var i = 0
+    while i <= slen - sublen {
+        var match = 1
+        var j = 0
+        while j < sublen {
+            if str_byte(s, i + j) != str_byte(sub, j) {
+                match = 0
+                j = sublen
+            }
+            j = j + 1
+        }
+        if match == 1 {
+            count = count + 1
+            i = i + sublen
+        } else {
+            i = i + 1
+        }
+    }
+    return count
+}
+
+func str_to_upper(s: str): str {
+    var n = str_len(s)
+    var b = str_builder_new()
+    if b == 0 { return s }
+    var i = 0
+    while i < n {
+        var c = str_byte(s, i)
+        if c >= 97 {
+            if c <= 122 {
+                c = c - 32
+            }
+        }
+        str_builder_append(b, str_slice(s, i, 1))
+        i = i + 1
+    }
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func str_to_lower(s: str): str {
+    var n = str_len(s)
+    var b = str_builder_new()
+    if b == 0 { return s }
+    var i = 0
+    while i < n {
+        var c = str_byte(s, i)
+        if c >= 65 {
+            if c <= 90 {
+                c = c + 32
+            }
+        }
+        str_builder_append(b, str_slice(s, i, 1))
+        i = i + 1
+    }
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func str_reverse(s: str): str {
+    var n = str_len(s)
+    var b = str_builder_new()
+    if b == 0 { return s }
+    var i = n - 1
+    while i >= 0 {
+        str_builder_append(b, str_slice(s, i, 1))
+        i = i - 1
+    }
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func str_is_empty(s: str): int {
+    if str_len(s) == 0 {
+        return 1
+    }
+    return 0
+}
+
+func str_is_blank(s: str): int {
+    var n = str_len(s)
+    var i = 0
+    while i < n {
+        if is_whitespace(str_byte(s, i)) == 0 {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}

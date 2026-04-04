@@ -1,0 +1,112 @@
+func bit_and(a: int, b: int): int {
+    var result = 0
+    var bit = 1
+    var i = 0
+    while i < 32 {
+        var ba = (a / bit) - ((a / bit) / 2) * 2
+        var bb = (b / bit) - ((b / bit) / 2) * 2
+        if ba == 1 {
+            if bb == 1 {
+                result = result + bit
+            }
+        }
+        bit = bit * 2
+        i = i + 1
+    }
+    return result
+}
+
+func bit_or(a: int, b: int): int {
+    var result = 0
+    var bit = 1
+    var i = 0
+    while i < 32 {
+        var ba = (a / bit) - ((a / bit) / 2) * 2
+        var bb = (b / bit) - ((b / bit) / 2) * 2
+        if ba == 1 {
+            result = result + bit
+        }
+        if bb == 1 {
+            if ba != 1 {
+                result = result + bit
+            }
+        }
+        bit = bit * 2
+        i = i + 1
+    }
+    return result
+}
+
+func bit_xor(a: int, b: int): int {
+    var result = 0
+    var bit = 1
+    var i = 0
+    while i < 32 {
+        var ba = (a / bit) - ((a / bit) / 2) * 2
+        var bb = (b / bit) - ((b / bit) / 2) * 2
+        if ba != bb {
+            result = result + bit
+        }
+        bit = bit * 2
+        i = i + 1
+    }
+    return result
+}
+
+func bit_not(a: int): int {
+    return bit_xor(a, 0 - 1)
+}
+
+func bit_shift_left(value: int, count: int): int {
+    var result = value
+    var i = 0
+    while i < count {
+        result = result * 2
+        i = i + 1
+    }
+    return result
+}
+
+func bit_shift_right(value: int, count: int): int {
+    var result = value
+    var i = 0
+    while i < count {
+        result = result / 2
+        i = i + 1
+    }
+    return result
+}
+
+func bit_count(x: int): int {
+    var count = 0
+    var val = x
+    if val < 0 {
+        val = 0 - val
+    }
+    while val > 0 {
+        var rem = val - (val / 2) * 2
+        if rem == 1 {
+            count = count + 1
+        }
+        val = val / 2
+    }
+    return count
+}
+
+func is_power_of_two(x: int): int {
+    if x <= 0 {
+        return 0
+    }
+    return bit_count(x) == 1
+}
+
+func next_power_of_two(x: int): int {
+    if x <= 1 {
+        return 1
+    }
+    var p = 1
+    while p < x {
+        p = p * 2
+    }
+    return p
+}

@@ -1,0 +1,177 @@
+import "std/host.diva"
+
+func is_upper(c: int): int {
+    if c >= 65 {
+        if c <= 90 {
+            return 1
+        }
+    }
+    return 0
+}
+
+func is_lower(c: int): int {
+    if c >= 97 {
+        if c <= 122 {
+            return 1
+        }
+    }
+    return 0
+}
+
+func is_letter(c: int): int {
+    if is_upper(c) == 1 {
+        return 1
+    }
+    return is_lower(c)
+}
+
+func is_digit(c: int): int {
+    if c >= 48 {
+        if c <= 57 {
+            return 1
+        }
+    }
+    return 0
+}
+
+func is_hex_digit(c: int): int {
+    if is_digit(c) == 1 {
+        return 1
+    }
+    if c >= 65 {
+        if c <= 70 {
+            return 1
+        }
+    }
+    if c >= 97 {
+        if c <= 102 {
+            return 1
+        }
+    }
+    return 0
+}
+
+func is_octal_digit(c: int): int {
+    if c >= 48 {
+        if c <= 55 {
+            return 1
+        }
+    }
+    return 0
+}
+
+func is_whitespace(c: int): int {
+    if c == 32 { return 1 }
+    if c == 9 { return 1 }
+    if c == 10 { return 1 }
+    if c == 13 { return 1 }
+    if c == 12 { return 1 }
+    if c == 11 { return 1 }
+    return 0
+}
+
+func is_printable(c: int): int {
+    if c >= 32 {
+        if c <= 126 {
+            return 1
+        }
+    }
+    return 0
+}
+
+func is_punct(c: int): int {
+    if is_printable(c) == 1 {
+        if is_letter(c) == 0 {
+            if is_digit(c) == 0 {
+                if c != 32 {
+                    return 1
+                }
+            }
+        }
+    }
+    return 0
+}
+
+func is_control(c: int): int {
+    if c >= 0 {
+        if c <= 31 {
+            return 1
+        }
+    }
+    if c == 127 {
+        return 1
+    }
+    return 0
+}
+
+func to_upper(c: int): int {
+    if is_lower(c) == 1 {
+        return c - 32
+    }
+    return c
+}
+
+func to_lower(c: int): int {
+    if is_upper(c) == 1 {
+        return c + 32
+    }
+    return c
+}
+
+func to_digit(c: int): int {
+    if is_digit(c) == 1 {
+        return c - 48
+    }
+    return 0 - 1
+}
+
+func from_digit(d: int): int {
+    if d >= 0 {
+        if d <= 9 {
+            return d + 48
+        }
+    }
+    return 0 - 1
+}
+
+func is_ident_start(c: int): int {
+    if is_letter(c) == 1 {
+        return 1
+    }
+    if c == 95 {
+        return 1
+    }
+    return 0
+}
+
+func is_ident_char(c: int): int {
+    if is_ident_start(c) == 1 {
+        return 1
+    }
+    return is_digit(c)
+}
+
+func is_newline(c: int): int {
+    if c == 10 { return 1 }
+    if c == 13 { return 1 }
+    return 0
+}
+
+func hex_digit_value(c: int): int {
+    if c >= 48 {
+        if c <= 57 {
+            return c - 48
+        }
+    }
+    if c >= 65 {
+        if c <= 70 {
+            return c - 55
+        }
+    }
+    if c >= 97 {
+        if c <= 102 {
+            return c - 87
+        }
+    }
+    return 0 - 1
+}

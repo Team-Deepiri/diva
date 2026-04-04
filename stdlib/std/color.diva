@@ -1,0 +1,101 @@
+import "std/host.diva"
+import "std/vec.diva"
+
+func esc_reset(): str     { return "\x1b[0m" }
+func esc_bold(): str      { return "\x1b[1m" }
+func esc_dim(): str       { return "\x1b[2m" }
+func esc_italic(): str    { return "\x1b[3m" }
+func esc_underline(): str { return "\x1b[4m" }
+func esc_blink(): str     { return "\x1b[5m" }
+func esc_reverse(): str   { return "\x1b[7m" }
+func esc_hidden(): str    { return "\x1b[8m" }
+func esc_strike(): str    { return "\x1b[9m" }
+
+func fg_black(): str   { return "\x1b[30m" }
+func fg_red(): str     { return "\x1b[31m" }
+func fg_green(): str   { return "\x1b[32m" }
+func fg_yellow(): str  { return "\x1b[33m" }
+func fg_blue(): str    { return "\x1b[34m" }
+func fg_magenta(): str { return "\x1b[35m" }
+func fg_cyan(): str    { return "\x1b[36m" }
+func fg_white(): str   { return "\x1b[37m" }
+
+func bg_black(): str   { return "\x1b[40m" }
+func bg_red(): str     { return "\x1b[41m" }
+func bg_green(): str   { return "\x1b[42m" }
+func bg_yellow(): str  { return "\x1b[43m" }
+func bg_blue(): str    { return "\x1b[44m" }
+func bg_magenta(): str { return "\x1b[45m" }
+func bg_cyan(): str    { return "\x1b[46m" }
+func bg_white(): str   { return "\x1b[47m" }
+
+func fg_bright_black(): str   { return "\x1b[90m" }
+func fg_bright_red(): str     { return "\x1b[91m" }
+func fg_bright_green(): str   { return "\x1b[92m" }
+func fg_bright_yellow(): str  { return "\x1b[93m" }
+func fg_bright_blue(): str    { return "\x1b[94m" }
+func fg_bright_magenta(): str { return "\x1b[95m" }
+func fg_bright_cyan(): str    { return "\x1b[96m" }
+func fg_bright_white(): str   { return "\x1b[97m" }
+
+func colorize(text: str, code: str): str {
+    var b = str_builder_new()
+    if b == 0 {
+        return text
+    }
+    str_builder_append(b, code)
+    str_builder_append(b, text)
+    str_builder_append(b, "\x1b[0m")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func red(text: str): str     { return colorize(text, fg_red()) }
+func green(text: str): str   { return colorize(text, fg_green()) }
+func yellow(text: str): str  { return colorize(text, fg_yellow()) }
+func blue(text: str): str    { return colorize(text, fg_blue()) }
+func magenta(text: str): str { return colorize(text, fg_magenta()) }
+func cyan(text: str): str    { return colorize(text, fg_cyan()) }
+func white(text: str): str   { return colorize(text, fg_white()) }
+func bold(text: str): str    { return colorize(text, esc_bold()) }
+func dim(text: str): str     { return colorize(text, esc_dim()) }
+
+func bold_red(text: str): str {
+    var b = str_builder_new()
+    if b == 0 {
+        return text
+    }
+    str_builder_append(b, "\x1b[1m\x1b[31m")
+    str_builder_append(b, text)
+    str_builder_append(b, "\x1b[0m")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func bold_green(text: str): str {
+    var b = str_builder_new()
+    if b == 0 {
+        return text
+    }
+    str_builder_append(b, "\x1b[1m\x1b[32m")
+    str_builder_append(b, text)
+    str_builder_append(b, "\x1b[0m")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func bold_yellow(text: str): str {
+    var b = str_builder_new()
+    if b == 0 {
+        return text
+    }
+    str_builder_append(b, "\x1b[1m\x1b[33m")
+    str_builder_append(b, text)
+    str_builder_append(b, "\x1b[0m")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}

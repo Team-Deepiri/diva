@@ -1,0 +1,128 @@
+import "std/host.diva"
+import "std/vec.diva"
+import "std/str.diva"
+import "std/io.diva"
+
+func has_flag(flag: str): int {
+    var n = host_argc()
+    var i = 1
+    while i < n {
+        if str_eq(host_argv(i), flag) == 1 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func get_option(name: str): str {
+    var n = host_argc()
+    var i = 1
+    while i < n - 1 {
+        if str_eq(host_argv(i), name) == 1 {
+            return host_argv(i + 1)
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+func get_option_or(name: str, fallback: str): str {
+    var val = get_option(name)
+    if str_len(val) > 0 {
+        return val
+    }
+    return fallback
+}
+
+func positional_arg(index: int): str {
+    var n = host_argc()
+    var pos = 0
+    var i = 1
+    while i < n {
+        var a = host_argv(i)
+        if str_starts_with(a, "-") == 0 {
+            if pos == index {
+                return a
+            }
+            pos = pos + 1
+        } else {
+            if str_eq(a, "--") == 1 {
+                i = i + 1
+                while i < n {
+                    if pos == index {
+                        return host_argv(i)
+                    }
+                    pos = pos + 1
+                    i = i + 1
+                }
+                return ""
+            }
+            var peek = i + 1
+            if peek < n {
+                if str_starts_with(host_argv(peek), "-") == 0 {
+                    i = i + 1
+                }
+            }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+func positional_count(): int {
+    var n = host_argc()
+    var pos = 0
+    var i = 1
+    while i < n {
+        var a = host_argv(i)
+        if str_starts_with(a, "-") == 0 {
+            pos = pos + 1
+        } else {
+            if str_eq(a, "--") == 1 {
+                i = i + 1
+                while i < n {
+                    pos = pos + 1
+                    i = i + 1
+                }
+                return pos
+            }
+            var peek = i + 1
+            if peek < n {
+                if str_starts_with(host_argv(peek), "-") == 0 {
+                    i = i + 1
+                }
+            }
+        }
+        i = i + 1
+    }
+    return pos
+}
+
+func require_flag(flag: str, message: str): int {
+    if has_flag(flag) == 0 {
+        stderr(message)
+        stderr("\n")
+        exit(1)
+    }
+    return 1
+}
+
+func require_option(name: str, message: str): str {
+    var val = get_option(name)
+    if str_len(val) == 0 {
+        stderr(message)
+        stderr("\n")
+        exit(1)
+    }
+    return val
+}
+
+func print_usage(program: str, usage: str): int {
+    stderr("Usage: ")
+    stderr(program)
+    stderr(" ")
+    stderr(usage)
+    stderr("\n")
+    return 0
+}

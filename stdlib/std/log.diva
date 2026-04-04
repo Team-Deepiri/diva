@@ -1,0 +1,91 @@
+import "std/host.diva"
+import "std/io.diva"
+import "std/vec.diva"
+
+var log_level = 0
+
+func log_set_level(level: int): int {
+    log_level = level
+    return 0
+}
+
+func log_level_trace(): int { return 0 }
+func log_level_debug(): int { return 1 }
+func log_level_info(): int  { return 2 }
+func log_level_warn(): int  { return 3 }
+func log_level_error(): int { return 4 }
+func log_level_fatal(): int { return 5 }
+
+func log_msg(level: int, tag: str, msg: str): int {
+    if level < log_level {
+        return 0
+    }
+    var b = str_builder_new()
+    if b == 0 {
+        return 0 - 1
+    }
+    str_builder_append(b, "[")
+    str_builder_append(b, tag)
+    str_builder_append(b, "] ")
+    str_builder_append(b, msg)
+    str_builder_append(b, "\n")
+    var line = str_builder_to_str(b)
+    str_builder_free(b)
+    if level >= 3 {
+        return stderr(line)
+    }
+    return stdout(line)
+}
+
+func log_trace(msg: str): int {
+    return log_msg(0, "TRACE", msg)
+}
+
+func log_debug(msg: str): int {
+    return log_msg(1, "DEBUG", msg)
+}
+
+func log_info(msg: str): int {
+    return log_msg(2, "INFO ", msg)
+}
+
+func log_warn(msg: str): int {
+    return log_msg(3, "WARN ", msg)
+}
+
+func log_error(msg: str): int {
+    return log_msg(4, "ERROR", msg)
+}
+
+func log_fatal(msg: str): int {
+    log_msg(5, "FATAL", msg)
+    exit(1)
+    return 0
+}
+
+func log_kv(level: int, tag: str, key: str, val: str): int {
+    if level < log_level {
+        return 0
+    }
+    var b = str_builder_new()
+    if b == 0 {
+        return 0 - 1
+    }
+    str_builder_append(b, "[")
+    str_builder_append(b, tag)
+    str_builder_append(b, "] ")
+    str_builder_append(b, key)
+    str_builder_append(b, "=")
+    str_builder_append(b, val)
+    str_builder_append(b, "\n")
+    var line = str_builder_to_str(b)
+    str_builder_free(b)
+    if level >= 3 {
+        return stderr(line)
+    }
+    return stdout(line)
+}
+
+func log_int(level: int, tag: str, key: str, val: int): int {
+    return log_kv(level, tag, key, int_to_str(val))
+}

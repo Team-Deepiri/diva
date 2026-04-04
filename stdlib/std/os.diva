@@ -1,0 +1,52 @@
+import "std/host.diva"
+import "std/io.diva"
+import "std/vec.diva"
+
+func env(name: str): str {
+    return host_getenv(name)
+}
+
+func env_or(name: str, fallback: str): str {
+    var val = host_getenv(name)
+    if str_len(val) > 0 {
+        return val
+    }
+    return fallback
+}
+
+func run(cmd: str): int {
+    return host_system(cmd)
+}
+
+func arg(index: int): str {
+    if index < 0 {
+        return ""
+    }
+    if index >= host_argc() {
+        return ""
+    }
+    return host_argv(index)
+}
+
+func arg_count(): int {
+    return host_argc()
+}
+
+func file_read(path: str): str {
+    return read_file(path)
+}
+
+func file_exists(path: str): int {
+    var sz = file_size(path)
+    if sz >= 0 {
+        return 1
+    }
+    return 0
+}
+
+func die(message: str): int {
+    stderr(message)
+    stderr("\n")
+    exit(1)
+    return 1
+}

@@ -1,0 +1,185 @@
+import "std/host.diva"
+import "std/vec.diva"
+
+func json_str(key: str, value: str): str {
+    var b = str_builder_new()
+    if b == 0 { return "" }
+    str_builder_append(b, "\"")
+    str_builder_append(b, key)
+    str_builder_append(b, "\": \"")
+    str_builder_append(b, value)
+    str_builder_append(b, "\"")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func json_int(key: str, value: int): str {
+    var b = str_builder_new()
+    if b == 0 { return "" }
+    str_builder_append(b, "\"")
+    str_builder_append(b, key)
+    str_builder_append(b, "\": ")
+    str_builder_append(b, int_to_str(value))
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func json_bool(key: str, value: int): str {
+    var b = str_builder_new()
+    if b == 0 { return "" }
+    str_builder_append(b, "\"")
+    str_builder_append(b, key)
+    str_builder_append(b, "\": ")
+    if value != 0 {
+        str_builder_append(b, "true")
+    } else {
+        str_builder_append(b, "false")
+    }
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func json_null(key: str): str {
+    var b = str_builder_new()
+    if b == 0 { return "" }
+    str_builder_append(b, "\"")
+    str_builder_append(b, key)
+    str_builder_append(b, "\": null")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func json_obj_start(): str {
+    return "{"
+}
+
+func json_obj_end(): str {
+    return "}"
+}
+
+func json_arr_start(): str {
+    return "["
+}
+
+func json_arr_end(): str {
+    return "]"
+}
+
+func json_builder_new(): int {
+    var b = str_builder_new()
+    str_builder_append(b, "{")
+    return b
+}
+
+func json_builder_add_str(handle: int, key: str, value: str, first: int): int {
+    if first == 0 {
+        str_builder_append(handle, ", ")
+    }
+    str_builder_append(handle, "\"")
+    str_builder_append(handle, key)
+    str_builder_append(handle, "\": \"")
+    str_builder_append(handle, value)
+    str_builder_append(handle, "\"")
+    return 0
+}
+
+func json_builder_add_int(handle: int, key: str, value: int, first: int): int {
+    if first == 0 {
+        str_builder_append(handle, ", ")
+    }
+    str_builder_append(handle, "\"")
+    str_builder_append(handle, key)
+    str_builder_append(handle, "\": ")
+    str_builder_append(handle, int_to_str(value))
+    return 0
+}
+
+func json_builder_add_bool(handle: int, key: str, value: int, first: int): int {
+    if first == 0 {
+        str_builder_append(handle, ", ")
+    }
+    str_builder_append(handle, "\"")
+    str_builder_append(handle, key)
+    str_builder_append(handle, "\": ")
+    if value != 0 {
+        str_builder_append(handle, "true")
+    } else {
+        str_builder_append(handle, "false")
+    }
+    return 0
+}
+
+func json_builder_add_null(handle: int, key: str, first: int): int {
+    if first == 0 {
+        str_builder_append(handle, ", ")
+    }
+    str_builder_append(handle, "\"")
+    str_builder_append(handle, key)
+    str_builder_append(handle, "\": null")
+    return 0
+}
+
+func json_builder_finish(handle: int): str {
+    str_builder_append(handle, "}")
+    var result = str_builder_to_str(handle)
+    str_builder_free(handle)
+    return result
+}
+
+func json_escape(s: str): str {
+    var n = str_len(s)
+    var b = str_builder_new()
+    if b == 0 { return s }
+    var i = 0
+    while i < n {
+        var c = str_byte(s, i)
+        if c == 34 {
+            str_builder_append(b, "\\\"")
+        } else {
+            if c == 92 {
+                str_builder_append(b, "\\\\")
+            } else {
+                if c == 10 {
+                    str_builder_append(b, "\\n")
+                } else {
+                    if c == 13 {
+                        str_builder_append(b, "\\r")
+                    } else {
+                        if c == 9 {
+                            str_builder_append(b, "\\t")
+                        } else {
+                            str_builder_append(b, str_slice(s, i, 1))
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func json_int_array(handle: int): str {
+    var n = int_vec_len(handle)
+    var b = str_builder_new()
+    if b == 0 { return "[]" }
+    str_builder_append(b, "[")
+    var i = 0
+    while i < n {
+        if i > 0 {
+            str_builder_append(b, ", ")
+        }
+        str_builder_append(b, int_to_str(int_vec_get(handle, i)))
+        i = i + 1
+    }
+    str_builder_append(b, "]")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}

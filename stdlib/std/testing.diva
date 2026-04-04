@@ -1,0 +1,249 @@
+import "std/host.diva"
+import "std/io.diva"
+import "std/vec.diva"
+
+var test_pass_count = 0
+var test_fail_count = 0
+var test_total_count = 0
+
+func test_begin(name: str): int {
+    stdout("  test ")
+    stdout(name)
+    stdout(" ... ")
+    test_total_count = test_total_count + 1
+    return 0
+}
+
+func test_ok(): int {
+    stdout("ok\n")
+    test_pass_count = test_pass_count + 1
+    return 0
+}
+
+func test_fail(reason: str): int {
+    stdout("FAIL: ")
+    stdout(reason)
+    stdout("\n")
+    test_fail_count = test_fail_count + 1
+    return 0
+}
+
+func test_summary(): int {
+    stdout("\n")
+    stdout(int_to_str(test_total_count))
+    stdout(" tests, ")
+    stdout(int_to_str(test_pass_count))
+    stdout(" passed, ")
+    stdout(int_to_str(test_fail_count))
+    stdout(" failed\n")
+    if test_fail_count > 0 {
+        return 1
+    }
+    return 0
+}
+
+func assert_true(cond: int, msg: str): int {
+    if cond == 0 {
+        stderr("assertion failed: ")
+        stderr(msg)
+        stderr("\n")
+        abort()
+    }
+    return 0
+}
+
+func assert_false(cond: int, msg: str): int {
+    if cond != 0 {
+        stderr("assertion failed (expected false): ")
+        stderr(msg)
+        stderr("\n")
+        abort()
+    }
+    return 0
+}
+
+func assert_eq_int(left: int, right: int, msg: str): int {
+    if left != right {
+        stderr("assertion failed: ")
+        stderr(msg)
+        stderr(" (got ")
+        stderr(int_to_str(left))
+        stderr(", expected ")
+        stderr(int_to_str(right))
+        stderr(")\n")
+        abort()
+    }
+    return 0
+}
+
+func assert_ne_int(left: int, right: int, msg: str): int {
+    if left == right {
+        stderr("assertion failed (expected not equal): ")
+        stderr(msg)
+        stderr(" (both ")
+        stderr(int_to_str(left))
+        stderr(")\n")
+        abort()
+    }
+    return 0
+}
+
+func assert_eq_str(left: str, right: str, msg: str): int {
+    if str_eq(left, right) == 0 {
+        stderr("assertion failed: ")
+        stderr(msg)
+        stderr(" (got \"")
+        stderr(left)
+        stderr("\", expected \"")
+        stderr(right)
+        stderr("\")\n")
+        abort()
+    }
+    return 0
+}
+
+func assert_ne_str(left: str, right: str, msg: str): int {
+    if str_eq(left, right) == 1 {
+        stderr("assertion failed (expected not equal): ")
+        stderr(msg)
+        stderr(" (both \"")
+        stderr(left)
+        stderr("\")\n")
+        abort()
+    }
+    return 0
+}
+
+func assert_gt(left: int, right: int, msg: str): int {
+    if left <= right {
+        stderr("assertion failed: ")
+        stderr(msg)
+        stderr(" (")
+        stderr(int_to_str(left))
+        stderr(" not > ")
+        stderr(int_to_str(right))
+        stderr(")\n")
+        abort()
+    }
+    return 0
+}
+
+func assert_lt(left: int, right: int, msg: str): int {
+    if left >= right {
+        stderr("assertion failed: ")
+        stderr(msg)
+        stderr(" (")
+        stderr(int_to_str(left))
+        stderr(" not < ")
+        stderr(int_to_str(right))
+        stderr(")\n")
+        abort()
+    }
+    return 0
+}
+
+func assert_ge(left: int, right: int, msg: str): int {
+    if left < right {
+        stderr("assertion failed: ")
+        stderr(msg)
+        stderr(" (")
+        stderr(int_to_str(left))
+        stderr(" not >= ")
+        stderr(int_to_str(right))
+        stderr(")\n")
+        abort()
+    }
+    return 0
+}
+
+func assert_le(left: int, right: int, msg: str): int {
+    if left > right {
+        stderr("assertion failed: ")
+        stderr(msg)
+        stderr(" (")
+        stderr(int_to_str(left))
+        stderr(" not <= ")
+        stderr(int_to_str(right))
+        stderr(")\n")
+        abort()
+    }
+    return 0
+}
+
+func assert_in_range(val: int, lo: int, hi: int, msg: str): int {
+    if val < lo {
+        stderr("assertion failed: ")
+        stderr(msg)
+        stderr(" (")
+        stderr(int_to_str(val))
+        stderr(" < ")
+        stderr(int_to_str(lo))
+        stderr(")\n")
+        abort()
+    }
+    if val > hi {
+        stderr("assertion failed: ")
+        stderr(msg)
+        stderr(" (")
+        stderr(int_to_str(val))
+        stderr(" > ")
+        stderr(int_to_str(hi))
+        stderr(")\n")
+        abort()
+    }
+    return 0
+}
+
+func assert_str_contains(haystack: str, needle: str, msg: str): int {
+    var hlen = str_len(haystack)
+    var nlen = str_len(needle)
+    if nlen == 0 {
+        return 0
+    }
+    if hlen < nlen {
+        stderr("assertion failed: ")
+        stderr(msg)
+        stderr(" (string does not contain \"")
+        stderr(needle)
+        stderr("\")\n")
+        abort()
+    }
+    var i = 0
+    while i <= hlen - nlen {
+        var match = 1
+        var j = 0
+        while j < nlen {
+            if str_byte(haystack, i + j) != str_byte(needle, j) {
+                match = 0
+                j = nlen
+            }
+            j = j + 1
+        }
+        if match == 1 {
+            return 0
+        }
+        i = i + 1
+    }
+    stderr("assertion failed: ")
+    stderr(msg)
+    stderr(" (string does not contain \"")
+    stderr(needle)
+    stderr("\")\n")
+    abort()
+    return 1
+}
+
+func assert_vec_len(handle: int, expected: int, msg: str): int {
+    var actual = int_vec_len(handle)
+    if actual != expected {
+        stderr("assertion failed: ")
+        stderr(msg)
+        stderr(" (vec length ")
+        stderr(int_to_str(actual))
+        stderr(", expected ")
+        stderr(int_to_str(expected))
+        stderr(")\n")
+        abort()
+    }
+    return 0
+}

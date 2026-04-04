@@ -1,0 +1,186 @@
+import "std/host.diva"
+import "std/vec.diva"
+import "std/hash.diva"
+
+// Open-addressed int→int hash table built on top of int_vec.
+// Layout: 3 parallel vectors of equal capacity — keys, values, flags.
+// Flag values: 0 = empty, 1 = occupied, 2 = tombstone.
+
+func table_new(capacity: int): int {
+    var meta = int_vec_new()
+    int_vec_push(meta, capacity)
+    var keys = int_vec_new()
+    var vals = int_vec_new()
+    var flags = int_vec_new()
+    var i = 0
+    while i < capacity {
+        int_vec_push(keys, 0)
+        int_vec_push(vals, 0)
+        int_vec_push(flags, 0)
+        i = i + 1
+    }
+    int_vec_push(meta, keys)
+    int_vec_push(meta, vals)
+    int_vec_push(meta, flags)
+    int_vec_push(meta, 0)
+    return meta
+}
+
+func table_capacity(meta: int): int {
+    return int_vec_get(meta, 0)
+}
+
+func table_size(meta: int): int {
+    return int_vec_get(meta, 4)
+}
+
+func table_probe(meta: int, key: int): int {
+    var cap = int_vec_get(meta, 0)
+    var keys = int_vec_get(meta, 1)
+    var flags = int_vec_get(meta, 3)
+    var h = hash_int(key)
+    if h < 0 { h = 0 - h }
+    var idx = h - (h / cap) * cap
+    var start = idx
+    var first_tomb = 0 - 1
+    var checked = 0
+    while checked < cap {
+        var f = int_vec_get(flags, idx)
+        if f == 0 {
+            if first_tomb >= 0 {
+                return first_tomb
+            }
+            return idx
+        }
+        if f == 2 {
+            if first_tomb < 0 {
+                first_tomb = idx
+            }
+        }
+        if f == 1 {
+            if int_vec_get(keys, idx) == key {
+                return idx
+            }
+        }
+        idx = idx + 1
+        if idx >= cap {
+            idx = 0
+        }
+        checked = checked + 1
+    }
+    if first_tomb >= 0 {
+        return first_tomb
+    }
+    return 0 - 1
+}
+
+func table_set(meta: int, key: int, value: int): int {
+    var idx = table_probe(meta, key)
+    if idx < 0 {
+        return 0 - 1
+    }
+    var keys = int_vec_get(meta, 1)
+    var vals = int_vec_get(meta, 2)
+    var flags = int_vec_get(meta, 3)
+    var f = int_vec_get(flags, idx)
+    var new_keys = int_vec_new()
+    var new_vals = int_vec_new()
+    var new_flags = int_vec_new()
+    var cap = int_vec_get(meta, 0)
+    var i = 0
+    while i < cap {
+        if i == idx {
+            int_vec_push(new_keys, key)
+            int_vec_push(new_vals, value)
+            int_vec_push(new_flags, 1)
+        } else {
+            int_vec_push(new_keys, int_vec_get(keys, i))
+            int_vec_push(new_vals, int_vec_get(vals, i))
+            int_vec_push(new_flags, int_vec_get(flags, i))
+        }
+        i = i + 1
+    }
+    int_vec_free(keys)
+    int_vec_free(vals)
+    int_vec_free(flags)
+    var new_meta = int_vec_new()
+    int_vec_push(new_meta, cap)
+    int_vec_push(new_meta, new_keys)
+    int_vec_push(new_meta, new_vals)
+    int_vec_push(new_meta, new_flags)
+    var sz = int_vec_get(meta, 4)
+    if f != 1 {
+        sz = sz + 1
+    }
+    int_vec_push(new_meta, sz)
+    int_vec_free(meta)
+    return new_meta
+}
+
+func table_get(meta: int, key: int): int {
+    var idx = table_probe(meta, key)
+    if idx < 0 {
+        return 0 - 1
+    }
+    var flags = int_vec_get(meta, 3)
+    if int_vec_get(flags, idx) != 1 {
+        return 0 - 1
+    }
+    if int_vec_get(int_vec_get(meta, 1), idx) != key {
+        return 0 - 1
+    }
+    return int_vec_get(int_vec_get(meta, 2), idx)
+}
+
+func table_has(meta: int, key: int): int {
+    var idx = table_probe(meta, key)
+    if idx < 0 {
+        return 0
+    }
+    var flags = int_vec_get(meta, 3)
+    if int_vec_get(flags, idx) != 1 {
+        return 0
+    }
+    if int_vec_get(int_vec_get(meta, 1), idx) != key {
+        return 0
+    }
+    return 1
+}
+
+func table_keys(meta: int): int {
+    var cap = int_vec_get(meta, 0)
+    var keys = int_vec_get(meta, 1)
+    var flags = int_vec_get(meta, 3)
+    var result = int_vec_new()
+    var i = 0
+    while i < cap {
+        if int_vec_get(flags, i) == 1 {
+            int_vec_push(result, int_vec_get(keys, i))
+        }
+        i = i + 1
+    }
+    return result
+}
+
+func table_values(meta: int): int {
+    var cap = int_vec_get(meta, 0)
+    var vals = int_vec_get(meta, 2)
+    var flags = int_vec_get(meta, 3)
+    var result = int_vec_new()
+    var i = 0
+    while i < cap {
+        if int_vec_get(flags, i) == 1 {
+            int_vec_push(result, int_vec_get(vals, i))
+        }
+        i = i + 1
+    }
+    return result
+}
+
+func table_free(meta: int): int {
+    int_vec_free(int_vec_get(meta, 1))
+    int_vec_free(int_vec_get(meta, 2))
+    int_vec_free(int_vec_get(meta, 3))
+    int_vec_free(meta)
+    return 0
+}

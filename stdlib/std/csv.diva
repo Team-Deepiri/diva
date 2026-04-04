@@ -1,0 +1,184 @@
+import "std/host.diva"
+import "std/vec.diva"
+import "std/str.diva"
+
+func csv_escape_field(field: str): str {
+    var n = str_len(field)
+    var needs_quote = 0
+    var i = 0
+    while i < n {
+        var c = str_byte(field, i)
+        if c == 44 { needs_quote = 1 }
+        if c == 34 { needs_quote = 1 }
+        if c == 10 { needs_quote = 1 }
+        if c == 13 { needs_quote = 1 }
+        i = i + 1
+    }
+    if needs_quote == 0 {
+        return field
+    }
+    var b = str_builder_new()
+    if b == 0 { return field }
+    str_builder_append(b, "\"")
+    i = 0
+    while i < n {
+        var c = str_byte(field, i)
+        if c == 34 {
+            str_builder_append(b, "\"\"")
+        } else {
+            str_builder_append(b, str_slice(field, i, 1))
+        }
+        i = i + 1
+    }
+    str_builder_append(b, "\"")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func csv_row_builder_new(): int {
+    return str_builder_new()
+}
+
+func csv_row_add(handle: int, field: str, first: int): int {
+    if first == 0 {
+        str_builder_append(handle, ",")
+    }
+    str_builder_append(handle, csv_escape_field(field))
+    return 0
+}
+
+func csv_row_add_int(handle: int, value: int, first: int): int {
+    if first == 0 {
+        str_builder_append(handle, ",")
+    }
+    str_builder_append(handle, int_to_str(value))
+    return 0
+}
+
+func csv_row_finish(handle: int): str {
+    str_builder_append(handle, "\n")
+    var result = str_builder_to_str(handle)
+    str_builder_free(handle)
+    return result
+}
+
+func csv_builder_new(): int {
+    return str_builder_new()
+}
+
+func csv_builder_add_row(handle: int, row: str): int {
+    str_builder_append(handle, row)
+    return 0
+}
+
+func csv_builder_finish(handle: int): str {
+    var result = str_builder_to_str(handle)
+    str_builder_free(handle)
+    return result
+}
+
+func csv_count_fields(line: str): int {
+    var n = str_len(line)
+    if n == 0 {
+        return 0
+    }
+    var count = 1
+    var in_quote = 0
+    var i = 0
+    while i < n {
+        var c = str_byte(line, i)
+        if c == 34 {
+            if in_quote == 0 {
+                in_quote = 1
+            } else {
+                in_quote = 0
+            }
+        }
+        if c == 44 {
+            if in_quote == 0 {
+                count = count + 1
+            }
+        }
+        i = i + 1
+    }
+    return count
+}
+
+func csv_get_field(line: str, index: int): str {
+    var n = str_len(line)
+    var field_idx = 0
+    var start = 0
+    var in_quote = 0
+    var i = 0
+    while i < n {
+        var c = str_byte(line, i)
+        if c == 34 {
+            if in_quote == 0 {
+                in_quote = 1
+            } else {
+                in_quote = 0
+            }
+        }
+        if c == 44 {
+            if in_quote == 0 {
+                if field_idx == index {
+                    return str_slice(line, start, i - start)
+                }
+                field_idx = field_idx + 1
+                start = i + 1
+            }
+        }
+        i = i + 1
+    }
+    if field_idx == index {
+        return str_slice(line, start, n - start)
+    }
+    return ""
+}
+
+func csv_count_lines(data: str): int {
+    var n = str_len(data)
+    if n == 0 {
+        return 0
+    }
+    var count = 1
+    var i = 0
+    while i < n {
+        if str_byte(data, i) == 10 {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    if str_byte(data, n - 1) == 10 {
+        count = count - 1
+    }
+    return count
+}
+
+func csv_get_line(data: str, line_index: int): str {
+    var n = str_len(data)
+    var cur = 0
+    var start = 0
+    var i = 0
+    while i < n {
+        if str_byte(data, i) == 10 {
+            if cur == line_index {
+                var len = i - start
+                if len > 0 {
+                    if str_byte(data, i - 1) == 13 {
+                        len = len - 1
+                    }
+                }
+                return str_slice(data, start, len)
+            }
+            cur = cur + 1
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if cur == line_index {
+        return str_slice(data, start, n - start)
+    }
+    return ""
+}
