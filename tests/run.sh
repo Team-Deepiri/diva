@@ -84,21 +84,17 @@ assert_ir_contains() {
     file_path=$1
     needle=$2
     output_file="${TEST_ROOT}/command.out"
-    ir_path=
 
     if ! diva emit-ir "${file_path}" >"${output_file}" 2>&1; then
         sed -n '1,120p' "${output_file}" >&2
         fail "command failed: diva emit-ir ${file_path}"
     fi
 
-    ir_path=$(sed -n 's/^\[di\] wrote LLVM IR to //p' "${output_file}" | tail -n 1)
-    if [ -z "${ir_path}" ] || ! [ -f "${ir_path}" ]; then
-        fail "expected LLVM IR output at ${ir_path}"
-    fi
-
-    if ! grep -F "${needle}" "${ir_path}" >/dev/null; then
-        printf '[test:error] expected to find "%s" in IR for %s\n' "${needle}" "${file_path}" >&2
-        sed -n '1,160p' "${ir_path}" >&2
+    actual=$(strip_di_logs "${output_file}")
+    printf '%s\n' "${actual}" >"${output_file}.stripped"
+    if ! grep -F "${needle}" "${output_file}.stripped" >/dev/null; then
+        printf '[test:error] expected to find "%s" in Diva IR output for %s\n' "${needle}" "${file_path}" >&2
+        sed -n '1,160p' "${output_file}.stripped" >&2
         exit 1
     fi
 }
@@ -183,10 +179,10 @@ assert_contains "${ROOT_DIR}/examples/hello.diva" "Program"
 assert_contains "${ROOT_DIR}/examples/hello.diva" "Var(x: int)"
 assert_contains "${ROOT_DIR}/examples/hello.diva" "Ident(print_int)"
 
-log "checking LLVM IR smoke output"
-assert_ir_contains "${ROOT_DIR}/examples/loop.diva" "br label %whilecond"
-assert_ir_contains "${ROOT_DIR}/examples/arrays.diva" "getelementptr inbounds [4 x i32]"
-assert_ir_contains "${ROOT_DIR}/examples/array_mutation.diva" "store i32"
+log "checking Diva IR smoke output (emit-ir)"
+assert_ir_contains "${ROOT_DIR}/examples/loop.diva" "br.cond"
+assert_ir_contains "${ROOT_DIR}/examples/arrays.diva" "store"
+assert_ir_contains "${ROOT_DIR}/examples/array_mutation.diva" "store"
 
 log "checking semantic failure cases"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva" "duplicate declaration of 'x' in the same scope"

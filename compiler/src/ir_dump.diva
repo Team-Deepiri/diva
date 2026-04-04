@@ -1,11 +1,10 @@
 // Diva IR text dump — human-readable representation for debugging.
-// Uses print_str (which adds newline) and str_builder for line composition.
-// Note: Diva strings do not process \n escapes, so we use print_str per line.
 
 import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
 import "ir.diva"
+import "tokens.diva"
 
 func dump_vreg_str(r: int): str {
     var b = str_builder_new()
@@ -16,7 +15,7 @@ func dump_vreg_str(r: int): str {
     return s
 }
 
-func dump_inst(inst: int): int {
+func dump_inst(inst: int, src: str, toks: int): int {
     var op = inst_op(inst)
     var b = str_builder_new()
     str_builder_append(b, "    ")
@@ -71,8 +70,8 @@ func dump_inst(inst: int): int {
     }
 
     if op == ir_call() {
-        str_builder_append(b, " @fn")
-        str_builder_append(b, int_to_str(inst_a(inst)))
+        str_builder_append(b, " ")
+        str_builder_append(b, tok_text(src, toks, inst_a(inst)))
         str_builder_append(b, " argc=")
         str_builder_append(b, int_to_str(inst_b(inst)))
     }
@@ -107,7 +106,7 @@ func dump_inst(inst: int): int {
     return 0
 }
 
-func dump_block(blk: int): int {
+func dump_block(blk: int, src: str, toks: int): int {
     var b = str_builder_new()
     str_builder_append(b, "  bb")
     str_builder_append(b, int_to_str(block_label(blk)))
@@ -118,16 +117,16 @@ func dump_block(blk: int): int {
     var n = int_vec_len(insts)
     var i = 0
     while i < n {
-        dump_inst(int_vec_get(insts, i))
+        dump_inst(int_vec_get(insts, i), src, toks)
         i = i + 1
     }
     return 0
 }
 
-func dump_func(f: int): int {
+func dump_func(f: int, src: str, toks: int): int {
     var b = str_builder_new()
-    str_builder_append(b, "func @fn")
-    str_builder_append(b, int_to_str(func_name_idx(f)))
+    str_builder_append(b, "func ")
+    str_builder_append(b, tok_text(src, toks, func_name_tok(f)))
     str_builder_append(b, "(")
     var pc = func_param_count(f)
     var i = 0
@@ -149,7 +148,7 @@ func dump_func(f: int): int {
     var bc = func_block_count(f)
     i = 0
     while i < bc {
-        dump_block(func_get_block(f, i))
+        dump_block(func_get_block(f, i), src, toks)
         i = i + 1
     }
     print_str("}")
@@ -157,7 +156,7 @@ func dump_func(f: int): int {
     return 0
 }
 
-func dump_module(m: int): int {
+func dump_module(m: int, src: str, toks: int): int {
     print_str("; Diva IR dump")
     print_str("")
 
@@ -166,8 +165,8 @@ func dump_module(m: int): int {
         var i = 0
         while i < ec {
             var b = str_builder_new()
-            str_builder_append(b, "extern @fn")
-            str_builder_append(b, int_to_str(int_vec_get(mod_externs(m), i)))
+            str_builder_append(b, "extern ")
+            str_builder_append(b, tok_text(src, toks, int_vec_get(mod_externs(m), i)))
             print_str(str_builder_to_str(b))
             str_builder_free(b)
             i = i + 1
@@ -178,7 +177,7 @@ func dump_module(m: int): int {
     var fc = mod_func_count(m)
     var i = 0
     while i < fc {
-        dump_func(mod_get_func(m, i))
+        dump_func(mod_get_func(m, i), src, toks)
         i = i + 1
     }
     return 0

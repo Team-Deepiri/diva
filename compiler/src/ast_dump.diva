@@ -1,0 +1,218 @@
+// AST text dump — matches seed `diva build --ast` shape for tests (hello.diva).
+
+import "std/host.diva"
+import "std/conv.diva"
+import "std/io.diva"
+import "std/vec.diva"
+import "ast.diva"
+import "tokens.diva"
+
+func dump_pad(depth: int): int {
+    var i = 0
+    while i < depth {
+        print_str("  ")
+        i = i + 1
+    }
+    return 0
+}
+
+func dump_line(depth: int, s: str): int {
+    dump_pad(depth)
+    print_str(s)
+    print_str(char_to_str(10))
+    return 0
+}
+
+func type_str(node: int, src: str, toks: int): str {
+    if node < 0 {
+        return "?"
+    }
+    var k = ast_kind(node)
+    if k == nd_type_name() {
+        return tok_text(src, toks, ast_child(node, 0))
+    }
+    if k == nd_type_array() {
+        var b = str_builder_new()
+        str_builder_append(b, type_str(ast_child(node, 0), src, toks))
+        str_builder_append(b, "[]")
+        var s = str_builder_to_str(b)
+        str_builder_free(b)
+        return s
+    }
+    return "?"
+}
+
+func dump_expr(node: int, depth: int, src: str, toks: int): int {
+    if node < 0 {
+        return 0
+    }
+    var k = ast_kind(node)
+    if k == nd_ident() {
+        var b = str_builder_new()
+        str_builder_append(b, "Ident(")
+        str_builder_append(b, tok_text(src, toks, ast_child(node, 0)))
+        str_builder_append(b, ")")
+        dump_line(depth, str_builder_to_str(b))
+        str_builder_free(b)
+        return 0
+    }
+    if k == nd_int_lit() {
+        var b = str_builder_new()
+        str_builder_append(b, "Int(")
+        str_builder_append(b, int_to_str(ast_child(node, 0)))
+        str_builder_append(b, ")")
+        dump_line(depth, str_builder_to_str(b))
+        str_builder_free(b)
+        return 0
+    }
+    if k == nd_bool_lit() {
+        var b = str_builder_new()
+        str_builder_append(b, "Bool(")
+        if ast_child(node, 0) != 0 {
+            str_builder_append(b, "true")
+        } else {
+            str_builder_append(b, "false")
+        }
+        str_builder_append(b, ")")
+        dump_line(depth, str_builder_to_str(b))
+        str_builder_free(b)
+        return 0
+    }
+    if k == nd_call() {
+        dump_line(depth, "Call")
+        dump_expr(ast_child(node, 0), depth + 1, src, toks)
+        var args = ast_child(node, 1)
+        var na = int_vec_len(args)
+        var i = 0
+        while i < na {
+            dump_expr(int_vec_get(args, i), depth + 1, src, toks)
+            i = i + 1
+        }
+        return 0
+    }
+    dump_line(depth, "Expr")
+    return 0
+}
+
+func dump_stmt(node: int, depth: int, src: str, toks: int): int {
+    if node < 0 {
+        return 0
+    }
+    var k = ast_kind(node)
+    if k == nd_var_decl() {
+        var name = tok_text(src, toks, ast_child(node, 0))
+        var ty = type_str(ast_child(node, 1), src, toks)
+        var b = str_builder_new()
+        str_builder_append(b, "Var(")
+        str_builder_append(b, name)
+        str_builder_append(b, ": ")
+        str_builder_append(b, ty)
+        str_builder_append(b, ")")
+        dump_line(depth, str_builder_to_str(b))
+        str_builder_free(b)
+        var init = ast_child(node, 2)
+        if init >= 0 {
+            dump_expr(init, depth + 1, src, toks)
+        }
+        return 0
+    }
+    if k == nd_expr_stmt() {
+        dump_line(depth, "ExprStmt")
+        dump_expr(ast_child(node, 0), depth + 1, src, toks)
+        return 0
+    }
+    if k == nd_return() {
+        dump_line(depth, "Return")
+        var e = ast_child(node, 0)
+        if e >= 0 {
+            dump_expr(e, depth + 1, src, toks)
+        }
+        return 0
+    }
+    if k == nd_block() {
+        var stmts = ast_child(node, 0)
+        var n = int_vec_len(stmts)
+        var i = 0
+        while i < n {
+            dump_stmt(int_vec_get(stmts, i), depth, src, toks)
+            i = i + 1
+        }
+        return 0
+    }
+    dump_line(depth, "Stmt")
+    return 0
+}
+
+func dump_extern(node: int, depth: int, src: str, toks: int): int {
+    var name = tok_text(src, toks, ast_child(node, 0))
+    var ret = type_str(ast_child(node, 2), src, toks)
+    var b = str_builder_new()
+    str_builder_append(b, "extern_function ")
+    str_builder_append(b, name)
+    str_builder_append(b, " -> ")
+    str_builder_append(b, ret)
+    dump_line(depth, str_builder_to_str(b))
+    str_builder_free(b)
+
+    var params = ast_child(node, 1)
+    var np = int_vec_len(params)
+    var i = 0
+    while i < np {
+        var p = int_vec_get(params, i)
+        var pn = tok_text(src, toks, ast_child(p, 0))
+        var pt = type_str(ast_child(p, 1), src, toks)
+        var pb = str_builder_new()
+        str_builder_append(pb, "Param(")
+        str_builder_append(pb, pn)
+        str_builder_append(pb, ": ")
+        str_builder_append(pb, pt)
+        str_builder_append(pb, ")")
+        dump_line(depth + 1, str_builder_to_str(pb))
+        str_builder_free(pb)
+        i = i + 1
+    }
+    return 0
+}
+
+func dump_func(node: int, depth: int, src: str, toks: int): int {
+    var name = tok_text(src, toks, ast_child(node, 0))
+    var ret = type_str(ast_child(node, 2), src, toks)
+    var b = str_builder_new()
+    str_builder_append(b, "function ")
+    str_builder_append(b, name)
+    str_builder_append(b, " -> ")
+    str_builder_append(b, ret)
+    dump_line(depth, str_builder_to_str(b))
+    str_builder_free(b)
+    dump_stmt(ast_child(node, 3), depth + 1, src, toks)
+    return 0
+}
+
+func dump_top(node: int, depth: int, src: str, toks: int): int {
+    var k = ast_kind(node)
+    if k == nd_extern_func() {
+        return dump_extern(node, depth, src, toks)
+    }
+    if k == nd_func() {
+        return dump_func(node, depth, src, toks)
+    }
+    return 0
+}
+
+func ast_dump_program(path: str, src: str, toks: int, file_node: int): int {
+    var b = str_builder_new()
+    str_builder_append(b, "Program source=")
+    str_builder_append(b, path)
+    print_str(str_builder_to_str(b))
+    str_builder_free(b)
+    print_str(char_to_str(10))
+
+    var ch = ast_child(file_node, 0)
+    var n = int_vec_len(ch)
+    var i = 0
+    while i < n {
+        dump_top(int_vec_get(ch, i), 1, src, toks)
+        i = i + 1
+    }
+    return 0
+}

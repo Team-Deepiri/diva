@@ -410,8 +410,6 @@ func lower_func(ctx: int, src: str, node: int): int {
     var ret_type = ast_child(node, 2)
     var body     = ast_child(node, 3)
 
-    var fname = ib_tok_text(ctx, src, name_tok)
-    var name_idx = ib_strtab_add(ctx, fname)
     var pcount = int_vec_len(params_h)
 
     var ret_ty = ir_ty_int()
@@ -424,7 +422,7 @@ func lower_func(ctx: int, src: str, node: int): int {
         }
     }
 
-    var f = ir_func_new(name_idx, pcount, ret_ty)
+    var f = ir_func_new(name_tok, pcount, ret_ty)
     bctx_set_func(ctx, f)
     bctx_set_vreg(ctx, 0)
     bctx_set_label(ctx, 0)
@@ -453,9 +451,7 @@ func lower_func(ctx: int, src: str, node: int): int {
 
 func lower_extern(ctx: int, src: str, node: int): int {
     var name_tok = ast_child(node, 0)
-    var fname = ib_tok_text(ctx, src, name_tok)
-    var name_idx = ib_strtab_add(ctx, fname)
-    mod_add_extern(bctx_mod(ctx), name_idx)
+    mod_add_extern(bctx_mod(ctx), name_tok)
     return 0
 }
 

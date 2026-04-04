@@ -1,7 +1,6 @@
-// x86_64 assembly codegen from Diva IR.
-// Emits AT&T syntax for GNU assembler (gas).
-// Uses a "line printer" (lp) pattern: build each line with str_builder,
-// flush with print_str (which adds a real newline).
+// x86_64 assembly codegen from Diva IR (AT&T / gas).
+// Labels: user main() -> di_user_main; other user funcs -> _diva_<name>;
+// extern calls -> di_runtime_<name> (matches runtime .o symbols).
 
 import "std/host.diva"
 import "std/io.diva"
@@ -9,8 +8,6 @@ import "std/vec.diva"
 import "ir.diva"
 import "tokens.diva"
 import "cell.diva"
-
-// --- Line printer: cell wrapping a str_builder, flushed per line ---
 
 func lp_new(): int { return mut_new(str_builder_new()) }
 
@@ -24,15 +21,23 @@ func lp_add_int(lp: int, n: int): int {
     return 0
 }
 
-func lp_flush(lp: int): int {
+// Append completed line to sb followed by nl (real newline str).
+func lp_flush_sb(lp: int, sb: int, nl: str): int {
+    var cur = mut_get(lp)
+    str_builder_append(sb, str_builder_to_str(cur))
+    str_builder_append(sb, nl)
+    str_builder_free(cur)
+    mut_set(lp, str_builder_new())
+    return 0
+}
+
+func lp_flush_print(lp: int): int {
     var old = mut_get(lp)
     print_str(str_builder_to_str(old))
     str_builder_free(old)
     mut_set(lp, str_builder_new())
     return 0
 }
-
-// --- Helpers ---
 
 func stack_offset(slot: int): str {
     var b = str_builder_new()
@@ -44,13 +49,51 @@ func stack_offset(slot: int): str {
     return r
 }
 
-func func_label(name_idx: int): str {
+func asm_user_label(src: str, toks: int, name_tok: int): str {
+    var nm = tok_text(src, toks, name_tok)
+    if str_eq(nm, "main") == 1 {
+        return "di_user_main"
+    }
     var b = str_builder_new()
-    str_builder_append(b, "_diva_fn")
-    str_builder_append(b, int_to_str(name_idx))
+    str_builder_append(b, "_diva_")
+    str_builder_append(b, nm)
     var r = str_builder_to_str(b)
     str_builder_free(b)
     return r
+}
+
+func asm_runtime_label(src: str, toks: int, name_tok: int): str {
+    var nm = tok_text(src, toks, name_tok)
+    var b = str_builder_new()
+    str_builder_append(b, "di_runtime_")
+    str_builder_append(b, nm)
+    var r = str_builder_to_str(b)
+    str_builder_free(b)
+    return r
+}
+
+func call_is_extern(m: int, src: str, toks: int, call_tok: int): int {
+    var cname = tok_text(src, toks, call_tok)
+    var fc = mod_func_count(m)
+    var i = 0
+    while i < fc {
+        var ftok = func_name_tok(mod_get_func(m, i))
+        if str_eq(tok_text(src, toks, ftok), cname) == 1 {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+func abi_reg_name(i: int): str {
+    if i == 0 { return "%rdi" }
+    if i == 1 { return "%rsi" }
+    if i == 2 { return "%rdx" }
+    if i == 3 { return "%rcx" }
+    if i == 4 { return "%r8" }
+    if i == 5 { return "%r9" }
+    return "%rdi"
 }
 
 func bb_label(func_idx: int, lbl: int): str {
@@ -64,207 +107,234 @@ func bb_label(func_idx: int, lbl: int): str {
     return r
 }
 
-// --- Instruction codegen ---
-
-func cg_inst(lp: int, inst: int, fi: int): int {
+func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, fi: int): int {
     var op = inst_op(inst)
     var res = inst_result(inst)
     var a = inst_a(inst)
     var bv = inst_b(inst)
 
     if op == ir_const() {
-        lp_add(lp, "    movq $") lp_add_int(lp, a) lp_add(lp, ", ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, "    movq $") lp_add_int(lp, a) lp_add(lp, ", ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_const_str() {
-        lp_add(lp, "    leaq .Lstr") lp_add_int(lp, a) lp_add(lp, "(%rip), %rax") lp_flush(lp)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, "    leaq .Lstr") lp_add_int(lp, a) lp_add(lp, "(%rip), %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_add() | op == ir_sub() | op == ir_mul() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
-        if op == ir_add() { lp_add(lp, "    addq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp) }
-        if op == ir_sub() { lp_add(lp, "    subq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp) }
-        if op == ir_mul() { lp_add(lp, "    imulq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp) }
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        if op == ir_add() { lp_add(lp, "    addq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl) }
+        if op == ir_sub() { lp_add(lp, "    subq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl) }
+        if op == ir_mul() { lp_add(lp, "    imulq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl) }
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_div() | op == ir_mod() {
-        lp_add(lp, "    movq $0, %rdx") lp_flush(lp)
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    cqto") lp_flush(lp)
-        lp_add(lp, "    idivq ") lp_add(lp, stack_offset(bv)) lp_flush(lp)
+        lp_add(lp, "    movq $0, %rdx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    cqto") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    idivq ") lp_add(lp, stack_offset(bv)) lp_flush_sb(lp, sb, nl)
         if op == ir_div() { lp_add(lp, "    movq %rax, ") } else { lp_add(lp, "    movq %rdx, ") }
-        lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_neg() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    negq %rax") lp_flush(lp)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    negq %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() | op == ir_gt() | op == ir_ge() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    cmpq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp)
-        if op == ir_eq() { lp_add(lp, "    sete %al") lp_flush(lp) }
-        if op == ir_ne() { lp_add(lp, "    setne %al") lp_flush(lp) }
-        if op == ir_lt() { lp_add(lp, "    setl %al") lp_flush(lp) }
-        if op == ir_le() { lp_add(lp, "    setle %al") lp_flush(lp) }
-        if op == ir_gt() { lp_add(lp, "    setg %al") lp_flush(lp) }
-        if op == ir_ge() { lp_add(lp, "    setge %al") lp_flush(lp) }
-        lp_add(lp, "    movzbq %al, %rax") lp_flush(lp)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    cmpq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        if op == ir_eq() { lp_add(lp, "    sete %al") lp_flush_sb(lp, sb, nl) }
+        if op == ir_ne() { lp_add(lp, "    setne %al") lp_flush_sb(lp, sb, nl) }
+        if op == ir_lt() { lp_add(lp, "    setl %al") lp_flush_sb(lp, sb, nl) }
+        if op == ir_le() { lp_add(lp, "    setle %al") lp_flush_sb(lp, sb, nl) }
+        if op == ir_gt() { lp_add(lp, "    setg %al") lp_flush_sb(lp, sb, nl) }
+        if op == ir_ge() { lp_add(lp, "    setge %al") lp_flush_sb(lp, sb, nl) }
+        lp_add(lp, "    movzbq %al, %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_and() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    andq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    andq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_or() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    orq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    orq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_not() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    testq %rax, %rax") lp_flush(lp)
-        lp_add(lp, "    sete %al") lp_flush(lp)
-        lp_add(lp, "    movzbq %al, %rax") lp_flush(lp)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    testq %rax, %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    sete %al") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movzbq %al, %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_load() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_store() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_alloca() {
-        lp_add(lp, "    movq $0, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        lp_add(lp, "    movq $0, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_param() {
-        if a == 0 { lp_add(lp, "    movq %rdi, ") lp_add(lp, stack_offset(res)) lp_flush(lp) }
-        if a == 1 { lp_add(lp, "    movq %rsi, ") lp_add(lp, stack_offset(res)) lp_flush(lp) }
-        if a == 2 { lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush(lp) }
-        if a == 3 { lp_add(lp, "    movq %rcx, ") lp_add(lp, stack_offset(res)) lp_flush(lp) }
-        if a == 4 { lp_add(lp, "    movq %r8, ")  lp_add(lp, stack_offset(res)) lp_flush(lp) }
-        if a == 5 { lp_add(lp, "    movq %r9, ")  lp_add(lp, stack_offset(res)) lp_flush(lp) }
+        if a == 0 { lp_add(lp, "    movq %rdi, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 1 { lp_add(lp, "    movq %rsi, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 2 { lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 3 { lp_add(lp, "    movq %rcx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 4 { lp_add(lp, "    movq %r8, ")  lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 5 { lp_add(lp, "    movq %r9, ")  lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
         return 0
     }
 
     if op == ir_call() {
-        lp_add(lp, "    call ") lp_add(lp, func_label(a)) lp_flush(lp)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
+        var argc = inst_b(inst)
+        var args = inst_extra(inst)
+        var ci = 0
+        while ci < argc {
+            var vr = int_vec_get(args, ci)
+            lp_add(lp, "    movq ")
+            lp_add(lp, stack_offset(vr))
+            lp_add(lp, ", ")
+            lp_add(lp, abi_reg_name(ci))
+            lp_flush_sb(lp, sb, nl)
+            ci = ci + 1
+        }
+        var ctok = inst_a(inst)
+        var lab = ""
+        if call_is_extern(m, src, toks, ctok) == 1 {
+            lab = asm_runtime_label(src, toks, ctok)
+        } else {
+            lab = asm_user_label(src, toks, ctok)
+        }
+        lp_add(lp, "    call ")
+        lp_add(lp, lab)
+        lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ")
+        lp_add(lp, stack_offset(res))
+        lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_ret() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    leave") lp_flush(lp)
-        lp_add(lp, "    ret") lp_flush(lp)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    leave") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    ret") lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_ret_void() {
-        lp_add(lp, "    leave") lp_flush(lp)
-        lp_add(lp, "    ret") lp_flush(lp)
+        lp_add(lp, "    leave") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    ret") lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_br() {
-        lp_add(lp, "    jmp ") lp_add(lp, bb_label(fi, a)) lp_flush(lp)
+        lp_add(lp, "    jmp ") lp_add(lp, bb_label(fi, a)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     if op == ir_br_cond() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(res)) lp_add(lp, ", %rax") lp_flush(lp)
-        lp_add(lp, "    testq %rax, %rax") lp_flush(lp)
-        lp_add(lp, "    jne ") lp_add(lp, bb_label(fi, a)) lp_flush(lp)
-        lp_add(lp, "    jmp ") lp_add(lp, bb_label(fi, bv)) lp_flush(lp)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(res)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    testq %rax, %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    jne ") lp_add(lp, bb_label(fi, a)) lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    jmp ") lp_add(lp, bb_label(fi, bv)) lp_flush_sb(lp, sb, nl)
         return 0
     }
 
     return 0
 }
 
-// --- Function codegen ---
+func cg_func(lp: int, sb: int, nl: str, m: int, src: str, toks: int, f: int, fi: int): int {
+    var flabel = asm_user_label(src, toks, func_name_tok(f))
+    lp_add(lp, "    .globl ") lp_add(lp, flabel) lp_flush_sb(lp, sb, nl)
+    lp_add(lp, flabel) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
 
-func cg_func(lp: int, f: int, fi: int): int {
-    var flabel = func_label(func_name_idx(f))
-    lp_add(lp, "    .globl ") lp_add(lp, flabel) lp_flush(lp)
-    lp_add(lp, flabel) lp_add(lp, ":") lp_flush(lp)
-
-    lp_add(lp, "    pushq %rbp") lp_flush(lp)
-    lp_add(lp, "    movq %rsp, %rbp") lp_flush(lp)
-    lp_add(lp, "    subq $2048, %rsp") lp_flush(lp)
+    lp_add(lp, "    pushq %rbp") lp_flush_sb(lp, sb, nl)
+    lp_add(lp, "    movq %rsp, %rbp") lp_flush_sb(lp, sb, nl)
+    lp_add(lp, "    subq $2048, %rsp") lp_flush_sb(lp, sb, nl)
 
     var bc = func_block_count(f)
     var bi = 0
     while bi < bc {
         var blk = func_get_block(f, bi)
         if bi > 0 {
-            lp_add(lp, bb_label(fi, block_label(blk))) lp_add(lp, ":") lp_flush(lp)
+            lp_add(lp, bb_label(fi, block_label(blk))) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
         }
         var insts = block_insts(blk)
         var ic = int_vec_len(insts)
         var ii = 0
         while ii < ic {
-            cg_inst(lp, int_vec_get(insts, ii), fi)
+            cg_inst(lp, sb, nl, m, src, toks, int_vec_get(insts, ii), fi)
             ii = ii + 1
         }
         bi = bi + 1
     }
-    lp_flush(lp)
+    lp_flush_sb(lp, sb, nl)
     return 0
 }
 
-// --- Module codegen (prints directly) ---
-
-func cg_module_print(m: int, src: str, toks: int, str_toks: int): int {
+// Full assembly text (caller frees builder if needed — str is a copy).
+func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str {
+    var sb = str_builder_new()
     var lp = lp_new()
 
-    lp_add(lp, "    .text") lp_flush(lp)
-    lp_flush(lp)
+    lp_add(lp, "    .text") lp_flush_sb(lp, sb, nl)
+    lp_flush_sb(lp, sb, nl)
 
     var fc = mod_func_count(m)
     var fi = 0
     while fi < fc {
-        cg_func(lp, mod_get_func(m, fi), fi)
+        cg_func(lp, sb, nl, m, src, toks, mod_get_func(m, fi), fi)
         fi = fi + 1
     }
 
     if int_vec_len(str_toks) > 0 {
-        lp_add(lp, "    .section .rodata") lp_flush(lp)
+        lp_add(lp, "    .section .rodata") lp_flush_sb(lp, sb, nl)
         var si = 0
         while si < int_vec_len(str_toks) {
-            lp_add(lp, ".Lstr") lp_add_int(lp, si) lp_add(lp, ":") lp_flush(lp)
+            lp_add(lp, ".Lstr") lp_add_int(lp, si) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
             var tok_idx = int_vec_get(str_toks, si)
             var s = tok_text(src, toks, tok_idx)
-            lp_add(lp, "    .asciz ") lp_add(lp, s) lp_flush(lp)
+            lp_add(lp, "    .asciz ") lp_add(lp, s) lp_flush_sb(lp, sb, nl)
             si = si + 1
         }
     }
 
+    var out = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return out
+}
+
+func cg_module_print(m: int, src: str, toks: int, str_toks: int, nl: str): int {
+    var s = cg_module_to_str(m, src, toks, str_toks, nl)
+    stdout(s)
     return 0
 }

@@ -1,16 +1,12 @@
 // Diva compiler driver.
-// Commands handled natively (in Diva):
-//   diva lex <file>            — tokenize and dump tokens
-//   diva parse <file>          — parse and report declarations
-//   diva ir <file>             — lower to Diva IR and dump
-//   diva asm <file>            — generate x86_64 assembly
-//   diva compiler-version      — print version info
-//   diva pipeline              — show compiler pipeline stages
-// All other commands forwarded to the bootstrap seed binary.
+// Native commands: lex, parse, ir, asm, emit-ir, build (--ast | compile+link), run,
+// compiler-version, pipeline. Package/kernel/multi-file paths forward to the seed.
 
 import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
+import "std/conv.diva"
+import "std/base64.diva"
 import "cell.diva"
 import "tokens.diva"
 import "lexer.diva"
@@ -20,6 +16,7 @@ import "ir.diva"
 import "ir_builder.diva"
 import "ir_dump.diva"
 import "codegen_x86.diva"
+import "ast_dump.diva"
 
 func bootstrap_path(): str {
     var p = host_getenv("DIVA_BOOTSTRAP")
@@ -60,14 +57,153 @@ func forward_to_seed(): int {
     return r / 256
 }
 
+func err_line(msg: str): int {
+    stderr(msg)
+    stderr(char_to_str(10))
+    return 0
+}
+
 func read_source(path: str): str {
     if file_size(path) < 0 {
         stderr("error: cannot read file: ")
         stderr(path)
-        stderr("\n")
+        stderr(char_to_str(10))
         return ""
     }
     return read_file(path)
+}
+
+func path_is_diva_file(p: str): int {
+    var n = str_len(p)
+    if n < 5 {
+        return 0
+    }
+    var suf = str_slice(p, n - 5, 5)
+    return str_eq(suf, ".diva")
+}
+
+func newline_str(): str {
+    return char_to_str(10)
+}
+
+func require_runtime_o(): int {
+    if str_len(host_getenv("DI_RUNTIME_O")) == 0 {
+        err_line("error: DI_RUNTIME_O is not set (runtime object path)")
+        return 0
+    }
+    return 1
+}
+
+// Chunked base64 + GNU as + cc. Diva string literals cannot contain '$', so the runtime
+// path is appended from host_getenv (no shell expansion). Uses fixed /tmp names.
+func native_link_asm_to_exe(asm: str, out_exe: str): int {
+    if require_runtime_o() == 0 {
+        return 1
+    }
+    var rt = host_getenv("DI_RUNTIME_O")
+    var b64 = base64_encode(asm)
+    var cmd = str_builder_new()
+    if cmd == 0 {
+        return 1
+    }
+    str_builder_append(cmd, "sh -c 'set -e; rm -f /tmp/diva-native.b64 /tmp/diva-native.s /tmp/diva-native.o; ")
+    str_builder_append(cmd, ": > /tmp/diva-native.b64; ")
+    var blen = str_len(b64)
+    var pos = 0
+    var step = 4000
+    while pos < blen {
+        var take = step
+        if pos + take > blen {
+            take = blen - pos
+        }
+        var piece = str_slice(b64, pos, take)
+        str_builder_append(cmd, "printf '%s' '")
+        str_builder_append(cmd, piece)
+        str_builder_append(cmd, "' >> /tmp/diva-native.b64; ")
+        pos = pos + take
+    }
+    str_builder_append(cmd, "base64 -d < /tmp/diva-native.b64 > /tmp/diva-native.s; ")
+    str_builder_append(cmd, "as -o /tmp/diva-native.o /tmp/diva-native.s; ")
+    str_builder_append(cmd, "cc -no-pie -o ")
+    str_builder_append(cmd, out_exe)
+    str_builder_append(cmd, " /tmp/diva-native.o ")
+    str_builder_append(cmd, rt)
+    str_builder_append(cmd, "; rm -f /tmp/diva-native.b64 /tmp/diva-native.s /tmp/diva-native.o'")
+    var c = str_builder_to_str(cmd)
+    str_builder_free(cmd)
+    var r = host_system(c)
+    if r < 0 {
+        return 1
+    }
+    if r < 256 {
+        return r
+    }
+    return r / 256
+}
+
+func native_run_asm(asm: str): int {
+    if require_runtime_o() == 0 {
+        return 1
+    }
+    var rt = host_getenv("DI_RUNTIME_O")
+    var b64 = base64_encode(asm)
+    var cmd = str_builder_new()
+    if cmd == 0 {
+        return 1
+    }
+    str_builder_append(cmd, "sh -c 'set -e; rm -f /tmp/diva-native.b64 /tmp/diva-native.s /tmp/diva-native.o; ")
+    str_builder_append(cmd, ": > /tmp/diva-native.b64; ")
+    var blen = str_len(b64)
+    var pos = 0
+    var step = 4000
+    while pos < blen {
+        var take = step
+        if pos + take > blen {
+            take = blen - pos
+        }
+        var piece = str_slice(b64, pos, take)
+        str_builder_append(cmd, "printf '%s' '")
+        str_builder_append(cmd, piece)
+        str_builder_append(cmd, "' >> /tmp/diva-native.b64; ")
+        pos = pos + take
+    }
+    str_builder_append(cmd, "base64 -d < /tmp/diva-native.b64 > /tmp/diva-native.s; ")
+    str_builder_append(cmd, "as -o /tmp/diva-native.o /tmp/diva-native.s; ")
+    str_builder_append(cmd, "cc -no-pie -o /tmp/diva-native.exe /tmp/diva-native.o ")
+    str_builder_append(cmd, rt)
+    str_builder_append(cmd, "; rm -f /tmp/diva-native.b64 /tmp/diva-native.s /tmp/diva-native.o; ")
+    str_builder_append(cmd, "exec /tmp/diva-native.exe'")
+    var c = str_builder_to_str(cmd)
+    str_builder_free(cmd)
+    var r = host_system(c)
+    if r < 0 {
+        return 1
+    }
+    if r < 256 {
+        return r
+    }
+    return r / 256
+}
+
+func compile_to_asm(path: str): str {
+    var empty = ""
+    var src = read_source(path)
+    if str_len(src) == 0 {
+        return empty
+    }
+    var stream = lex_source(src)
+    if stream == 0 {
+        return empty
+    }
+    var pr = parse_source(src, stream)
+    if int_vec_get(pr, 1) != 0 {
+        return empty
+    }
+    var ast = int_vec_get(pr, 0)
+    var ir_result = build_ir(src, stream, ast)
+    var m = int_vec_get(ir_result, 0)
+    var strvec = int_vec_get(ir_result, 1)
+    return cg_module_to_str(m, src, stream, strvec, newline_str())
 }
 
 func cmd_lex(path: str): int {
@@ -78,11 +214,11 @@ func cmd_parse(path: str): int {
     var src = read_source(path)
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
-    if stream == 0 { stderr("lexer error\n") return 1 }
+    if stream == 0 { err_line("lexer error") return 1 }
     var pr = parse_source(src, stream)
     var ast = int_vec_get(pr, 0)
     var had_err = int_vec_get(pr, 1)
-    if had_err != 0 { stderr("parse failed\n") return 1 }
+    if had_err != 0 { err_line("parse failed") return 1 }
     var children = ast_child(ast, 0)
     var n = int_vec_len(children)
     var b = str_builder_new()
@@ -101,10 +237,10 @@ func cmd_ir(path: str): int {
     if stream == 0 { return 1 }
     var pr = parse_source(src, stream)
     var ast = int_vec_get(pr, 0)
-    if int_vec_get(pr, 1) != 0 { stderr("parse failed\n") return 1 }
+    if int_vec_get(pr, 1) != 0 { err_line("parse failed") return 1 }
     var ir_result = build_ir(src, stream, ast)
     var m = int_vec_get(ir_result, 0)
-    dump_module(m)
+    dump_module(m, src, stream)
     return 0
 }
 
@@ -119,8 +255,82 @@ func cmd_asm(path: str): int {
     var ir_result = build_ir(src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     var strvec = int_vec_get(ir_result, 1)
-    cg_module_print(m, src, stream, strvec)
+    cg_module_print(m, src, stream, strvec, newline_str())
     return 0
+}
+
+func cmd_emit_ir(path: str): int {
+    return cmd_ir(path)
+}
+
+func cmd_build_ast(path: str): int {
+    var src = read_source(path)
+    if str_len(src) == 0 { return 1 }
+    var stream = lex_source(src)
+    if stream == 0 { return 1 }
+    var pr = parse_source(src, stream)
+    var ast = int_vec_get(pr, 0)
+    if int_vec_get(pr, 1) != 0 {
+        err_line("parse failed")
+        return 1
+    }
+    ast_dump_program(path, src, stream, ast)
+    return 0
+}
+
+func pick_build_path(): str {
+    var path = ""
+    var i = 2
+    while i < host_argc() {
+        var a = host_argv(i)
+        if str_byte(a, 0) != 45 {
+            if str_len(path) == 0 {
+                path = a
+            }
+        }
+        i = i + 1
+    }
+    return path
+}
+
+func build_wants_ast(): int {
+    var i = 2
+    while i < host_argc() {
+        if str_eq(host_argv(i), "--ast") == 1 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func cmd_build(): int {
+    var path = pick_build_path()
+    if str_len(path) == 0 {
+        return forward_to_seed()
+    }
+    if path_is_diva_file(path) == 0 {
+        return forward_to_seed()
+    }
+    if build_wants_ast() == 1 {
+        return cmd_build_ast(path)
+    }
+    var asm = compile_to_asm(path)
+    if str_len(asm) == 0 {
+        return forward_to_seed()
+    }
+    return native_link_asm_to_exe(asm, "a.out")
+}
+
+func cmd_run_file(path: str): int {
+    if path_is_diva_file(path) == 0 {
+        return forward_to_seed()
+    }
+    var asm = compile_to_asm(path)
+    if str_len(asm) == 0 {
+        return forward_to_seed()
+    }
+    return native_run_asm(asm)
 }
 
 func main(): int {
@@ -131,7 +341,7 @@ func main(): int {
 
     if str_eq(a1, "lex") == 1 {
         if host_argc() < 3 {
-            stderr("usage: diva lex <file.diva>\n")
+            err_line("usage: diva lex <file.diva>")
             return 1
         }
         return cmd_lex(host_argv(2))
@@ -139,7 +349,7 @@ func main(): int {
 
     if str_eq(a1, "parse") == 1 {
         if host_argc() < 3 {
-            stderr("usage: diva parse <file.diva>\n")
+            err_line("usage: diva parse <file.diva>")
             return 1
         }
         return cmd_parse(host_argv(2))
@@ -147,7 +357,7 @@ func main(): int {
 
     if str_eq(a1, "ir") == 1 {
         if host_argc() < 3 {
-            stderr("usage: diva ir <file.diva>\n")
+            err_line("usage: diva ir <file.diva>")
             return 1
         }
         return cmd_ir(host_argv(2))
@@ -155,16 +365,39 @@ func main(): int {
 
     if str_eq(a1, "asm") == 1 {
         if host_argc() < 3 {
-            stderr("usage: diva asm <file.diva>\n")
+            err_line("usage: diva asm <file.diva>")
             return 1
         }
         return cmd_asm(host_argv(2))
     }
 
+    if str_eq(a1, "emit-ir") == 1 {
+        if host_argc() < 3 {
+            err_line("usage: diva emit-ir <file.diva>")
+            return 1
+        }
+        var p = host_argv(2)
+        if path_is_diva_file(p) == 0 {
+            return forward_to_seed()
+        }
+        return cmd_emit_ir(p)
+    }
+
+    if str_eq(a1, "build") == 1 {
+        return cmd_build()
+    }
+
+    if str_eq(a1, "run") == 1 {
+        if host_argc() < 3 {
+            return forward_to_seed()
+        }
+        return cmd_run_file(host_argv(2))
+    }
+
     if str_eq(a1, "compiler-version") == 1 {
         print_str("diva compiler v0.3.0")
-        print_str("  native stages: lex, parse, ir, asm (all in Diva)")
-        print_str("  fallback: seed binary for build/run/emit-ir/check")
+        print_str("  native stages: lex, parse, ir, asm, emit-ir, build, run (single .diva)")
+        print_str("  fallback: seed binary for packages and unimplemented constructs")
         return 0
     }
 
@@ -172,8 +405,7 @@ func main(): int {
         print_str("Diva compiler pipeline:")
         print_str("  source.diva -> lexer -> tokens -> parser -> AST")
         print_str("    -> IR builder -> Diva IR -> x86_64 codegen -> assembly")
-        print_str("  All stages implemented in Diva.")
-        print_str("  Backend target: GNU as + ld (no LLVM required)")
+        print_str("  Host tools: GNU as + cc (link with runtime .o). No LLVM IR in the repo.")
         return 0
     }
 

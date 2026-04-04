@@ -135,11 +135,12 @@ func block_get_inst(blk: int, idx: int): int {
     return int_vec_get(int_vec_get(blk, 1), idx)
 }
 
-// --- Function: [name_idx, param_count, ret_type, blocks_handle, local_count] ---
+// --- Function: [name_tok, param_count, ret_type, blocks_handle, local_count] ---
+// name_tok = lexer token index for the function name (for codegen labels + dumps).
 
-func ir_func_new(name_idx: int, param_count: int, ret_type: int): int {
+func ir_func_new(name_tok: int, param_count: int, ret_type: int): int {
     var f = int_vec_new()
-    int_vec_push(f, name_idx)
+    int_vec_push(f, name_tok)
     int_vec_push(f, param_count)
     int_vec_push(f, ret_type)
     int_vec_push(f, int_vec_new())
@@ -147,7 +148,7 @@ func ir_func_new(name_idx: int, param_count: int, ret_type: int): int {
     return f
 }
 
-func func_name_idx(f: int): int    { return int_vec_get(f, 0) }
+func func_name_tok(f: int): int    { return int_vec_get(f, 0) }
 func func_param_count(f: int): int { return int_vec_get(f, 1) }
 func func_ret_type(f: int): int    { return int_vec_get(f, 2) }
 func func_blocks(f: int): int      { return int_vec_get(f, 3) }
@@ -193,8 +194,8 @@ func mod_get_func(m: int, idx: int): int {
     return int_vec_get(int_vec_get(m, 1), idx)
 }
 
-func mod_add_extern(m: int, name_idx: int): int {
-    int_vec_push(int_vec_get(m, 2), name_idx)
+func mod_add_extern(m: int, name_tok: int): int {
+    int_vec_push(int_vec_get(m, 2), name_tok)
     return 0
 }
 
