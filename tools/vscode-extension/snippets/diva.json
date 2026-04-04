@@ -51,14 +51,14 @@
       "kind = \"${2:app}\"",
       "entry = \"${3:src/main.diva}\""
     ],
-    "description": "Create a diva.mod package manifest"
+    "description": "Create a package.diva package manifest"
   },
   "Manifest Dependency": {
     "prefix": "divadep",
     "body": [
       "dep.${1:math_lib} = \"${2:../math_lib}\""
     ],
-    "description": "Add a package dependency to diva.mod"
+    "description": "Add a package dependency to package.diva"
   },
   "Std IO Import": {
     "prefix": "stdio",

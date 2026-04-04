@@ -208,7 +208,7 @@ if ! [ -f "${TEST_ROOT}/generated-app/.gitignore" ]; then
     fail "generated project missing expected files"
 fi
 
-if ! [ -f "${TEST_ROOT}/generated-app/diva.mod" ] || ! [ -f "${TEST_ROOT}/generated-app/src/main.diva" ]; then
+if ! [ -f "${TEST_ROOT}/generated-app/package.diva" ] || ! [ -f "${TEST_ROOT}/generated-app/src/main.diva" ]; then
     fail "generated app package missing manifest or src entry"
 fi
 
@@ -242,7 +242,7 @@ if ! diva new "${TEST_ROOT}/generated-lib" --lib >"${TEST_ROOT}/new-lib.out" 2>&
     fail "diva new --lib failed"
 fi
 
-if ! [ -f "${TEST_ROOT}/generated-lib/diva.mod" ] || ! [ -f "${TEST_ROOT}/generated-lib/src/lib.diva" ]; then
+if ! [ -f "${TEST_ROOT}/generated-lib/package.diva" ] || ! [ -f "${TEST_ROOT}/generated-lib/src/lib.diva" ]; then
     fail "generated library package missing manifest or src entry"
 fi
 
@@ -269,7 +269,7 @@ if ! diva new "${TEST_ROOT}/generated-kernel" --kernel >"${TEST_ROOT}/new-kernel
     fail "diva new --kernel failed"
 fi
 
-if ! [ -f "${TEST_ROOT}/generated-kernel/diva.mod" ] || ! [ -f "${TEST_ROOT}/generated-kernel/src/boot.diva" ]; then
+if ! [ -f "${TEST_ROOT}/generated-kernel/package.diva" ] || ! [ -f "${TEST_ROOT}/generated-kernel/src/boot.diva" ]; then
     fail "generated kernel package missing manifest or boot entry"
 fi
 
