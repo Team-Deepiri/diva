@@ -1,13 +1,26 @@
 # Di
-_A lightweight programming language for semantic analysis, textual IR emission, and native executable generation._
 
+**Di** is Deepiri’s experimental programming language and LLVM-backed toolchain for fast, expressive **`.diva`** programs—aiming at compact representations, rich control flow, and efficient execution. Sources in this repository are **`.diva` only**; there are **no tracked C/C++ sources** (see `scripts/verify-no-c-sources.sh`).
+
+## Bootstrap model (what “full” means here)
+
+| Piece | Role |
+|--------|------|
+| **`bootstrap/di-linux-amd64`** | **Full compiler** today: lex, parse, sema, C codegen + link, pseudo–LLVM IR text. Pinned Linux amd64 seed; rebuild only from an older git snapshot (see `bootstrap/README.md`). |
+| **`runtime/runtime.ll`** + **`bootstrap/runtime-linux-amd64.o`** | Hosted runtime (argv, I/O, `std/host` / `std/vec` helpers). Linked as **`runtime.o`**; `cc` is used as the **system linker driver only**. |
+| **`compiler/src/main.diva`** | **Di bootstrap driver**: forwards the CLI to the seed (`DI_BOOTSTRAP` or `bootstrap/di-linux-amd64`). |
+| **`compiler/{frontend,mir,backend}/`** | **Stubs / placeholders** for a future port of the compiler into Di—not a second full compiler yet. |
+
+**Full self-host** = lexer, parser, sema, and codegen implemented in **`.diva`**, replacing the seed. That is **staged work** (see `docs/selfhost-bootstrap.md`), not a single commit.
+
+**Not in this repo:** experimental ideas from design chats (e.g. arbitrary bit-bucket layouts, alternate `this` syntax, extra loop forms beyond current `while` / `flux`)—those belong in the language spec / roadmap when you formalize them.
 
 ## Repository Layout
 
-- `src/`: compiler driver and implementation modules
-- `include/`: public/internal headers shared by compiler modules
-- `runtime/`: runtime support implemented in C
-- `stdlib/`: early standard library surface and notes
+- `bootstrap/`: pinned **seed** `di` binary (`di-linux-amd64`) and optional prebuilt runtime object for `NO_CLANG=1`
+- `compiler/`: Di package that forwards the CLI to the seed (self-host driver; see `docs/selfhost-bootstrap.md`)
+- `runtime/`: hosted runtime as **LLVM IR** (`runtime.ll`); install and the seed link against a compiled **`runtime.o`** (`bootstrap/runtime-linux-amd64.o` or `clang -c runtime.ll`)
+- `stdlib/`: standard library (`.diva` sources)
 - `docs/`: language and architecture documents
 - `examples/`: small `Di` programs
 - `tests/`: focused compiler tests
@@ -47,7 +60,7 @@ _A lightweight programming language for semantic analysis, textual IR emission, 
 
 ## Example
 
-```di
+```diva
 extern func print_int(x: int): void
 
 func main(): int {
@@ -60,7 +73,7 @@ func main(): int {
 ## CLI
 
 ```sh
-di main.di
+di main.diva
 di run .
 di build .
 di check .
@@ -70,22 +83,19 @@ di new my-app
 di new my-lib --lib
 ```
 
-`.di` is the source extension for all `Di` files.
+`.diva` is the source extension for all `Di` files.
 
-## Build
+## Build / install
 
-The repository includes a simple C build path and can also be built with CMake.
-
-```sh
-cmake -S . -B build
-cmake --build build
-```
-
-If you just want a working local compiler quickly:
+There is **no in-tree C compiler** to build. Install copies the seed and runtime:
 
 ```sh
 ./scripts/install.sh
 ```
+
+CMake is intentionally disabled (`CMakeLists.txt` explains the migration). Linking user programs still uses the system **`cc`** driver as a **linker only**; there are no C sources in this repository.
+
+To rebuild the Linux amd64 **seed** under `bootstrap/`, you must temporarily restore the legacy C sources from git history, then run `scripts/build-bootstrap-seed.sh`. See [`bootstrap/README.md`](bootstrap/README.md).
 
 ## SDK Workflow
 
@@ -122,8 +132,8 @@ PowerShell:
 These SDK scripts install:
 
 - the `di` compiler into a local user bin directory
-- the `.di` Di source file type association on the local machine
-- the local `.di` editor extension into Cursor by default
+- the `.diva` Di source file type association on the local machine
+- the local `.diva` editor extension into Cursor by default
 
 If you only want the compiler, use `./scripts/install.sh` or `./scripts/install.ps1`.
 
@@ -134,13 +144,13 @@ If you only want to register the Di file type:
 
 ## Editor Extension
 
-A local VS Code / Cursor extension for `.di` files lives in:
+A local VS Code / Cursor extension for `.diva` files lives in:
 
 - `tools/vscode-extension/`
 
 It registers the `Di` language and currently includes:
 
-- `.di` file association
+- `.diva` file association
 - comment, bracket, and auto-close configuration
 - syntax highlighting for functions, keywords, types, operators, fields, and arrays
 - starter snippets for common `Di` patterns

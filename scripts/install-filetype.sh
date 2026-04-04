@@ -14,7 +14,7 @@ cat >"${MIME_FILE}" <<EOF
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="text/x-di">
     <comment>Di source file</comment>
-    <glob pattern="*.di"/>
+    <glob pattern="*.diva"/>
   </mime-type>
 </mime-info>
 EOF
@@ -43,5 +43,5 @@ if command -v xdg-mime >/dev/null 2>&1; then
     xdg-mime default di.desktop text/x-di || true
 fi
 
-echo "Installed Di file type association for .di"
+echo "Installed Di file type association for .diva"
 echo "MIME type: text/x-di"

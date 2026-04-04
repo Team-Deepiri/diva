@@ -4,10 +4,10 @@ This roadmap starts from the current Di MVP, not from zero.
 
 Already present today:
 
-- compiler frontend with lexer, parser, AST, and semantic analysis
-- `di` CLI with `build`, `run`, `emit-ir`, `watch`, and `new`
-- generated-C native build path with LLVM IR text output
-- install scripts, examples, tests, and a local editor extension
+- **Pinned seed** `bootstrap/di-linux-amd64`: full compiler (lexer, parser, AST, semantic analysis, native build via generated C + link, pseudo–LLVM IR text output). No in-tree C sources; seed rebuilt only from git history when needed.
+- **`.diva`** sources everywhere user-facing; **Di bootstrap driver** in `compiler/` forwards to the seed until a full Di-implemented compiler exists.
+- `di` CLI with `build`, `run`, `emit-ir`, `watch`, and `new` (via seed + install layout).
+- Hosted **LLVM IR** runtime (`runtime/runtime.ll` / `runtime.o`), install scripts, examples, tests, and a local editor extension
 
 ## Phase 0: Re-Baseline
 
@@ -96,7 +96,7 @@ Already present today:
 
 ## Phase 11: Alternate Source Frontends
 
-- keep `.di` as the canonical source extension
+- keep `.diva` as the canonical source extension
 - optionally support alternate source extensions or plain-text input modes later
 - treat `.txt` compilation as a frontend/input policy decision, not a different execution model
 - keep ASCII/bit-driven source experiments separate from the main language path

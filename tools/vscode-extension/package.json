@@ -1,7 +1,7 @@
 {
   "name": "diri-lang",
   "displayName": "Di Language",
-  "description": "Language support for Di (.di) files.",
+  "description": "Language support for Di (.diva) files.",
   "version": "0.0.1",
   "publisher": "deepiri",
   "engines": {
@@ -16,14 +16,14 @@
       {
         "id": "di",
         "aliases": ["Di", "di", "Di", "di"],
-        "extensions": [".di"],
+        "extensions": [".diva"],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
         "language": "di",
-        "scopeName": "source.di",
+        "scopeName": "source.diva",
         "path": "./syntaxes/diri.tmLanguage.json"
       }
     ],

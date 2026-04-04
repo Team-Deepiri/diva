@@ -33,7 +33,7 @@
   "Import": {
     "prefix": "import",
     "body": [
-      "import \"${1:module.di}\""
+      "import \"${1:module.diva}\""
     ],
     "description": "Import another Di source file"
   },
@@ -49,7 +49,7 @@
     "body": [
       "name = \"${1:my_package}\"",
       "kind = \"${2:app}\"",
-      "entry = \"${3:src/main.di}\""
+      "entry = \"${3:src/main.diva}\""
     ],
     "description": "Create a di.mod manifest"
   },
@@ -63,21 +63,21 @@
   "Std IO Import": {
     "prefix": "stdio",
     "body": [
-      "import \"std/io.di\""
+      "import \"std/io.diva\""
     ],
     "description": "Import Di std io helpers"
   },
   "Std Math Import": {
     "prefix": "stdmath",
     "body": [
-      "import \"std/math.di\""
+      "import \"std/math.diva\""
     ],
     "description": "Import Di std math helpers"
   },
   "Std Assert Import": {
     "prefix": "stdassert",
     "body": [
-      "import \"std/assert.di\""
+      "import \"std/assert.diva\""
     ],
     "description": "Import Di std assertion helpers"
   },

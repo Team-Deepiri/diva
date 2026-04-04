@@ -1,0 +1,3 @@
+name = "di_frontend"
+kind = "lib"
+entry = "src/tokens.diva"

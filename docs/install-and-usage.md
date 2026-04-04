@@ -1,6 +1,6 @@
 # Di Install And Usage
 
-This guide shows how to install the `Di` compiler and start running `.di` programs.
+This guide shows how to install the `Di` compiler and start running `.diva` programs.
 
 ## What You Get
 
@@ -9,7 +9,7 @@ The repository includes:
 - the `di` compiler
 - the runtime support files used by generated programs
 - install scripts for Linux / WSL and PowerShell
-- a local VS Code / Cursor extension for `.di` files
+- a local VS Code / Cursor extension for `.diva` files
 
 ## Prerequisites
 
@@ -84,11 +84,11 @@ Install the local editor extension only:
 ./scripts/install-extension.ps1
 ```
 
-The language name is `Di` and source files use the `.di` extension.
+The language name is `Di` and source files use the `.diva` extension.
 
 ## First Program
 
-Create a file named `main.di`:
+Create a file named `main.diva`:
 
 ```di
 extern func print_int(x: int): void
@@ -105,7 +105,7 @@ Semicolons are optional in `Di`. The compiler still accepts them, but the recomm
 Run it:
 
 ```sh
-di run main.di
+di run main.diva
 ```
 
 ## Basic CLI
@@ -113,7 +113,7 @@ di run main.di
 Common commands:
 
 ```sh
-di main.di
+di main.diva
 di build .
 di run .
 di check .
@@ -125,7 +125,7 @@ di new hello-lib --lib
 
 Notes:
 
-- `di main.di` builds and runs a single `.di` file
+- `di main.diva` builds and runs a single `.diva` file
 - `di build .` builds the current package directory
 - `di check .` validates a package without native linking
 - `di emit-ir .` writes LLVM IR into `build/`
@@ -144,7 +144,7 @@ di run .
 The generated project includes:
 
 - `di.mod`
-- `src/main.di` for apps or `src/lib.di` for libraries
+- `src/main.diva` for apps or `src/lib.diva` for libraries
 - `.gitignore`
 - `README.md`
 
@@ -155,7 +155,7 @@ Package manifests can declare local dependencies:
 ```txt
 name = "app_with_dep"
 kind = "app"
-entry = "src/main.di"
+entry = "src/main.diva"
 dep.math_lib = "../math_lib"
 ```
 
@@ -202,7 +202,7 @@ sh tests/run.sh
 - install `clang`, `gcc`, or another `cc`-compatible compiler
 - on Windows, install Visual Studio Build Tools or `gcc`
 
-### Editor does not recognize `.di`
+### Editor does not recognize `.diva`
 
 - reinstall the local extension with the install script
 - reload Cursor or VS Code

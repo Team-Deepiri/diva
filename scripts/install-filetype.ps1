@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $classesRoot = "HKCU:\Software\Classes"
-$extensionKey = Join-Path $classesRoot ".di"
+$extensionKey = Join-Path $classesRoot ".diva"
 $typeKey = Join-Path $classesRoot "Di.Source"
 $commandKey = Join-Path $typeKey "shell\open\command"
 $iconKey = Join-Path $typeKey "DefaultIcon"
@@ -23,5 +23,5 @@ New-ItemProperty -Path $iconKey -Name "(default)" -Value $diriBin -Force | Out-N
 New-Item -Path $commandKey -Force | Out-Null
 New-ItemProperty -Path $commandKey -Name "(default)" -Value "`"$diriBin`" run `"%1`"" -Force | Out-Null
 
-Write-Host "Installed Di file type association for .di"
-Write-Host "Registered .di as Di Source File"
+Write-Host "Installed Di file type association for .diva"
+Write-Host "Registered .diva as Di Source File"

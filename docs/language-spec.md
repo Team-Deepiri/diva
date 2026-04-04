@@ -6,7 +6,7 @@ This document describes the current implemented surface of `Di`.
 
 `Di` is a compiled language with:
 
-- `.di` source files
+- `.diva` source files
 - `di` as the CLI command
 - explicit function signatures
 - `var` bindings with optional type annotations
@@ -25,13 +25,13 @@ The current language direction is:
 
 ## File Extension
 
-All `Di` source files use the `.di` extension.
+All `Di` source files use the `.diva` extension.
 
 Examples:
 
-- `main.di`
-- `math.di`
-- `game_loop.di`
+- `main.diva`
+- `math.diva`
+- `game_loop.diva`
 
 ## Program Structure
 
@@ -235,10 +235,10 @@ Files may optionally declare a package at the top:
 package imports_demo
 ```
 
-Top-level imports can use relative `.di` file paths:
+Top-level imports can use relative `.diva` file paths:
 
 ```di
-import "math.di"
+import "math.diva"
 ```
 
 Package manifests can also declare dependencies with `dep.<name> = "../path"` and import them by package name:
@@ -254,7 +254,7 @@ Imports are resolved as a file graph and merged into a single program for semant
 ## Example
 
 ```di
-import "math.di"
+import "math.diva"
 
 extern func print_int(x: int): void
 
@@ -289,8 +289,8 @@ func main(): int {
 - optional top-level `package` declarations
 - package manifests via `di.mod` with `kind = "app" | "lib" | "kernel"`
 - relative file imports
-- shipped standard library imports like `std/math.di` and `std/range.di`
-- utility modules like `std/io.di`, `std/int.di`, and `std/assert.di`
+- shipped standard library imports like `std/math.diva` and `std/range.diva`
+- utility modules like `std/io.diva`, `std/int.diva`, and `std/assert.diva`
 
 ## Not Implemented Yet
 

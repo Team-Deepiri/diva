@@ -109,33 +109,50 @@ HOME="${HOME_DIR}" sh "${ROOT_DIR}/scripts/install.sh" >"${TEST_ROOT}/install.ou
     fail "install script failed"
 }
 
+HOME="${HOME_DIR}"
+export HOME
 PATH="${BIN_DIR}:${PATH}"
-export HOME PATH
+export PATH
 
-log "running example integration tests"
-assert_output_equals "${ROOT_DIR}/examples/hello.di" "10"
-assert_output_equals "${ROOT_DIR}/examples/branching.di" "running di
+log "checking compiler stub packages (mir, backend, frontend)"
+for _pkg in mir backend frontend; do
+    if ! di check "${ROOT_DIR}/compiler/${_pkg}" >"${TEST_ROOT}/check-${_pkg}.out" 2>&1; then
+        sed -n '1,80p' "${TEST_ROOT}/check-${_pkg}.out" >&2
+        fail "di check compiler/${_pkg} failed"
+    fi
+done
+
+run_all_tests() {
+    _stage=$1
+    log "running integration tests (${_stage})"
+assert_output_equals "${ROOT_DIR}/examples/hello.diva" "10"
+assert_output_equals "${ROOT_DIR}/examples/host_argv.diva" "1"
+assert_output_equals "${ROOT_DIR}/examples/vec_demo.diva" "2
+20
+8
+hello di"
+assert_output_equals "${ROOT_DIR}/examples/branching.diva" "running di
 20
 1"
-assert_output_equals "${ROOT_DIR}/examples/loop.di" "10"
-assert_output_equals "${ROOT_DIR}/examples/shadow.di" "99
+assert_output_equals "${ROOT_DIR}/examples/loop.diva" "10"
+assert_output_equals "${ROOT_DIR}/examples/shadow.diva" "99
 5"
-assert_output_equals "${ROOT_DIR}/examples/structs.di" "18
+assert_output_equals "${ROOT_DIR}/examples/structs.diva" "18
 7"
-assert_output_equals "${ROOT_DIR}/examples/struct_mutation.di" "10"
-assert_output_equals "${ROOT_DIR}/examples/arrays.di" "9"
-assert_output_equals "${ROOT_DIR}/examples/array_mutation.di" "16"
-assert_output_equals "${ROOT_DIR}/examples/imports/main.di" "42"
-assert_output_equals "${ROOT_DIR}/examples/generics_traits.di" "7"
-assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.di" "12
+assert_output_equals "${ROOT_DIR}/examples/struct_mutation.diva" "10"
+assert_output_equals "${ROOT_DIR}/examples/arrays.diva" "9"
+assert_output_equals "${ROOT_DIR}/examples/array_mutation.diva" "16"
+assert_output_equals "${ROOT_DIR}/examples/imports/main.diva" "42"
+assert_output_equals "${ROOT_DIR}/examples/generics_traits.diva" "7"
+assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.diva" "12
 10
 10
 5
 1
 1"
-assert_output_equals "${ROOT_DIR}/examples/systems_hosted.di" "systems io from di0x12"
+assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from di0x12"
 assert_output_equals "${ROOT_DIR}/examples/packages/app_with_dep" "42"
-assert_output_equals "${ROOT_DIR}/examples/utils_demo.di" "util-1
+assert_output_equals "${ROOT_DIR}/examples/utils_demo.diva" "util-1
 6
 true
 true
@@ -144,22 +161,22 @@ true
 1"
 
 log "checking AST smoke output"
-assert_contains "${ROOT_DIR}/examples/hello.di" "Program"
-assert_contains "${ROOT_DIR}/examples/hello.di" "Var(x: int)"
-assert_contains "${ROOT_DIR}/examples/hello.di" "Ident(print_int)"
+assert_contains "${ROOT_DIR}/examples/hello.diva" "Program"
+assert_contains "${ROOT_DIR}/examples/hello.diva" "Var(x: int)"
+assert_contains "${ROOT_DIR}/examples/hello.diva" "Ident(print_int)"
 
 log "checking LLVM IR smoke output"
-assert_ir_contains "${ROOT_DIR}/examples/loop.di" "br label %whilecond"
-assert_ir_contains "${ROOT_DIR}/examples/arrays.di" "getelementptr inbounds [4 x i32]"
-assert_ir_contains "${ROOT_DIR}/examples/array_mutation.di" "store i32"
+assert_ir_contains "${ROOT_DIR}/examples/loop.diva" "br label %whilecond"
+assert_ir_contains "${ROOT_DIR}/examples/arrays.diva" "getelementptr inbounds [4 x i32]"
+assert_ir_contains "${ROOT_DIR}/examples/array_mutation.diva" "store i32"
 
 log "checking semantic failure cases"
-assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.di" "duplicate declaration of 'x' in the same scope"
-assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_ident.di" "unknown identifier 'missing'"
-assert_error_contains "${ROOT_DIR}/tests/cases/fail/reserved_name.di" "uses a reserved backend identifier"
-assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_import_main.di" "duplicate top-level declaration 'clash'"
-assert_error_contains "${ROOT_DIR}/tests/cases/fail/package_mismatch_main.di" "package mismatch:"
-assert_error_contains "${ROOT_DIR}/tests/cases/fail/missing_trait_method.di" "does not implement required method 'measure'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva" "duplicate declaration of 'x' in the same scope"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_ident.diva" "unknown identifier 'missing'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/reserved_name.diva" "uses a reserved backend identifier"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_import_main.diva" "duplicate top-level declaration 'clash'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/package_mismatch_main.diva" "package mismatch:"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/missing_trait_method.diva" "does not implement required method 'measure'"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_package_dep" "unknown package dependency in import 'pkg/missing_lib'"
 
 log "checking generated project workflow"
@@ -173,7 +190,7 @@ if ! [ -f "${TEST_ROOT}/generated-app/.gitignore" ]; then
     fail "generated project missing expected files"
 fi
 
-if ! [ -f "${TEST_ROOT}/generated-app/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-app/src/main.di" ]; then
+if ! [ -f "${TEST_ROOT}/generated-app/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-app/src/main.diva" ]; then
     fail "generated app package missing manifest or src entry"
 fi
 
@@ -207,7 +224,7 @@ if ! di new "${TEST_ROOT}/generated-lib" --lib >"${TEST_ROOT}/new-lib.out" 2>&1;
     fail "di new --lib failed"
 fi
 
-if ! [ -f "${TEST_ROOT}/generated-lib/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-lib/src/lib.di" ]; then
+if ! [ -f "${TEST_ROOT}/generated-lib/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-lib/src/lib.diva" ]; then
     fail "generated library package missing manifest or src entry"
 fi
 
@@ -234,7 +251,7 @@ if ! di new "${TEST_ROOT}/generated-kernel" --kernel >"${TEST_ROOT}/new-kernel.o
     fail "di new --kernel failed"
 fi
 
-if ! [ -f "${TEST_ROOT}/generated-kernel/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-kernel/src/boot.di" ]; then
+if ! [ -f "${TEST_ROOT}/generated-kernel/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-kernel/src/boot.diva" ]; then
     fail "generated kernel package missing manifest or boot entry"
 fi
 
@@ -268,6 +285,66 @@ fi
 if ! di build "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-build.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/kernel-build.out" >&2
     fail "kernel package failed di build"
+fi
+
+    log "all integration checks passed (${_stage})"
+}
+
+run_all_tests seed
+
+log "checking self-host bootstrap (Di compiler package forwards to seed via DI_BOOTSTRAP)"
+export DI_BOOTSTRAP="${ROOT_DIR}/bootstrap/di-linux-amd64"
+RUNTIME_O="${HOME_DIR}/.local/share/di/runtime/runtime.o"
+if ! [ -f "${RUNTIME_O}" ]; then
+    fail "expected runtime object at ${RUNTIME_O}"
+fi
+BUILD_OUT="${TEST_ROOT}/compiler-selfhost-build.out"
+if ! DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
+    "${ROOT_DIR}/bootstrap/di-linux-amd64" build "${ROOT_DIR}/compiler" >"${BUILD_OUT}" 2>&1
+then
+    sed -n '1,120p' "${BUILD_OUT}" >&2
+    fail "failed to build compiler/ (self-host driver) with seed di"
+fi
+SELFHOST_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD_OUT}" | tail -n 1)
+if [ -z "${SELFHOST_EXE}" ] || ! [ -x "${SELFHOST_EXE}" ]; then
+    printf '[test:error] could not resolve self-host executable from build output\n' >&2
+    sed -n '1,80p' "${BUILD_OUT}" >&2
+    exit 1
+fi
+cp "${SELFHOST_EXE}" "${BIN_DIR}/di"
+chmod +x "${BIN_DIR}/di"
+
+run_all_tests selfhost
+
+log "checking self-host convergence (stage3: compiler rebuilt with stage2 di)"
+BUILD3_OUT="${TEST_ROOT}/compiler-stage3-build.out"
+if ! DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
+    "${BIN_DIR}/di" build "${ROOT_DIR}/compiler" >"${BUILD3_OUT}" 2>&1
+then
+    sed -n '1,120p' "${BUILD3_OUT}" >&2
+    fail "failed to build compiler/ with stage2 di (stage3)"
+fi
+STAGE3_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD3_OUT}" | tail -n 1)
+if [ -z "${STAGE3_EXE}" ] || ! [ -x "${STAGE3_EXE}" ]; then
+    printf '[test:error] could not resolve stage3 executable from build output\n' >&2
+    sed -n '1,80p' "${BUILD3_OUT}" >&2
+    exit 1
+fi
+cp "${STAGE3_EXE}" "${BIN_DIR}/di"
+chmod +x "${BIN_DIR}/di"
+
+run_all_tests selfhost_stage3
+
+log "verifying NO_CLANG=1 install contract (scripts/verify-no-clang.sh)"
+if ! NO_CLANG=1 sh "${ROOT_DIR}/scripts/verify-no-clang.sh" >"${TEST_ROOT}/no-clang-verify.out" 2>&1; then
+    sed -n '1,120p' "${TEST_ROOT}/no-clang-verify.out" >&2
+    fail "NO_CLANG verify failed"
+fi
+
+log "verifying no tracked C/C++ sources (scripts/verify-no-c-sources.sh)"
+if ! sh "${ROOT_DIR}/scripts/verify-no-c-sources.sh" >"${TEST_ROOT}/no-c-sources-verify.out" 2>&1; then
+    sed -n '1,80p' "${TEST_ROOT}/no-c-sources-verify.out" >&2
+    fail "no-C-sources verify failed"
 fi
 
 log "all tests passed"

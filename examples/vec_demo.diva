@@ -1,0 +1,23 @@
+import "std/vec.diva"
+
+extern func print_int(x: int): void
+extern func print_str(x: str): void
+
+func main(): int {
+    var v = int_vec_new()
+    int_vec_push(v, 10)
+    int_vec_push(v, 20)
+    print_int(int_vec_len(v))
+    print_int(int_vec_get(v, 1))
+
+    var b = str_builder_new()
+    str_builder_append(b, "hello")
+    str_builder_append(b, " ")
+    str_builder_append(b, "di")
+    print_int(str_builder_len(b))
+    print_str(str_builder_to_str(b))
+    str_builder_free(b)
+
+    int_vec_free(v)
+    return 0
+}
