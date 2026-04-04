@@ -4,9 +4,14 @@ This document tracks what the hosted Diva runtime exposes so a Diva-implemented 
 
 ## Bootstrap driver (`compiler/`)
 
-The repository includes a small Diva app (`compiler/src/main.diva`) that builds to a hosted executable (`diva`) by forwarding CLI arguments to the **seed** compiler binary. Set `DIVA_BOOTSTRAP` or `DI_BOOTSTRAP` to an absolute path (e.g. `bootstrap/diva-linux-amd64` in the repo). The driver uses `host_getenv` and `host_system`; the runtime implements them via `getenv` / `system` in LLVM IR (`runtime/runtime.ll`), compiled with `clang` at install when available, or copied from `bootstrap/runtime-linux-amd64.o` when `NO_CLANG=1`.
+The repository ships a Diva app (`compiler/src/main.diva`) that builds to a hosted executable (installed as `diva-driver`; `install.sh` wraps it as `diva`). **Implemented in Diva** (no C sources in-tree):
 
-This is a **practical bridge** so `PATH` can point at a Diva-built driver while the toolchain remains the checked-in bootstrap binary. A full self-host replaces this with lexer, parser, sema, IR, and codegen entirely in Diva.
+- `diva lex`, `diva parse`, `diva ir`, `diva asm` — lexer, parser, AST → Diva IR, x86 assembly text (`compiler/src/*.diva`).
+- `diva build`, `diva run`, `diva emit-ir`, `diva check`, … — still **forwarded** to the pinned **seed** binary (`bootstrap/diva-linux-amd64`) via `host_system`, until those stages are replaced in Diva.
+
+Set `DIVA_BOOTSTRAP` or `DI_BOOTSTRAP` to the seed path (the install wrapper sets this). The driver uses `host_getenv` and `host_system`; the hosted runtime implements them in LLVM IR (`runtime/runtime.ll`), compiled with `clang` at install when available, or use `bootstrap/runtime-linux-amd64.o` when `NO_CLANG=1`.
+
+**Full self-host** (no seed for normal builds) means reimplementing `build` / codegen / link entirely in Diva and then promoting that executable to become the new seed; see `docs/replace-llvm.md` and `docs/source-language-policy.md`.
 
 ## Process and file I/O
 

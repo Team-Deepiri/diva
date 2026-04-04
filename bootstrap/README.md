@@ -1,32 +1,37 @@
 # Bootstrap seed compiler
 
-`diva-linux-amd64` is the **Linux x86-64** reference compiler binary. It is the **trust root** for self-hosting: the in-tree Diva compiler package (`compiler/`) is built with this seed, then used to rebuild itself (see `docs/selfhost-bootstrap.md`).
+`diva-linux-amd64` is the **Linux x86-64** reference compiler binary. It is the **trust root** for the bootstrap: the in-tree Diva compiler package (`compiler/`) is built with this seed, then used in tests to rebuild itself (see `docs/selfhost-bootstrap.md`).
 
-This repository does **not** ship the legacy C implementation. `scripts/install.sh` copies the seed from `bootstrap/diva-linux-amd64` and installs the LLVM runtime object (`runtime/runtime.ll` via `clang`, or `bootstrap/runtime-linux-amd64.o` when `NO_CLANG=1`).
+## What is *not* in this repository
 
-## Refresh the seed
+- **No C or C++ compiler sources** — all language and compiler logic you edit is **`.diva`**. Verification: `scripts/verify-no-c-sources.sh`.
+- The seed is a **prebuilt executable**, not source in another programming language.
 
-The seed was last produced from the removed C compiler. To rebuild it you must temporarily restore the old sources from git, run the build script, then remove them again (or keep them only on a maintenance branch):
+## What you still need from the host (not “Diva source”)
 
-```sh
-git checkout <commit-that-still-had-c> -- src include runtime
-sh scripts/build-bootstrap-seed.sh
-rm -rf src include
-git checkout HEAD -- runtime/
-```
+- **Shell** — `scripts/install.sh`, `tests/run.sh`, etc.
+- **LLVM IR** — `runtime/runtime.ll` defines the hosted runtime (I/O, `int_vec`, linking). At install, either:
+  - `clang -c runtime/runtime.ll` → `runtime.o`, or
+  - copy **`bootstrap/runtime-linux-amd64.o`** (no compiler needed; use `NO_CLANG=1`).
+- **System linker** — user programs are linked with the system **`cc`** as a linker driver (no C sources from this repo).
 
-The last line puts `runtime/` back to your branch tip (LLVM IR only).
+## Refreshing the seed binary
 
-Commit the updated `bootstrap/diva-linux-amd64` when you want a frozen checkpoint for CI or collaborators.
+This tree cannot run `scripts/build-bootstrap-seed.sh` to compile a seed — it exits with instructions on purpose.
+
+Options:
+
+1. **Historical path:** check out an older commit that still contained the legacy C compiler, build the seed with an external C toolchain, commit `bootstrap/diva-linux-amd64`, return to Diva-only sources.
+2. **Future path:** when the Diva-only compiler can fully replace the seed for `build`/`run`, promote the self-built executable (same OS/ABI) to become the new `bootstrap/diva-linux-amd64`.
 
 ## Runtime / stdlib resolution
 
-Set `DI_STDLIB_DIR` and `DI_RUNTIME_O` after install, or rely on the defaults under `~/.local/share/diva/` (see `scripts/install.sh` output).
+Set `DI_STDLIB_DIR` and `DI_RUNTIME_O` after install, or rely on defaults under `~/.local/share/diva/` (see `scripts/install.sh`).
 
 ## Source extension
 
-Canonical sources use **`.diva`**. The CLI may still accept **`.di`** for compatibility where implemented by the seed.
+Canonical sources use **`.diva`**. The CLI may still accept **`.di`** where the seed implements it.
 
 ## Manifest filename
 
-Package manifests remain **`package.diva`** (toolchain contract until the seed is rebuilt with a new name).
+Packages use **`package.diva`**.

@@ -1,18 +1,18 @@
 # Diva
 
-**Diva** is Deepiri’s experimental programming language and LLVM-backed toolchain for fast, expressive **`.diva`** programs—aiming at compact representations, rich control flow, and efficient execution. Sources in this repository are **`.diva` only**; there are **no tracked C/C++ sources** (see `scripts/verify-no-c-sources.sh`).
+**Diva** is Deepiri’s experimental programming language and LLVM-backed toolchain for fast, expressive **`.diva`** programs—aiming at compact representations, rich control flow, and efficient execution. **All compiler and library sources in this repo are `.diva`**; there are **no tracked C/C++ sources** (`scripts/verify-no-c-sources.sh`). Policy details: [`docs/source-language-policy.md`](docs/source-language-policy.md).
 
-## Bootstrap model (what “full” means here)
+## Bootstrap model (self-sustaining Diva development)
 
 | Piece | Role |
 |--------|------|
-| **`bootstrap/diva-linux-amd64`** | **Full compiler** today: lex, parse, sema, C codegen + link, pseudo–LLVM IR text. Pinned Linux amd64 seed; rebuild only from an older git snapshot (see `bootstrap/README.md`). |
-| **`runtime/runtime.ll`** + **`bootstrap/runtime-linux-amd64.o`** | Hosted runtime (argv, I/O, `std/host` / `std/vec` helpers). Linked as **`runtime.o`**; `cc` is used as the **system linker driver only**. |
-| **`compiler/`** (installable **`package.diva`** app) | **Diva-built driver** (`install.sh` compiles it with the seed): `diva lex` runs the **Diva lexer** (`src/lexer.diva`); other commands forward to the seed. Installed under `$XDG_DATA_HOME/diva/libexec/diva-driver` with a **`diva` wrapper** (and `di` → `diva` symlink) that sets `DIVA_BOOTSTRAP` / `DI_BOOTSTRAP`. |
-| **`compiler/{mir,backend}/`** | MIR / ELF scaffolding for future backend work in Diva. |
-| **`compiler/frontend/`** | `diva check` shares [`src/lexer.diva`](compiler/src/lexer.diva). |
+| **`bootstrap/diva-linux-amd64`** | **Pinned seed binary** (full pipeline for `build` / `run` / `emit-ir` today). Not C *source* in this repo — it is the trust root until the Diva-only compiler can replace it end-to-end. See `bootstrap/README.md`. |
+| **`runtime/runtime.ll`** + **`bootstrap/runtime-linux-amd64.o`** | Hosted runtime (argv, I/O, `std/host` / `std/vec`). Becomes **`runtime.o`** at install (`clang -c` on the `.ll`, or copy the prebuilt `.o` when `NO_CLANG=1`). |
+| **`compiler/`** (`package.diva`) | **Diva-built driver**: `diva lex`, `parse`, `ir`, `asm` run entirely in Diva (`compiler/src/*.diva`). Other commands forward to the seed. Installed as `$XDG_DATA_HOME/diva/libexec/diva-driver` with a **`diva` wrapper** setting `DIVA_BOOTSTRAP` / `DI_BOOTSTRAP`. |
+| **`compiler/{mir,backend}/`** | MIR / ELF scaffolding for the native backend in Diva. |
+| **`compiler/frontend/`** | Shares lexer sources with `compiler/src/`. |
 
-**Full self-host** = parser, sema, and codegen also in **`.diva`**, so the seed is only needed to break the bootstrap cycle. The **lexer** is the first real compiler stage living in Diva source.
+**Self-sustainability** here means: you ship and edit **only `.diva`** (plus LLVM IR for the small hosted runtime and shell for scripts). The seed binary breaks the bootstrap; **full** replacement of the seed for everyday builds is tracked in `docs/replace-llvm.md`.
 
 **Not in this repo:** experimental ideas from design chats (e.g. arbitrary bit-bucket layouts, alternate `this` syntax, extra loop forms beyond current `while` / `flux`)—those belong in the language spec / roadmap when you formalize them.
 
@@ -31,6 +31,7 @@
 - install and usage: `docs/install-and-usage.md`
 - syntax guide: `docs/syntax-guide.md`
 - language spec: `docs/language-spec.md`
+- what is (and is not) Diva source in-tree: `docs/source-language-policy.md`
 
 ## Current Language Surface
 

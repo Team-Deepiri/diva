@@ -1,29 +1,25 @@
 // Diva IR text dump — human-readable representation for debugging.
-// Output format mirrors common SSA IR textual forms:
-//   func @name(v0, v1) -> int {
-//     bb0:
-//       v2 = const 42
-//       v3 = add v0, v2
-//       ret v3
-//   }
+// Uses print_str (which adds newline) and str_builder for line composition.
+// Note: Diva strings do not process \n escapes, so we use print_str per line.
 
 import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
 import "ir.diva"
 
-func dump_vreg(r: int): int {
+func dump_vreg_str(r: int): str {
     var b = str_builder_new()
     str_builder_append(b, "v")
     str_builder_append(b, int_to_str(r))
-    stdout(str_builder_to_str(b))
+    var s = str_builder_to_str(b)
     str_builder_free(b)
-    return 0
+    return s
 }
 
 func dump_inst(inst: int): int {
     var op = inst_op(inst)
-    stdout("    ")
+    var b = str_builder_new()
+    str_builder_append(b, "    ")
 
     if op == ir_const() | op == ir_const_str() | op == ir_add() | op == ir_sub() |
        op == ir_mul() | op == ir_div() | op == ir_mod() | op == ir_neg() |
@@ -31,89 +27,93 @@ func dump_inst(inst: int): int {
        op == ir_gt() | op == ir_ge() | op == ir_and() | op == ir_or() |
        op == ir_not() | op == ir_load() | op == ir_call() | op == ir_param() |
        op == ir_copy() | op == ir_alloca() {
-        dump_vreg(inst_result(inst))
-        stdout(" = ")
+        str_builder_append(b, dump_vreg_str(inst_result(inst)))
+        str_builder_append(b, " = ")
     }
 
-    stdout(ir_op_name(op))
+    str_builder_append(b, ir_op_name(op))
 
     if op == ir_const() {
-        stdout(" ")
-        stdout(int_to_str(inst_a(inst)))
+        str_builder_append(b, " ")
+        str_builder_append(b, int_to_str(inst_a(inst)))
     }
 
     if op == ir_const_str() {
-        stdout(" str[")
-        stdout(int_to_str(inst_a(inst)))
-        stdout("]")
+        str_builder_append(b, " str[")
+        str_builder_append(b, int_to_str(inst_a(inst)))
+        str_builder_append(b, "]")
     }
 
     if op == ir_add() | op == ir_sub() | op == ir_mul() | op == ir_div() | op == ir_mod() |
        op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() |
        op == ir_gt() | op == ir_ge() | op == ir_and() | op == ir_or() {
-        stdout(" ")
-        dump_vreg(inst_a(inst))
-        stdout(", ")
-        dump_vreg(inst_b(inst))
+        str_builder_append(b, " ")
+        str_builder_append(b, dump_vreg_str(inst_a(inst)))
+        str_builder_append(b, ", ")
+        str_builder_append(b, dump_vreg_str(inst_b(inst)))
     }
 
     if op == ir_neg() | op == ir_not() {
-        stdout(" ")
-        dump_vreg(inst_a(inst))
+        str_builder_append(b, " ")
+        str_builder_append(b, dump_vreg_str(inst_a(inst)))
     }
 
     if op == ir_load() {
-        stdout(" ")
-        dump_vreg(inst_a(inst))
+        str_builder_append(b, " ")
+        str_builder_append(b, dump_vreg_str(inst_a(inst)))
     }
 
     if op == ir_store() {
-        stdout(" ")
-        dump_vreg(inst_result(inst))
-        stdout(", ")
-        dump_vreg(inst_a(inst))
+        str_builder_append(b, " ")
+        str_builder_append(b, dump_vreg_str(inst_result(inst)))
+        str_builder_append(b, ", ")
+        str_builder_append(b, dump_vreg_str(inst_a(inst)))
     }
 
     if op == ir_call() {
-        stdout(" @fn")
-        stdout(int_to_str(inst_a(inst)))
-        stdout(" argc=")
-        stdout(int_to_str(inst_b(inst)))
+        str_builder_append(b, " @fn")
+        str_builder_append(b, int_to_str(inst_a(inst)))
+        str_builder_append(b, " argc=")
+        str_builder_append(b, int_to_str(inst_b(inst)))
     }
 
     if op == ir_ret() {
-        stdout(" ")
-        dump_vreg(inst_a(inst))
+        str_builder_append(b, " ")
+        str_builder_append(b, dump_vreg_str(inst_a(inst)))
     }
 
     if op == ir_br() {
-        stdout(" bb")
-        stdout(int_to_str(inst_a(inst)))
+        str_builder_append(b, " bb")
+        str_builder_append(b, int_to_str(inst_a(inst)))
     }
 
     if op == ir_br_cond() {
-        stdout(" ")
-        dump_vreg(inst_result(inst))
-        stdout(", bb")
-        stdout(int_to_str(inst_a(inst)))
-        stdout(", bb")
-        stdout(int_to_str(inst_b(inst)))
+        str_builder_append(b, " ")
+        str_builder_append(b, dump_vreg_str(inst_result(inst)))
+        str_builder_append(b, ", bb")
+        str_builder_append(b, int_to_str(inst_a(inst)))
+        str_builder_append(b, ", bb")
+        str_builder_append(b, int_to_str(inst_b(inst)))
     }
 
     if op == ir_param() {
-        stdout(" [")
-        stdout(int_to_str(inst_a(inst)))
-        stdout("]")
+        str_builder_append(b, " [")
+        str_builder_append(b, int_to_str(inst_a(inst)))
+        str_builder_append(b, "]")
     }
 
-    stdout("\n")
+    print_str(str_builder_to_str(b))
+    str_builder_free(b)
     return 0
 }
 
 func dump_block(blk: int): int {
-    stdout("  bb")
-    stdout(int_to_str(block_label(blk)))
-    stdout(":\n")
+    var b = str_builder_new()
+    str_builder_append(b, "  bb")
+    str_builder_append(b, int_to_str(block_label(blk)))
+    str_builder_append(b, ":")
+    print_str(str_builder_to_str(b))
+    str_builder_free(b)
     var insts = block_insts(blk)
     var n = int_vec_len(insts)
     var i = 0
@@ -125,23 +125,26 @@ func dump_block(blk: int): int {
 }
 
 func dump_func(f: int): int {
-    stdout("func @fn")
-    stdout(int_to_str(func_name_idx(f)))
-    stdout("(")
+    var b = str_builder_new()
+    str_builder_append(b, "func @fn")
+    str_builder_append(b, int_to_str(func_name_idx(f)))
+    str_builder_append(b, "(")
     var pc = func_param_count(f)
     var i = 0
     while i < pc {
-        if i > 0 { stdout(", ") }
-        dump_vreg(i)
+        if i > 0 { str_builder_append(b, ", ") }
+        str_builder_append(b, dump_vreg_str(i))
         i = i + 1
     }
-    stdout(")")
+    str_builder_append(b, ")")
     var rt = func_ret_type(f)
-    if rt == ir_ty_void() { stdout(" -> void") }
-    if rt == ir_ty_int()  { stdout(" -> int") }
-    if rt == ir_ty_str()  { stdout(" -> str") }
-    if rt == ir_ty_bool() { stdout(" -> bool") }
-    stdout(" {\n")
+    if rt == ir_ty_void() { str_builder_append(b, " -> void") }
+    if rt == ir_ty_int()  { str_builder_append(b, " -> int") }
+    if rt == ir_ty_str()  { str_builder_append(b, " -> str") }
+    if rt == ir_ty_bool() { str_builder_append(b, " -> bool") }
+    str_builder_append(b, " {")
+    print_str(str_builder_to_str(b))
+    str_builder_free(b)
 
     var bc = func_block_count(f)
     i = 0
@@ -149,23 +152,27 @@ func dump_func(f: int): int {
         dump_block(func_get_block(f, i))
         i = i + 1
     }
-    stdout("}\n\n")
+    print_str("}")
+    print_str("")
     return 0
 }
 
 func dump_module(m: int): int {
-    stdout("; Diva IR dump\n\n")
+    print_str("; Diva IR dump")
+    print_str("")
 
     var ec = mod_extern_count(m)
     if ec > 0 {
         var i = 0
         while i < ec {
-            stdout("extern @fn")
-            stdout(int_to_str(int_vec_get(mod_externs(m), i)))
-            stdout("\n")
+            var b = str_builder_new()
+            str_builder_append(b, "extern @fn")
+            str_builder_append(b, int_to_str(int_vec_get(mod_externs(m), i)))
+            print_str(str_builder_to_str(b))
+            str_builder_free(b)
             i = i + 1
         }
-        stdout("\n")
+        print_str("")
     }
 
     var fc = mod_func_count(m)

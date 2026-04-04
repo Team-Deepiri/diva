@@ -85,9 +85,12 @@ func cmd_parse(path: str): int {
     if had_err != 0 { stderr("parse failed\n") return 1 }
     var children = ast_child(ast, 0)
     var n = int_vec_len(children)
-    print_str("parsed ")
-    print_str(int_to_str(n))
-    print_str(" top-level declarations\n")
+    var b = str_builder_new()
+    str_builder_append(b, "parsed ")
+    str_builder_append(b, int_to_str(n))
+    str_builder_append(b, " top-level declarations")
+    print_str(str_builder_to_str(b))
+    str_builder_free(b)
     return 0
 }
 
@@ -112,12 +115,11 @@ func cmd_asm(path: str): int {
     if stream == 0 { return 1 }
     var pr = parse_source(src, stream)
     var ast = int_vec_get(pr, 0)
-    if int_vec_get(pr, 1) != 0 { stderr("parse failed\n") return 1 }
+    if int_vec_get(pr, 1) != 0 { print_str("parse failed") return 1 }
     var ir_result = build_ir(src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     var strvec = int_vec_get(ir_result, 1)
-    var asm_text = cg_module(m, src, stream, strvec)
-    stdout(asm_text)
+    cg_module_print(m, src, stream, strvec)
     return 0
 }
 
@@ -160,18 +162,18 @@ func main(): int {
     }
 
     if str_eq(a1, "compiler-version") == 1 {
-        print_str("diva compiler v0.3.0\n")
-        print_str("  native stages: lex, parse, ir, asm (all in Diva)\n")
-        print_str("  fallback: seed binary for build/run/emit-ir/check\n")
+        print_str("diva compiler v0.3.0")
+        print_str("  native stages: lex, parse, ir, asm (all in Diva)")
+        print_str("  fallback: seed binary for build/run/emit-ir/check")
         return 0
     }
 
     if str_eq(a1, "pipeline") == 1 {
-        print_str("Diva compiler pipeline:\n")
-        print_str("  source.diva -> lexer -> tokens -> parser -> AST\n")
-        print_str("    -> IR builder -> Diva IR -> x86_64 codegen -> assembly\n")
-        print_str("  All stages implemented in Diva.\n")
-        print_str("  Backend target: GNU as + ld (no LLVM required)\n")
+        print_str("Diva compiler pipeline:")
+        print_str("  source.diva -> lexer -> tokens -> parser -> AST")
+        print_str("    -> IR builder -> Diva IR -> x86_64 codegen -> assembly")
+        print_str("  All stages implemented in Diva.")
+        print_str("  Backend target: GNU as + ld (no LLVM required)")
         return 0
     }
 

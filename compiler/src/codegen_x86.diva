@@ -1,41 +1,43 @@
 // x86_64 assembly codegen from Diva IR.
 // Emits AT&T syntax for GNU assembler (gas).
-// Strategy: all locals on the stack, simple register use (rax, rcx, rdx, rsi, rdi, r8-r11).
-// Follows System V AMD64 ABI for function calls.
+// Uses a "line printer" (lp) pattern: build each line with str_builder,
+// flush with print_str (which adds a real newline).
 
 import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
 import "ir.diva"
 import "tokens.diva"
+import "cell.diva"
 
-func cg_emit(out: int, s: str): int {
-    str_builder_append(out, s)
+// --- Line printer: cell wrapping a str_builder, flushed per line ---
+
+func lp_new(): int { return mut_new(str_builder_new()) }
+
+func lp_add(lp: int, s: str): int {
+    str_builder_append(mut_get(lp), s)
     return 0
 }
 
-func cg_emit_line(out: int, s: str): int {
-    str_builder_append(out, s)
-    str_builder_append(out, "\n")
+func lp_add_int(lp: int, n: int): int {
+    str_builder_append(mut_get(lp), int_to_str(n))
     return 0
 }
 
-func cg_emit_label(out: int, name: str): int {
-    str_builder_append(out, name)
-    str_builder_append(out, ":\n")
+func lp_flush(lp: int): int {
+    var old = mut_get(lp)
+    print_str(str_builder_to_str(old))
+    str_builder_free(old)
+    mut_set(lp, str_builder_new())
     return 0
 }
 
-func cg_emit_int(out: int, n: int): int {
-    str_builder_append(out, int_to_str(n))
-    return 0
-}
+// --- Helpers ---
 
 func stack_offset(slot: int): str {
-    var off = (slot + 1) * 8
     var b = str_builder_new()
     str_builder_append(b, "-")
-    str_builder_append(b, int_to_str(off))
+    str_builder_append(b, int_to_str((slot + 1) * 8))
     str_builder_append(b, "(%rbp)")
     var r = str_builder_to_str(b)
     str_builder_free(b)
@@ -62,274 +64,207 @@ func bb_label(func_idx: int, lbl: int): str {
     return r
 }
 
-func cg_inst(out: int, inst: int, fi: int, max_locals: int): int {
+// --- Instruction codegen ---
+
+func cg_inst(lp: int, inst: int, fi: int): int {
     var op = inst_op(inst)
     var res = inst_result(inst)
     var a = inst_a(inst)
-    var b_val = inst_b(inst)
+    var bv = inst_b(inst)
 
     if op == ir_const() {
-        cg_emit(out, "    movq $")
-        cg_emit_int(out, a)
-        cg_emit(out, ", ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    movq $") lp_add_int(lp, a) lp_add(lp, ", ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_const_str() {
-        cg_emit(out, "    leaq .Lstr")
-        cg_emit_int(out, a)
-        cg_emit(out, "(%rip), %rax\n")
-        cg_emit(out, "    movq %rax, ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    leaq .Lstr") lp_add_int(lp, a) lp_add(lp, "(%rip), %rax") lp_flush(lp)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_add() | op == ir_sub() | op == ir_mul() {
-        cg_emit(out, "    movq ")
-        cg_emit(out, stack_offset(a))
-        cg_emit_line(out, ", %rax")
-        if op == ir_add() {
-            cg_emit(out, "    addq ")
-            cg_emit(out, stack_offset(b_val))
-            cg_emit_line(out, ", %rax")
-        }
-        if op == ir_sub() {
-            cg_emit(out, "    subq ")
-            cg_emit(out, stack_offset(b_val))
-            cg_emit_line(out, ", %rax")
-        }
-        if op == ir_mul() {
-            cg_emit(out, "    imulq ")
-            cg_emit(out, stack_offset(b_val))
-            cg_emit_line(out, ", %rax")
-        }
-        cg_emit(out, "    movq %rax, ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
+        if op == ir_add() { lp_add(lp, "    addq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp) }
+        if op == ir_sub() { lp_add(lp, "    subq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp) }
+        if op == ir_mul() { lp_add(lp, "    imulq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp) }
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_div() | op == ir_mod() {
-        cg_emit_line(out, "    movq $0, %rdx")
-        cg_emit(out, "    movq ")
-        cg_emit(out, stack_offset(a))
-        cg_emit_line(out, ", %rax")
-        cg_emit_line(out, "    cqto")
-        cg_emit(out, "    idivq ")
-        cg_emit_line(out, stack_offset(b_val))
-        if op == ir_div() {
-            cg_emit(out, "    movq %rax, ")
-        } else {
-            cg_emit(out, "    movq %rdx, ")
-        }
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    movq $0, %rdx") lp_flush(lp)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    cqto") lp_flush(lp)
+        lp_add(lp, "    idivq ") lp_add(lp, stack_offset(bv)) lp_flush(lp)
+        if op == ir_div() { lp_add(lp, "    movq %rax, ") } else { lp_add(lp, "    movq %rdx, ") }
+        lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_neg() {
-        cg_emit(out, "    movq ")
-        cg_emit(out, stack_offset(a))
-        cg_emit_line(out, ", %rax")
-        cg_emit_line(out, "    negq %rax")
-        cg_emit(out, "    movq %rax, ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    negq %rax") lp_flush(lp)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() | op == ir_gt() | op == ir_ge() {
-        cg_emit(out, "    movq ")
-        cg_emit(out, stack_offset(a))
-        cg_emit_line(out, ", %rax")
-        cg_emit(out, "    cmpq ")
-        cg_emit(out, stack_offset(b_val))
-        cg_emit_line(out, ", %rax")
-        if op == ir_eq() { cg_emit_line(out, "    sete %al") }
-        if op == ir_ne() { cg_emit_line(out, "    setne %al") }
-        if op == ir_lt() { cg_emit_line(out, "    setl %al") }
-        if op == ir_le() { cg_emit_line(out, "    setle %al") }
-        if op == ir_gt() { cg_emit_line(out, "    setg %al") }
-        if op == ir_ge() { cg_emit_line(out, "    setge %al") }
-        cg_emit_line(out, "    movzbq %al, %rax")
-        cg_emit(out, "    movq %rax, ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    cmpq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp)
+        if op == ir_eq() { lp_add(lp, "    sete %al") lp_flush(lp) }
+        if op == ir_ne() { lp_add(lp, "    setne %al") lp_flush(lp) }
+        if op == ir_lt() { lp_add(lp, "    setl %al") lp_flush(lp) }
+        if op == ir_le() { lp_add(lp, "    setle %al") lp_flush(lp) }
+        if op == ir_gt() { lp_add(lp, "    setg %al") lp_flush(lp) }
+        if op == ir_ge() { lp_add(lp, "    setge %al") lp_flush(lp) }
+        lp_add(lp, "    movzbq %al, %rax") lp_flush(lp)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_and() {
-        cg_emit(out, "    movq ")
-        cg_emit(out, stack_offset(a))
-        cg_emit_line(out, ", %rax")
-        cg_emit(out, "    andq ")
-        cg_emit(out, stack_offset(b_val))
-        cg_emit_line(out, ", %rax")
-        cg_emit(out, "    movq %rax, ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    andq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_or() {
-        cg_emit(out, "    movq ")
-        cg_emit(out, stack_offset(a))
-        cg_emit_line(out, ", %rax")
-        cg_emit(out, "    orq ")
-        cg_emit(out, stack_offset(b_val))
-        cg_emit_line(out, ", %rax")
-        cg_emit(out, "    movq %rax, ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    orq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_not() {
-        cg_emit(out, "    movq ")
-        cg_emit(out, stack_offset(a))
-        cg_emit_line(out, ", %rax")
-        cg_emit_line(out, "    testq %rax, %rax")
-        cg_emit_line(out, "    sete %al")
-        cg_emit_line(out, "    movzbq %al, %rax")
-        cg_emit(out, "    movq %rax, ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    testq %rax, %rax") lp_flush(lp)
+        lp_add(lp, "    sete %al") lp_flush(lp)
+        lp_add(lp, "    movzbq %al, %rax") lp_flush(lp)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_load() {
-        cg_emit(out, "    movq ")
-        cg_emit(out, stack_offset(a))
-        cg_emit(out, ", %rax\n")
-        cg_emit(out, "    movq %rax, ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_store() {
-        cg_emit(out, "    movq ")
-        cg_emit(out, stack_offset(a))
-        cg_emit_line(out, ", %rax")
-        cg_emit(out, "    movq %rax, ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_alloca() {
-        cg_emit(out, "    movq $0, ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    movq $0, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_param() {
-        if a == 0 { cg_emit(out, "    movq %rdi, ") cg_emit_line(out, stack_offset(res)) }
-        if a == 1 { cg_emit(out, "    movq %rsi, ") cg_emit_line(out, stack_offset(res)) }
-        if a == 2 { cg_emit(out, "    movq %rdx, ") cg_emit_line(out, stack_offset(res)) }
-        if a == 3 { cg_emit(out, "    movq %rcx, ") cg_emit_line(out, stack_offset(res)) }
-        if a == 4 { cg_emit(out, "    movq %r8, ")  cg_emit_line(out, stack_offset(res)) }
-        if a == 5 { cg_emit(out, "    movq %r9, ")  cg_emit_line(out, stack_offset(res)) }
+        if a == 0 { lp_add(lp, "    movq %rdi, ") lp_add(lp, stack_offset(res)) lp_flush(lp) }
+        if a == 1 { lp_add(lp, "    movq %rsi, ") lp_add(lp, stack_offset(res)) lp_flush(lp) }
+        if a == 2 { lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush(lp) }
+        if a == 3 { lp_add(lp, "    movq %rcx, ") lp_add(lp, stack_offset(res)) lp_flush(lp) }
+        if a == 4 { lp_add(lp, "    movq %r8, ")  lp_add(lp, stack_offset(res)) lp_flush(lp) }
+        if a == 5 { lp_add(lp, "    movq %r9, ")  lp_add(lp, stack_offset(res)) lp_flush(lp) }
         return 0
     }
 
     if op == ir_call() {
-        cg_emit(out, "    call ")
-        cg_emit(out, func_label(a))
-        cg_emit_line(out, "")
-        cg_emit(out, "    movq %rax, ")
-        cg_emit_line(out, stack_offset(res))
+        lp_add(lp, "    call ") lp_add(lp, func_label(a)) lp_flush(lp)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush(lp)
         return 0
     }
 
     if op == ir_ret() {
-        cg_emit(out, "    movq ")
-        cg_emit(out, stack_offset(a))
-        cg_emit_line(out, ", %rax")
-        cg_emit_line(out, "    leave")
-        cg_emit_line(out, "    ret")
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    leave") lp_flush(lp)
+        lp_add(lp, "    ret") lp_flush(lp)
         return 0
     }
 
     if op == ir_ret_void() {
-        cg_emit_line(out, "    leave")
-        cg_emit_line(out, "    ret")
+        lp_add(lp, "    leave") lp_flush(lp)
+        lp_add(lp, "    ret") lp_flush(lp)
         return 0
     }
 
     if op == ir_br() {
-        cg_emit(out, "    jmp ")
-        cg_emit_line(out, bb_label(fi, a))
+        lp_add(lp, "    jmp ") lp_add(lp, bb_label(fi, a)) lp_flush(lp)
         return 0
     }
 
     if op == ir_br_cond() {
-        cg_emit(out, "    movq ")
-        cg_emit(out, stack_offset(res))
-        cg_emit_line(out, ", %rax")
-        cg_emit_line(out, "    testq %rax, %rax")
-        cg_emit(out, "    jne ")
-        cg_emit_line(out, bb_label(fi, a))
-        cg_emit(out, "    jmp ")
-        cg_emit_line(out, bb_label(fi, b_val))
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(res)) lp_add(lp, ", %rax") lp_flush(lp)
+        lp_add(lp, "    testq %rax, %rax") lp_flush(lp)
+        lp_add(lp, "    jne ") lp_add(lp, bb_label(fi, a)) lp_flush(lp)
+        lp_add(lp, "    jmp ") lp_add(lp, bb_label(fi, bv)) lp_flush(lp)
         return 0
     }
 
     return 0
 }
 
-func cg_func(out: int, f: int, fi: int): int {
-    var flabel = func_label(func_name_idx(f))
-    cg_emit(out, "    .globl ")
-    cg_emit_line(out, flabel)
-    cg_emit_label(out, flabel)
+// --- Function codegen ---
 
-    cg_emit_line(out, "    pushq %rbp")
-    cg_emit_line(out, "    movq %rsp, %rbp")
-    cg_emit_line(out, "    subq $2048, %rsp")
+func cg_func(lp: int, f: int, fi: int): int {
+    var flabel = func_label(func_name_idx(f))
+    lp_add(lp, "    .globl ") lp_add(lp, flabel) lp_flush(lp)
+    lp_add(lp, flabel) lp_add(lp, ":") lp_flush(lp)
+
+    lp_add(lp, "    pushq %rbp") lp_flush(lp)
+    lp_add(lp, "    movq %rsp, %rbp") lp_flush(lp)
+    lp_add(lp, "    subq $2048, %rsp") lp_flush(lp)
 
     var bc = func_block_count(f)
     var bi = 0
     while bi < bc {
         var blk = func_get_block(f, bi)
         if bi > 0 {
-            cg_emit_label(out, bb_label(fi, block_label(blk)))
+            lp_add(lp, bb_label(fi, block_label(blk))) lp_add(lp, ":") lp_flush(lp)
         }
         var insts = block_insts(blk)
         var ic = int_vec_len(insts)
         var ii = 0
         while ii < ic {
-            cg_inst(out, int_vec_get(insts, ii), fi, 256)
+            cg_inst(lp, int_vec_get(insts, ii), fi)
             ii = ii + 1
         }
         bi = bi + 1
     }
-    cg_emit_line(out, "")
+    lp_flush(lp)
     return 0
 }
 
-func cg_module(m: int, src: str, toks: int, str_toks: int): str {
-    var out = str_builder_new()
+// --- Module codegen (prints directly) ---
 
-    cg_emit_line(out, "    .text")
-    cg_emit_line(out, "")
+func cg_module_print(m: int, src: str, toks: int, str_toks: int): int {
+    var lp = lp_new()
+
+    lp_add(lp, "    .text") lp_flush(lp)
+    lp_flush(lp)
 
     var fc = mod_func_count(m)
     var fi = 0
     while fi < fc {
-        cg_func(out, mod_get_func(m, fi), fi)
+        cg_func(lp, mod_get_func(m, fi), fi)
         fi = fi + 1
     }
 
     if int_vec_len(str_toks) > 0 {
-        cg_emit_line(out, "    .section .rodata")
+        lp_add(lp, "    .section .rodata") lp_flush(lp)
         var si = 0
         while si < int_vec_len(str_toks) {
-            cg_emit(out, ".Lstr")
-            cg_emit_int(out, si)
-            cg_emit(out, ":\n")
+            lp_add(lp, ".Lstr") lp_add_int(lp, si) lp_add(lp, ":") lp_flush(lp)
             var tok_idx = int_vec_get(str_toks, si)
             var s = tok_text(src, toks, tok_idx)
-            cg_emit(out, "    .asciz ")
-            cg_emit(out, s)
-            cg_emit_line(out, "")
+            lp_add(lp, "    .asciz ") lp_add(lp, s) lp_flush(lp)
             si = si + 1
         }
     }
 
-    var result = str_builder_to_str(out)
-    str_builder_free(out)
-    return result
+    return 0
 }
