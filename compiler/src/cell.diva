@@ -1,0 +1,18 @@
+// Mutable integer cell — simulates mutable state without module-level var.
+// Uses an append-only int_vec; the last element is always the current value.
+import "std/vec.diva"
+
+func mut_new(v: int): int {
+    var c = int_vec_new()
+    int_vec_push(c, v)
+    return c
+}
+
+func mut_get(c: int): int {
+    return int_vec_get(c, int_vec_len(c) - 1)
+}
+
+func mut_set(c: int, v: int): int {
+    int_vec_push(c, v)
+    return 0
+}

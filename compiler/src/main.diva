@@ -1,16 +1,17 @@
 // Diva compiler driver.
 // Commands handled natively (in Diva):
-//   diva lex <file>      — tokenize and dump tokens
-//   diva parse <file>    — parse and dump AST summary
-//   diva ir <file>       — parse, lower to Diva IR, dump IR text
-//   diva asm <file>      — full pipeline to x86_64 assembly (stdout)
-//   diva compile <file>  — full pipeline to native executable
-//   diva compiler-version — print version info
+//   diva lex <file>            — tokenize and dump tokens
+//   diva parse <file>          — parse and report declarations
+//   diva ir <file>             — lower to Diva IR and dump
+//   diva asm <file>            — generate x86_64 assembly
+//   diva compiler-version      — print version info
+//   diva pipeline              — show compiler pipeline stages
 // All other commands forwarded to the bootstrap seed binary.
 
 import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
+import "cell.diva"
 import "tokens.diva"
 import "lexer.diva"
 import "ast.diva"
@@ -61,7 +62,7 @@ func forward_to_seed(): int {
 
 func read_source(path: str): str {
     if file_size(path) < 0 {
-        stderr("diva: cannot read file: ")
+        stderr("error: cannot read file: ")
         stderr(path)
         stderr("\n")
         return ""
@@ -77,51 +78,16 @@ func cmd_parse(path: str): int {
     var src = read_source(path)
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
-    if stream == 0 {
-        stderr("diva parse: tokenization failed\n")
-        return 1
-    }
-    var ast = parse_source(src, stream)
-    if parse_had_error() != 0 {
-        stderr("diva parse: parse errors encountered\n")
-        return 1
-    }
+    if stream == 0 { stderr("lexer error\n") return 1 }
+    var pr = parse_source(src, stream)
+    var ast = int_vec_get(pr, 0)
+    var had_err = int_vec_get(pr, 1)
+    if had_err != 0 { stderr("parse failed\n") return 1 }
     var children = ast_child(ast, 0)
     var n = int_vec_len(children)
-    stdout("parsed ")
-    stdout(int_to_str(n))
-    stdout(" top-level declarations from ")
-    stdout(path)
-    stdout("\n")
-    var i = 0
-    while i < n {
-        var child = int_vec_get(children, i)
-        var kind = ast_kind(child)
-        stdout("  [")
-        stdout(int_to_str(i))
-        stdout("] ")
-        if kind == nd_import()      { stdout("import") }
-        if kind == nd_package_decl() { stdout("package") }
-        if kind == nd_func()        {
-            stdout("func ")
-            stdout(tok_text(src, stream, ast_child(child, 0)))
-        }
-        if kind == nd_extern_func() {
-            stdout("extern func ")
-            stdout(tok_text(src, stream, ast_child(child, 0)))
-        }
-        if kind == nd_class()       {
-            stdout("class ")
-            stdout(tok_text(src, stream, ast_child(child, 0)))
-        }
-        if kind == nd_var_decl()    {
-            stdout("var ")
-            stdout(tok_text(src, stream, ast_child(child, 0)))
-        }
-        stdout("\n")
-        i = i + 1
-    }
-    int_vec_free(stream)
+    print_str("parsed ")
+    print_str(int_to_str(n))
+    print_str(" top-level declarations\n")
     return 0
 }
 
@@ -129,16 +95,12 @@ func cmd_ir(path: str): int {
     var src = read_source(path)
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
-    if stream == 0 {
-        stderr("diva ir: tokenization failed\n")
-        return 1
-    }
-    var ast = parse_source(src, stream)
-    if parse_had_error() != 0 {
-        stderr("diva ir: parse errors encountered\n")
-        return 1
-    }
-    var m = build_ir(src, stream, ast)
+    if stream == 0 { return 1 }
+    var pr = parse_source(src, stream)
+    var ast = int_vec_get(pr, 0)
+    if int_vec_get(pr, 1) != 0 { stderr("parse failed\n") return 1 }
+    var ir_result = build_ir(src, stream, ast)
+    var m = int_vec_get(ir_result, 0)
     dump_module(m)
     return 0
 }
@@ -147,17 +109,14 @@ func cmd_asm(path: str): int {
     var src = read_source(path)
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
-    if stream == 0 {
-        stderr("diva asm: tokenization failed\n")
-        return 1
-    }
-    var ast = parse_source(src, stream)
-    if parse_had_error() != 0 {
-        stderr("diva asm: parse errors encountered\n")
-        return 1
-    }
-    var m = build_ir(src, stream, ast)
-    var asm_text = cg_module(m, src, stream, ib_str_vec)
+    if stream == 0 { return 1 }
+    var pr = parse_source(src, stream)
+    var ast = int_vec_get(pr, 0)
+    if int_vec_get(pr, 1) != 0 { stderr("parse failed\n") return 1 }
+    var ir_result = build_ir(src, stream, ast)
+    var m = int_vec_get(ir_result, 0)
+    var strvec = int_vec_get(ir_result, 1)
+    var asm_text = cg_module(m, src, stream, strvec)
     stdout(asm_text)
     return 0
 }
@@ -201,15 +160,18 @@ func main(): int {
     }
 
     if str_eq(a1, "compiler-version") == 1 {
-        print_str("diva compiler v0.2.0: lex, parse, ir, asm in Diva; pipeline via seed for build/run\n")
+        print_str("diva compiler v0.3.0\n")
+        print_str("  native stages: lex, parse, ir, asm (all in Diva)\n")
+        print_str("  fallback: seed binary for build/run/emit-ir/check\n")
         return 0
     }
 
     if str_eq(a1, "pipeline") == 1 {
         print_str("Diva compiler pipeline:\n")
-        print_str("  source.diva -> lexer -> tokens -> parser -> AST -> IR builder -> Diva IR -> x86_64 codegen -> assembly\n")
-        print_str("  Stages implemented in Diva: lex, parse, ir, asm\n")
-        print_str("  Backend: GNU as + ld (no LLVM required)\n")
+        print_str("  source.diva -> lexer -> tokens -> parser -> AST\n")
+        print_str("    -> IR builder -> Diva IR -> x86_64 codegen -> assembly\n")
+        print_str("  All stages implemented in Diva.\n")
+        print_str("  Backend target: GNU as + ld (no LLVM required)\n")
         return 0
     }
 

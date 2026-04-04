@@ -1,5 +1,6 @@
-// AST → Diva IR lowering.
+// AST -> Diva IR lowering.
 // Walks the AST produced by the parser and emits Diva IR instructions.
+// All mutable state uses the cell pattern (cell.diva) to avoid module-level var.
 
 import "std/host.diva"
 import "std/io.diva"
@@ -7,63 +8,94 @@ import "std/vec.diva"
 import "tokens.diva"
 import "ast.diva"
 import "ir.diva"
+import "cell.diva"
 
-// --- Builder state ---
+// --- Builder context ---
+// ctx = int_vec:
+//   [0] = mod handle (direct)
+//   [1] = func_cell (current function)
+//   [2] = blk_cell  (current basic block)
+//   [3] = vreg_cell (virtual register counter)
+//   [4] = label_cell (label counter)
+//   [5] = names_cell (local name hashes vec handle)
+//   [6] = slots_cell (local slot ids vec handle)
+//   [7] = str_vec (int_vec of string literal token indices)
+//   [8] = toks handle (direct)
+//   [9] = strtab_cell (string table counter)
 
-var ib_src     = ""
-var ib_toks    = 0
-var ib_mod     = 0
-var ib_func    = 0
-var ib_blk     = 0
-var ib_vreg    = 0
-var ib_label   = 0
-var ib_names   = 0
-var ib_slots   = 0
-var ib_str_vec = 0
-
-func ib_init(src: str, toks: int): int {
-    ib_src     = src
-    ib_toks    = toks
-    ib_mod     = ir_module_new()
-    ib_vreg    = 0
-    ib_label   = 0
-    ib_names   = int_vec_new()
-    ib_slots   = int_vec_new()
-    ib_str_vec = int_vec_new()
-    return 0
+func bctx_new(src: str, toks: int): int {
+    var ctx = int_vec_new()
+    int_vec_push(ctx, ir_module_new())       // [0] mod
+    int_vec_push(ctx, mut_new(0))            // [1] func_cell
+    int_vec_push(ctx, mut_new(0))            // [2] blk_cell
+    int_vec_push(ctx, mut_new(0))            // [3] vreg_cell
+    int_vec_push(ctx, mut_new(0))            // [4] label_cell
+    int_vec_push(ctx, mut_new(int_vec_new())) // [5] names_cell
+    int_vec_push(ctx, mut_new(int_vec_new())) // [6] slots_cell
+    int_vec_push(ctx, int_vec_new())          // [7] str_vec
+    int_vec_push(ctx, toks)                   // [8] toks
+    int_vec_push(ctx, mut_new(0))            // [9] strtab_cell
+    return ctx
 }
 
-func ib_fresh_vreg(): int {
-    var r = ib_vreg
-    ib_vreg = ib_vreg + 1
+func bctx_mod(ctx: int): int     { return int_vec_get(ctx, 0) }
+func bctx_func(ctx: int): int    { return mut_get(int_vec_get(ctx, 1)) }
+func bctx_blk(ctx: int): int     { return mut_get(int_vec_get(ctx, 2)) }
+func bctx_vreg(ctx: int): int    { return mut_get(int_vec_get(ctx, 3)) }
+func bctx_label(ctx: int): int   { return mut_get(int_vec_get(ctx, 4)) }
+func bctx_names(ctx: int): int   { return mut_get(int_vec_get(ctx, 5)) }
+func bctx_slots(ctx: int): int   { return mut_get(int_vec_get(ctx, 6)) }
+func bctx_str_vec(ctx: int): int { return int_vec_get(ctx, 7) }
+func bctx_toks(ctx: int): int    { return int_vec_get(ctx, 8) }
+func bctx_strtab(ctx: int): int  { return mut_get(int_vec_get(ctx, 9)) }
+
+func bctx_set_func(ctx: int, v: int): int  { return mut_set(int_vec_get(ctx, 1), v) }
+func bctx_set_blk(ctx: int, v: int): int   { return mut_set(int_vec_get(ctx, 2), v) }
+func bctx_set_vreg(ctx: int, v: int): int  { return mut_set(int_vec_get(ctx, 3), v) }
+func bctx_set_label(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 4), v) }
+func bctx_set_names(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 5), v) }
+func bctx_set_slots(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 6), v) }
+
+// --- String table (counter stored in strtab_cell) ---
+
+func ib_strtab_add(ctx: int, s: str): int {
+    var idx = bctx_strtab(ctx)
+    mut_set(int_vec_get(ctx, 9), idx + 1)
+    return idx
+}
+
+// --- Helper functions ---
+
+func ib_fresh_vreg(ctx: int): int {
+    var r = bctx_vreg(ctx)
+    bctx_set_vreg(ctx, r + 1)
     return r
 }
 
-func ib_fresh_label(): int {
-    var l = ib_label
-    ib_label = ib_label + 1
+func ib_fresh_label(ctx: int): int {
+    var l = bctx_label(ctx)
+    bctx_set_label(ctx, l + 1)
     return l
 }
 
-func ib_emit(inst: int): int {
-    block_append(ib_blk, inst)
+func ib_emit(ctx: int, inst: int): int {
+    block_append(bctx_blk(ctx), inst)
     return 0
 }
 
-func ib_new_block(): int {
-    var l = ib_fresh_label()
+func ib_new_block(ctx: int): int {
+    var l = ib_fresh_label(ctx)
     var blk = ir_block_new(l)
-    func_add_block(ib_func, blk)
-    ib_blk = blk
+    func_add_block(bctx_func(ctx), blk)
+    bctx_set_blk(ctx, blk)
     return blk
 }
 
-func ib_tok_text(tok_idx: int): str {
-    return tok_text(ib_src, ib_toks, tok_idx)
+func ib_tok_text(ctx: int, src: str, tok_idx: int): str {
+    return tok_text(src, bctx_toks(ctx), tok_idx)
 }
 
-// --- Local variable name → slot mapping ---
-// Parallel int_vecs: ib_names stores string hashes, ib_slots stores vreg/slot ids.
+// --- Local variable name -> slot mapping ---
 
 func ib_name_hash(name: str): int {
     var h = 5381
@@ -77,41 +109,43 @@ func ib_name_hash(name: str): int {
     return h
 }
 
-func ib_scope_push(): int { return int_vec_len(ib_names) }
+func ib_scope_push(ctx: int): int { return int_vec_len(bctx_names(ctx)) }
 
-func ib_scope_pop(mark: int): int {
-    while int_vec_len(ib_names) > mark {
+func ib_scope_pop(ctx: int, mark: int): int {
+    var names = bctx_names(ctx)
+    var slots = bctx_slots(ctx)
+    if int_vec_len(names) > mark {
         var fresh_n = int_vec_new()
         var fresh_s = int_vec_new()
         var i = 0
         while i < mark {
-            int_vec_push(fresh_n, int_vec_get(ib_names, i))
-            int_vec_push(fresh_s, int_vec_get(ib_slots, i))
+            int_vec_push(fresh_n, int_vec_get(names, i))
+            int_vec_push(fresh_s, int_vec_get(slots, i))
             i = i + 1
         }
-        int_vec_free(ib_names)
-        int_vec_free(ib_slots)
-        ib_names = fresh_n
-        ib_slots = fresh_s
-        return 0
+        int_vec_free(names)
+        int_vec_free(slots)
+        bctx_set_names(ctx, fresh_n)
+        bctx_set_slots(ctx, fresh_s)
     }
     return 0
 }
 
-func ib_define_local(name: str): int {
-    var slot = ib_fresh_vreg()
-    int_vec_push(ib_names, ib_name_hash(name))
-    int_vec_push(ib_slots, slot)
+func ib_define_local(ctx: int, name: str): int {
+    var slot = ib_fresh_vreg(ctx)
+    int_vec_push(bctx_names(ctx), ib_name_hash(name))
+    int_vec_push(bctx_slots(ctx), slot)
     return slot
 }
 
-func ib_lookup_local(name: str): int {
+func ib_lookup_local(ctx: int, name: str): int {
     var h = ib_name_hash(name)
-    var n = int_vec_len(ib_names)
+    var names = bctx_names(ctx)
+    var n = int_vec_len(names)
     var i = n - 1
     while i >= 0 {
-        if int_vec_get(ib_names, i) == h {
-            return int_vec_get(ib_slots, i)
+        if int_vec_get(names, i) == h {
+            return int_vec_get(bctx_slots(ctx), i)
         }
         i = i - 1
     }
@@ -120,52 +154,51 @@ func ib_lookup_local(name: str): int {
 
 // --- Expression lowering ---
 
-func lower_expr(node: int): int {
+func lower_expr(ctx: int, src: str, node: int): int {
     var kind = ast_kind(node)
 
     if kind == nd_int_lit() {
         var val = ast_child(node, 0)
-        var r = ib_fresh_vreg()
-        ib_emit(ir_inst(ir_const(), r, val, 0, 0))
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), r, val, 0, 0))
         return r
     }
 
     if kind == nd_bool_lit() {
         var val = ast_child(node, 0)
-        var r = ib_fresh_vreg()
-        ib_emit(ir_inst(ir_const(), r, val, 0, 0))
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), r, val, 0, 0))
         return r
     }
 
     if kind == nd_str_lit() {
         var tok_idx = ast_child(node, 0)
-        var s = ib_tok_text(tok_idx)
-        var str_id = int_vec_len(ib_str_vec)
-        int_vec_push(ib_str_vec, tok_idx)
-        var r = ib_fresh_vreg()
-        ib_emit(ir_inst(ir_const_str(), r, str_id, 0, 0))
+        var str_id = int_vec_len(bctx_str_vec(ctx))
+        int_vec_push(bctx_str_vec(ctx), tok_idx)
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const_str(), r, str_id, 0, 0))
         return r
     }
 
     if kind == nd_ident() {
         var tok_idx = ast_child(node, 0)
-        var name = ib_tok_text(tok_idx)
-        var slot = ib_lookup_local(name)
+        var name = ib_tok_text(ctx, src, tok_idx)
+        var slot = ib_lookup_local(ctx, name)
         if slot < 0 {
-            var r = ib_fresh_vreg()
-            ib_emit(ir_inst(ir_const(), r, 0, 0, 0))
+            var r = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
             return r
         }
-        var r = ib_fresh_vreg()
-        ib_emit(ir_inst(ir_load(), r, slot, 0, 0))
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), r, slot, 0, 0))
         return r
     }
 
     if kind == nd_binop() {
         var op = ast_child(node, 0)
-        var left = lower_expr(ast_child(node, 1))
-        var right = lower_expr(ast_child(node, 2))
-        var r = ib_fresh_vreg()
+        var left = lower_expr(ctx, src, ast_child(node, 1))
+        var right = lower_expr(ctx, src, ast_child(node, 2))
+        var r = ib_fresh_vreg(ctx)
         var irop = ir_nop()
         if op == binop_add() { irop = ir_add() }
         if op == binop_sub() { irop = ir_sub() }
@@ -180,18 +213,18 @@ func lower_expr(node: int): int {
         if op == binop_ge()  { irop = ir_ge() }
         if op == binop_and() { irop = ir_and() }
         if op == binop_or()  { irop = ir_or() }
-        ib_emit(ir_inst(irop, r, left, right, 0))
+        ib_emit(ctx, ir_inst(irop, r, left, right, 0))
         return r
     }
 
     if kind == nd_unary() {
         var op = ast_child(node, 0)
-        var operand = lower_expr(ast_child(node, 1))
-        var r = ib_fresh_vreg()
+        var operand = lower_expr(ctx, src, ast_child(node, 1))
+        var r = ib_fresh_vreg(ctx)
         if op == unop_neg() {
-            ib_emit(ir_inst(ir_neg(), r, operand, 0, 0))
+            ib_emit(ctx, ir_inst(ir_neg(), r, operand, 0, 0))
         } else {
-            ib_emit(ir_inst(ir_not(), r, operand, 0, 0))
+            ib_emit(ctx, ir_inst(ir_not(), r, operand, 0, 0))
         }
         return r
     }
@@ -203,50 +236,49 @@ func lower_expr(node: int): int {
         var arg_regs = int_vec_new()
         var i = 0
         while i < argc {
-            int_vec_push(arg_regs, lower_expr(int_vec_get(args_h, i)))
+            int_vec_push(arg_regs, lower_expr(ctx, src, int_vec_get(args_h, i)))
             i = i + 1
         }
-        var callee_kind = ast_kind(callee)
         var fname_idx = 0
-        if callee_kind == nd_ident() {
+        if ast_kind(callee) == nd_ident() {
             fname_idx = ast_child(callee, 0)
         }
-        var r = ib_fresh_vreg()
-        ib_emit(ir_inst(ir_call(), r, fname_idx, argc, arg_regs))
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_call(), r, fname_idx, argc, arg_regs))
         int_vec_free(arg_regs)
         return r
     }
 
     if kind == nd_method_call() {
-        var obj_reg = lower_expr(ast_child(node, 0))
+        var obj_reg = lower_expr(ctx, src, ast_child(node, 0))
         var method_tok = ast_child(node, 1)
         var args_h = ast_child(node, 2)
         var argc = int_vec_len(args_h)
-        var r = ib_fresh_vreg()
-        ib_emit(ir_inst(ir_call(), r, method_tok, argc + 1, obj_reg))
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_call(), r, method_tok, argc + 1, obj_reg))
         return r
     }
 
-    // Fallback: return 0
-    var r = ib_fresh_vreg()
-    ib_emit(ir_inst(ir_const(), r, 0, 0, 0))
+    var r = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
     return r
 }
 
 // --- Statement lowering ---
+// lower_stmt calls lower_block (defined later); seed supports forward refs.
 
-func lower_stmt(node: int): int {
+func lower_stmt(ctx: int, src: str, node: int): int {
     var kind = ast_kind(node)
 
     if kind == nd_var_decl() {
         var name_tok = ast_child(node, 0)
         var init = ast_child(node, 2)
-        var name = ib_tok_text(name_tok)
-        var slot = ib_define_local(name)
-        ib_emit(ir_inst(ir_alloca(), slot, 0, 0, 0))
+        var name = ib_tok_text(ctx, src, name_tok)
+        var slot = ib_define_local(ctx, name)
+        ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
         if init >= 0 {
-            var val = lower_expr(init)
-            ib_emit(ir_inst(ir_store(), slot, val, 0, 0))
+            var val = lower_expr(ctx, src, init)
+            ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
         }
         return 0
     }
@@ -254,13 +286,12 @@ func lower_stmt(node: int): int {
     if kind == nd_assign() {
         var target = ast_child(node, 0)
         var value = ast_child(node, 1)
-        var val = lower_expr(value)
-        var tk = ast_kind(target)
-        if tk == nd_ident() {
-            var name = ib_tok_text(ast_child(target, 0))
-            var slot = ib_lookup_local(name)
+        var val = lower_expr(ctx, src, value)
+        if ast_kind(target) == nd_ident() {
+            var name = ib_tok_text(ctx, src, ast_child(target, 0))
+            var slot = ib_lookup_local(ctx, name)
             if slot >= 0 {
-                ib_emit(ir_inst(ir_store(), slot, val, 0, 0))
+                ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
             }
         }
         return 0
@@ -269,177 +300,168 @@ func lower_stmt(node: int): int {
     if kind == nd_return() {
         var expr = ast_child(node, 0)
         if expr < 0 {
-            ib_emit(ir_inst(ir_ret_void(), 0, 0, 0, 0))
+            ib_emit(ctx, ir_inst(ir_ret_void(), 0, 0, 0, 0))
         } else {
-            var val = lower_expr(expr)
-            ib_emit(ir_inst(ir_ret(), 0, val, 0, 0))
+            var val = lower_expr(ctx, src, expr)
+            ib_emit(ctx, ir_inst(ir_ret(), 0, val, 0, 0))
         }
         return 0
     }
 
     if kind == nd_if() {
-        var cond_reg = lower_expr(ast_child(node, 0))
-        var then_lbl = ib_fresh_label()
-        var else_lbl = ib_fresh_label()
-        var end_lbl  = ib_fresh_label()
+        var cond_reg = lower_expr(ctx, src, ast_child(node, 0))
+        var then_lbl = ib_fresh_label(ctx)
+        var else_lbl = ib_fresh_label(ctx)
+        var end_lbl  = ib_fresh_label(ctx)
         var has_else = ast_child(node, 2)
 
         if has_else < 0 {
-            ib_emit(ir_inst(ir_br_cond(), cond_reg, then_lbl, end_lbl, 0))
+            ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, then_lbl, end_lbl, 0))
         } else {
-            ib_emit(ir_inst(ir_br_cond(), cond_reg, then_lbl, else_lbl, 0))
+            ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, then_lbl, else_lbl, 0))
         }
 
-        // Then block
         var then_blk = ir_block_new(then_lbl)
-        func_add_block(ib_func, then_blk)
-        ib_blk = then_blk
-        lower_block(ast_child(node, 1))
-        ib_emit(ir_inst(ir_br(), 0, end_lbl, 0, 0))
+        func_add_block(bctx_func(ctx), then_blk)
+        bctx_set_blk(ctx, then_blk)
+        lower_block(ctx, src, ast_child(node, 1))
+        ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
 
-        // Else block
         if has_else >= 0 {
             var else_blk = ir_block_new(else_lbl)
-            func_add_block(ib_func, else_blk)
-            ib_blk = else_blk
-            lower_block(has_else)
-            ib_emit(ir_inst(ir_br(), 0, end_lbl, 0, 0))
+            func_add_block(bctx_func(ctx), else_blk)
+            bctx_set_blk(ctx, else_blk)
+            lower_block(ctx, src, has_else)
+            ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
         }
 
-        // End block
         var end_blk = ir_block_new(end_lbl)
-        func_add_block(ib_func, end_blk)
-        ib_blk = end_blk
+        func_add_block(bctx_func(ctx), end_blk)
+        bctx_set_blk(ctx, end_blk)
         return 0
     }
 
     if kind == nd_while() {
-        var cond_lbl = ib_fresh_label()
-        var body_lbl = ib_fresh_label()
-        var end_lbl  = ib_fresh_label()
+        var cond_lbl = ib_fresh_label(ctx)
+        var body_lbl = ib_fresh_label(ctx)
+        var end_lbl  = ib_fresh_label(ctx)
 
-        ib_emit(ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+        ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
 
-        // Condition block
         var cond_blk = ir_block_new(cond_lbl)
-        func_add_block(ib_func, cond_blk)
-        ib_blk = cond_blk
-        var cond_reg = lower_expr(ast_child(node, 0))
-        ib_emit(ir_inst(ir_br_cond(), cond_reg, body_lbl, end_lbl, 0))
+        func_add_block(bctx_func(ctx), cond_blk)
+        bctx_set_blk(ctx, cond_blk)
+        var cond_reg = lower_expr(ctx, src, ast_child(node, 0))
+        ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, body_lbl, end_lbl, 0))
 
-        // Body block
-        var body_blk_node = ir_block_new(body_lbl)
-        func_add_block(ib_func, body_blk_node)
-        ib_blk = body_blk_node
-        lower_block(ast_child(node, 1))
-        // Update expression if present
+        var body_blk = ir_block_new(body_lbl)
+        func_add_block(bctx_func(ctx), body_blk)
+        bctx_set_blk(ctx, body_blk)
+        lower_block(ctx, src, ast_child(node, 1))
         var update = ast_child(node, 2)
         if update >= 0 {
-            lower_expr(update)
+            lower_expr(ctx, src, update)
         }
-        ib_emit(ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+        ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
 
-        // End block
         var end_blk = ir_block_new(end_lbl)
-        func_add_block(ib_func, end_blk)
-        ib_blk = end_blk
+        func_add_block(bctx_func(ctx), end_blk)
+        bctx_set_blk(ctx, end_blk)
         return 0
     }
 
     if kind == nd_expr_stmt() {
-        lower_expr(ast_child(node, 0))
+        lower_expr(ctx, src, ast_child(node, 0))
         return 0
     }
 
     if kind == nd_block() {
-        lower_block(node)
+        lower_block(ctx, src, node)
         return 0
     }
 
     return 0
 }
 
-func lower_block(node: int): int {
+func lower_block(ctx: int, src: str, node: int): int {
     if node < 0 { return 0 }
     var kind = ast_kind(node)
     if kind == nd_block() {
         var stmts = ast_child(node, 0)
         var n = int_vec_len(stmts)
-        var scope = ib_scope_push()
+        var scope = ib_scope_push(ctx)
         var i = 0
         while i < n {
-            lower_stmt(int_vec_get(stmts, i))
+            lower_stmt(ctx, src, int_vec_get(stmts, i))
             i = i + 1
         }
-        ib_scope_pop(scope)
+        ib_scope_pop(ctx, scope)
     } else {
-        lower_stmt(node)
+        lower_stmt(ctx, src, node)
     }
     return 0
 }
 
 // --- Function lowering ---
 
-func lower_func(node: int): int {
+func lower_func(ctx: int, src: str, node: int): int {
     var name_tok = ast_child(node, 0)
     var params_h = ast_child(node, 1)
     var ret_type = ast_child(node, 2)
     var body     = ast_child(node, 3)
 
-    var fname = ib_tok_text(name_tok)
-    var name_idx = strtab_add(fname)
+    var fname = ib_tok_text(ctx, src, name_tok)
+    var name_idx = ib_strtab_add(ctx, fname)
     var pcount = int_vec_len(params_h)
 
     var ret_ty = ir_ty_int()
     if ret_type >= 0 {
-        var rtk = ast_kind(ret_type)
-        if rtk == nd_type_name() {
-            var tname = ib_tok_text(ast_child(ret_type, 0))
+        if ast_kind(ret_type) == nd_type_name() {
+            var tname = ib_tok_text(ctx, src, ast_child(ret_type, 0))
             if str_eq(tname, "void") == 1 { ret_ty = ir_ty_void() }
             if str_eq(tname, "str") == 1  { ret_ty = ir_ty_str() }
             if str_eq(tname, "bool") == 1 { ret_ty = ir_ty_bool() }
         }
     }
 
-    ib_func = ir_func_new(name_idx, pcount, ret_ty)
-    ib_vreg = 0
-    ib_label = 0
+    var f = ir_func_new(name_idx, pcount, ret_ty)
+    bctx_set_func(ctx, f)
+    bctx_set_vreg(ctx, 0)
+    bctx_set_label(ctx, 0)
 
-    var scope = ib_scope_push()
+    var scope = ib_scope_push(ctx)
 
-    // Entry block
-    ib_blk = ir_block_new(ib_fresh_label())
-    func_add_block(ib_func, ib_blk)
+    var entry = ir_block_new(ib_fresh_label(ctx))
+    func_add_block(f, entry)
+    bctx_set_blk(ctx, entry)
 
-    // Parameters
     var i = 0
     while i < pcount {
         var p = int_vec_get(params_h, i)
-        var pname = ib_tok_text(ast_child(p, 0))
-        var slot = ib_define_local(pname)
-        ib_emit(ir_inst(ir_param(), slot, i, 0, 0))
+        var pname = ib_tok_text(ctx, src, ast_child(p, 0))
+        var slot = ib_define_local(ctx, pname)
+        ib_emit(ctx, ir_inst(ir_param(), slot, i, 0, 0))
         i = i + 1
     }
 
-    // Body
-    lower_block(body)
+    lower_block(ctx, src, body)
 
-    ib_scope_pop(scope)
-    mod_add_func(ib_mod, ib_func)
+    ib_scope_pop(ctx, scope)
+    mod_add_func(bctx_mod(ctx), f)
     return 0
 }
 
-func lower_extern(node: int): int {
+func lower_extern(ctx: int, src: str, node: int): int {
     var name_tok = ast_child(node, 0)
-    var fname = ib_tok_text(name_tok)
-    var name_idx = strtab_add(fname)
-    mod_add_extern(ib_mod, name_idx)
+    var fname = ib_tok_text(ctx, src, name_tok)
+    var name_idx = ib_strtab_add(ctx, fname)
+    mod_add_extern(bctx_mod(ctx), name_idx)
     return 0
 }
 
 // --- File lowering ---
 
-func lower_file(file_node: int): int {
+func lower_file(ctx: int, src: str, file_node: int): int {
     var children = ast_child(file_node, 0)
     var n = int_vec_len(children)
     var i = 0
@@ -447,20 +469,24 @@ func lower_file(file_node: int): int {
         var child = int_vec_get(children, i)
         var kind = ast_kind(child)
         if kind == nd_func() {
-            lower_func(child)
+            lower_func(ctx, src, child)
         }
         if kind == nd_extern_func() {
-            lower_extern(child)
+            lower_extern(ctx, src, child)
         }
         i = i + 1
     }
-    return ib_mod
+    return bctx_mod(ctx)
 }
 
 // --- Public entry point ---
+// Returns int_vec: [module_handle, str_vec_handle]
 
 func build_ir(src: str, toks: int, file_node: int): int {
-    strtab_init()
-    ib_init(src, toks)
-    return lower_file(file_node)
+    var ctx = bctx_new(src, toks)
+    var m = lower_file(ctx, src, file_node)
+    var result = int_vec_new()
+    int_vec_push(result, m)
+    int_vec_push(result, bctx_str_vec(ctx))
+    return result
 }

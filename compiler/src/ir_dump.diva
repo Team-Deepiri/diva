@@ -12,17 +12,6 @@ import "std/io.diva"
 import "std/vec.diva"
 import "ir.diva"
 
-var dump_src  = ""
-var dump_toks = 0
-var dump_strs = 0
-
-func dump_init(src: str, toks: int, strs: int): int {
-    dump_src  = src
-    dump_toks = toks
-    dump_strs = strs
-    return 0
-}
-
 func dump_vreg(r: int): int {
     var b = str_builder_new()
     str_builder_append(b, "v")
@@ -36,7 +25,6 @@ func dump_inst(inst: int): int {
     var op = inst_op(inst)
     stdout("    ")
 
-    // Instructions that produce a result
     if op == ir_const() | op == ir_const_str() | op == ir_add() | op == ir_sub() |
        op == ir_mul() | op == ir_div() | op == ir_mod() | op == ir_neg() |
        op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() |
@@ -116,10 +104,6 @@ func dump_inst(inst: int): int {
         stdout(" [")
         stdout(int_to_str(inst_a(inst)))
         stdout("]")
-    }
-
-    if op == ir_alloca() {
-        // No extra info needed
     }
 
     stdout("\n")

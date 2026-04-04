@@ -202,23 +202,4 @@ func mod_extern_count(m: int): int {
     return int_vec_len(int_vec_get(m, 2))
 }
 
-// --- String table (module-level, stores str indices) ---
-
-var ir_strtab = 0
-var ir_strtab_count = 0
-
-func strtab_init(): int {
-    ir_strtab = int_vec_new()
-    ir_strtab_count = 0
-    return 0
-}
-
-func strtab_add(s: str): int {
-    var idx = ir_strtab_count
-    ir_strtab_count = ir_strtab_count + 1
-    return idx
-}
-
-func strtab_count(): int {
-    return ir_strtab_count
-}
+// String table moved to ir_builder.diva to avoid module-level var.
