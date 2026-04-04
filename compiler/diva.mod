@@ -1,3 +1,3 @@
-name = "di_compiler"
+name = "diva_compiler"
 kind = "app"
 entry = "src/main.diva"

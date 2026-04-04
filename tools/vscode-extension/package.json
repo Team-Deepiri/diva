@@ -1,7 +1,7 @@
 {
-  "name": "diri-lang",
-  "displayName": "Di Language",
-  "description": "Language support for Di (.diva) files.",
+  "name": "diva-lang",
+  "displayName": "Diva Language",
+  "description": "Language support for Diva (.diva) files.",
   "version": "0.0.1",
   "publisher": "deepiri",
   "engines": {
@@ -14,23 +14,23 @@
   "contributes": {
     "languages": [
       {
-        "id": "di",
-        "aliases": ["Di", "di", "Di", "di"],
+        "id": "diva",
+        "aliases": ["Diva", "diva"],
         "extensions": [".diva"],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "di",
+        "language": "diva",
         "scopeName": "source.diva",
-        "path": "./syntaxes/diri.tmLanguage.json"
+        "path": "./syntaxes/diva.tmLanguage.json"
       }
     ],
     "snippets": [
       {
-        "language": "di",
-        "path": "./snippets/diri.json"
+        "language": "diva",
+        "path": "./snippets/diva.json"
       }
     ]
   }

@@ -1,5 +1,5 @@
-// Backend-neutral MIR/LIR scaffolding (expanded as the Di compiler grows).
-// Lowering targets: Di MIR text dump, then ELF/x86_64 in ../backend.
+// Backend-neutral MIR/LIR scaffolding (expanded as the Diva compiler grows).
+// Lowering targets: Diva MIR text dump, then ELF/x86_64 in ../backend.
 
 class MirBlock {
     var id :: int

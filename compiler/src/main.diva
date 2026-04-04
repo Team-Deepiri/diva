@@ -1,17 +1,22 @@
-// Bootstrap driver: forwards CLI to the seed compiler (DI_BOOTSTRAP or bootstrap/di-linux-amd64).
-// Full self-hosting replaces this with the compiler implemented in Di (see docs/selfhost-bootstrap.md).
+// Diva compiler package: lexer (`diva lex`), forward other commands to seed (DIVA_BOOTSTRAP / DI_BOOTSTRAP / bootstrap/diva-linux-amd64).
 import "std/host.diva"
+import "std/io.diva"
 import "std/vec.diva"
+import "lexer.diva"
 
 func bootstrap_path(): str {
-    var p = host_getenv("DI_BOOTSTRAP")
+    var p = host_getenv("DIVA_BOOTSTRAP")
     if str_len(p) > 0 {
         return p
     }
-    return "bootstrap/di-linux-amd64"
+    p = host_getenv("DI_BOOTSTRAP")
+    if str_len(p) > 0 {
+        return p
+    }
+    return "bootstrap/diva-linux-amd64"
 }
 
-func main(): int {
+func forward_to_seed(): int {
     var b = str_builder_new()
     if b == 0 {
         return 1
@@ -25,7 +30,6 @@ func main(): int {
     }
     var cmd = str_builder_to_str(b)
     str_builder_free(b)
-    // libc system() returns wait status: exit code c is typically (c << 8) on Linux.
     var r = host_system(cmd)
     if r < 0 {
         return 1
@@ -37,4 +41,23 @@ func main(): int {
         return r
     }
     return r / 256
+}
+
+func main(): int {
+    if host_argc() < 2 {
+        return forward_to_seed()
+    }
+    var a1 = host_argv(1)
+    if str_eq(a1, "lex") == 1 {
+        if host_argc() < 3 {
+            stderr("usage: diva lex <file.diva>\n")
+            return 1
+        }
+        return lex_file_to_stdout(host_argv(2))
+    }
+    if str_eq(a1, "compiler-version") == 1 {
+        print_str("diva compiler package: lexer in Diva; pipeline via seed binary\n")
+        return 0
+    }
+    return forward_to_seed()
 }

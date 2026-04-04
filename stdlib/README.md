@@ -1,6 +1,6 @@
-# Di Standard Library
+# Diva Standard Library
 
-The standard library starts small on purpose, but it is now shipped as real `Di` modules.
+The standard library starts small on purpose, but it is now shipped as real `Diva` modules.
 
 Available modules:
 

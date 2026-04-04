@@ -1,5 +1,5 @@
 # The Di toolchain no longer builds from in-tree C sources.
-# Install: ./scripts/install.sh (uses bootstrap/di-linux-amd64 + runtime IR).
+# Install: ./scripts/install.sh (uses bootstrap/diva-linux-amd64 + runtime IR).
 # See README.md and docs/selfhost-bootstrap.md.
 cmake_minimum_required(VERSION 3.20)
 project(di NONE)

@@ -1,12 +1,12 @@
-# Di Syntax Guide
+# Diva Syntax Guide
 
-`Di` is a compiled programming language with `.diva` source files.
+`Diva` is a compiled programming language with `.diva` source files.
 
 This guide is the quick-reference version of the language docs. For the fuller reference, see `docs/language-spec.md`.
 
 ## Hello World Shape
 
-```di
+```diva
 extern func print_int(x: int): void
 
 func main(): int {
@@ -44,7 +44,7 @@ func main(): int {
 
 ## Variables
 
-```di
+```diva
 var total = 0
 var nums :: int[] = [1, 2, 3]
 var point :: Point = Point { x: 3, y: 4 }
@@ -52,7 +52,7 @@ var point :: Point = Point { x: 3, y: 4 }
 
 ## Functions
 
-```di
+```diva
 func add(a: int, b: int): int {
     return a + b
 }
@@ -60,7 +60,7 @@ func add(a: int, b: int): int {
 
 External declarations:
 
-```di
+```diva
 extern func print_str(x: str): void
 ```
 
@@ -70,7 +70,7 @@ Semicolons are optional. The compiler still accepts them, but the preferred styl
 
 Conditions do not require extra parentheses.
 
-```di
+```diva
 if score > 10 & ready {
     return 1
 } else {
@@ -80,7 +80,7 @@ if score > 10 & ready {
 
 `while` supports an update clause:
 
-```di
+```diva
 while i < 5 => i = i + 1 {
     total = total + i
 }
@@ -90,13 +90,13 @@ while i < 5 => i = i + 1 {
 
 `flux` iterates ranges and arrays:
 
-```di
+```diva
 flux value in 0..5 {
     print_int(value)
 }
 ```
 
-```di
+```diva
 flux value in nums {
     print_int(value)
 }
@@ -104,7 +104,7 @@ flux value in nums {
 
 ## Classes
 
-```di
+```diva
 class Counter {
     var value :: int
 
@@ -136,11 +136,11 @@ Supported forms include:
 
 Optional package declaration:
 
-```di
+```diva
 package imports_demo
 ```
 
-```di
+```diva
 import "math.diva"
 ```
 

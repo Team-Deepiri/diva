@@ -1,13 +1,13 @@
-# Di Language Spec
+# Diva Language Spec
 
-This document describes the current implemented surface of `Di`.
+This document describes the current implemented surface of `Diva`.
 
 ## Overview
 
-`Di` is a compiled language with:
+`Diva` is a compiled language with:
 
 - `.diva` source files
-- `di` as the CLI command
+- `diva` as the CLI command (install also provides `di` → `diva`)
 - explicit function signatures
 - `var` bindings with optional type annotations
 - class-based data and methods
@@ -25,7 +25,7 @@ The current language direction is:
 
 ## File Extension
 
-All `Di` source files use the `.diva` extension.
+All `Diva` source files use the `.diva` extension.
 
 Examples:
 
@@ -37,7 +37,7 @@ Examples:
 
 A minimal program looks like this:
 
-```di
+```diva
 extern func print_int(x: int): void
 
 func main(): int {
@@ -82,7 +82,7 @@ Other supported type forms:
 
 ### Functions
 
-```di
+```diva
 func add(a: int, b: int): int {
     return a + b
 }
@@ -90,7 +90,7 @@ func add(a: int, b: int): int {
 
 ### External Functions
 
-```di
+```diva
 extern func print_str(x: str): void
 ```
 
@@ -107,7 +107,7 @@ Hosted runtime hooks currently exposed through `extern func` include:
 
 Classes contain `var` fields and `func` methods:
 
-```di
+```diva
 class Counter {
     var value :: int
 
@@ -132,7 +132,7 @@ Type annotations are optional and use `::`.
 
 Semicolons are optional statement and declaration terminators. They are still accepted for compatibility, but the recommended style is to leave them out.
 
-```di
+```diva
 var total = 0
 var nums :: int[] = [1, 2, 3]
 var point :: Point = Point { x: 3, y: 4 }
@@ -178,7 +178,7 @@ Conditions do not require extra parentheses.
 
 ### If / Else
 
-```di
+```diva
 if score > 10 & ready {
     return 1
 } else {
@@ -190,7 +190,7 @@ if score > 10 & ready {
 
 `while` supports an update clause:
 
-```di
+```diva
 while i < 5 => i = i + 1 {
     total = total + i
 }
@@ -200,13 +200,13 @@ while i < 5 => i = i + 1 {
 
 `flux` iterates over ranges and arrays.
 
-```di
+```diva
 flux value in 0..5 {
     print_int(value)
 }
 ```
 
-```di
+```diva
 flux value in nums {
     print_int(value)
 }
@@ -216,14 +216,14 @@ flux value in nums {
 
 Array literals and indexing are supported today.
 
-```di
+```diva
 var values :: int[] = [3, 4, 5]
 var second = values[1]
 ```
 
 Array element assignment is also supported:
 
-```di
+```diva
 values[1] = 9
 ```
 
@@ -231,19 +231,19 @@ values[1] = 9
 
 Files may optionally declare a package at the top:
 
-```di
+```diva
 package imports_demo
 ```
 
 Top-level imports can use relative `.diva` file paths:
 
-```di
+```diva
 import "math.diva"
 ```
 
 Package manifests can also declare dependencies with `dep.<name> = "../path"` and import them by package name:
 
-```di
+```diva
 import "pkg/math_lib"
 ```
 
@@ -253,7 +253,7 @@ Imports are resolved as a file graph and merged into a single program for semant
 
 ## Example
 
-```di
+```diva
 import "math.diva"
 
 extern func print_int(x: int): void
@@ -287,7 +287,7 @@ func main(): int {
 - array indexing and mutation
 - object literals
 - optional top-level `package` declarations
-- package manifests via `di.mod` with `kind = "app" | "lib" | "kernel"`
+- package manifests via `diva.mod` with `kind = "app" | "lib" | "kernel"`
 - relative file imports
 - shipped standard library imports like `std/math.diva` and `std/range.diva`
 - utility modules like `std/io.diva`, `std/int.diva`, and `std/assert.diva`

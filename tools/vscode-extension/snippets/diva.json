@@ -7,7 +7,7 @@
       "    return 0",
       "}"
     ],
-    "description": "Create a Di main function"
+    "description": "Create a Diva main function"
   },
   "Extern Print Int": {
     "prefix": "printint",
@@ -28,58 +28,58 @@
     "body": [
       "package ${1:name}"
     ],
-    "description": "Declare a Di package"
+    "description": "Declare a Diva package"
   },
   "Import": {
     "prefix": "import",
     "body": [
       "import \"${1:module.diva}\""
     ],
-    "description": "Import another Di source file"
+    "description": "Import another Diva source file"
   },
   "Package Dependency Import": {
     "prefix": "pkgimport",
     "body": [
       "import \"pkg/${1:dependency_name}\""
     ],
-    "description": "Import another Di package dependency"
+    "description": "Import another Diva package dependency"
   },
   "Manifest": {
-    "prefix": "dimod",
+    "prefix": "divamod",
     "body": [
       "name = \"${1:my_package}\"",
       "kind = \"${2:app}\"",
       "entry = \"${3:src/main.diva}\""
     ],
-    "description": "Create a di.mod manifest"
+    "description": "Create a diva.mod package manifest"
   },
   "Manifest Dependency": {
-    "prefix": "didep",
+    "prefix": "divadep",
     "body": [
       "dep.${1:math_lib} = \"${2:../math_lib}\""
     ],
-    "description": "Add a package dependency to di.mod"
+    "description": "Add a package dependency to diva.mod"
   },
   "Std IO Import": {
     "prefix": "stdio",
     "body": [
       "import \"std/io.diva\""
     ],
-    "description": "Import Di std io helpers"
+    "description": "Import Diva std io helpers"
   },
   "Std Math Import": {
     "prefix": "stdmath",
     "body": [
       "import \"std/math.diva\""
     ],
-    "description": "Import Di std math helpers"
+    "description": "Import Diva std math helpers"
   },
   "Std Assert Import": {
     "prefix": "stdassert",
     "body": [
       "import \"std/assert.diva\""
     ],
-    "description": "Import Di std assertion helpers"
+    "description": "Import Diva std assertion helpers"
   },
   "Function": {
     "prefix": "func",
@@ -88,7 +88,7 @@
       "    $0",
       "}"
     ],
-    "description": "Create a Di function"
+    "description": "Create a Diva function"
   },
   "Generic Function": {
     "prefix": "genfunc",
@@ -97,7 +97,7 @@
       "    return ${3:value}",
       "}"
     ],
-    "description": "Create a Di generic function"
+    "description": "Create a Diva generic function"
   },
   "Trait": {
     "prefix": "trait",
@@ -106,14 +106,14 @@
       "    func ${2:method}(): ${3:int}",
       "}"
     ],
-    "description": "Create a Di trait declaration"
+    "description": "Create a Diva trait declaration"
   },
   "Impl": {
     "prefix": "impl",
     "body": [
       "impl ${1:Trait} for ${2:Type}"
     ],
-    "description": "Create a Di trait implementation declaration"
+    "description": "Create a Diva trait implementation declaration"
   },
   "Kernel Entry": {
     "prefix": "kmain",
@@ -123,7 +123,7 @@
       "    return 0",
       "}"
     ],
-    "description": "Create a Di kernel entry function"
+    "description": "Create a Diva kernel entry function"
   },
   "If Else": {
     "prefix": "if",
@@ -134,7 +134,7 @@
       "    $0",
       "}"
     ],
-    "description": "Create a Di if/else block"
+    "description": "Create a Diva if/else block"
   },
   "While Loop": {
     "prefix": "while",
@@ -143,7 +143,7 @@
       "    $0",
       "}"
     ],
-    "description": "Create a Di while loop"
+    "description": "Create a Diva while loop"
   },
   "While Update Loop": {
     "prefix": "whileupdate",
@@ -152,7 +152,7 @@
       "    $0",
       "}"
     ],
-    "description": "Create a Di while loop with update clause"
+    "description": "Create a Diva while loop with update clause"
   },
   "Class": {
     "prefix": "class",
@@ -162,21 +162,21 @@
       "    var ${4:y} :: ${5:int}",
       "}"
     ],
-    "description": "Create a Di class declaration"
+    "description": "Create a Diva class declaration"
   },
   "Object Literal": {
     "prefix": "objectlit",
     "body": [
       "${1:Point} { ${2:x}: ${3:1}, ${4:y}: ${5:2} }"
     ],
-    "description": "Create a Di object literal"
+    "description": "Create a Diva object literal"
   },
   "Int Array": {
     "prefix": "intarray",
     "body": [
       "var ${1:values} :: int[] = [${2:1}, ${3:2}, ${4:3}]"
     ],
-    "description": "Create a Di int array literal"
+    "description": "Create a Diva int array literal"
   },
   "Flux Loop": {
     "prefix": "flux",
@@ -185,10 +185,10 @@
       "    $0",
       "}"
     ],
-    "description": "Create a Di flux loop"
+    "description": "Create a Diva flux loop"
   },
   "Starter File": {
-    "prefix": "di",
+    "prefix": "diva",
     "body": [
       "extern func print_str(x: str): void",
       "extern func print_int(x: int): void",
@@ -198,6 +198,6 @@
       "    return 0",
       "}"
     ],
-    "description": "Create a Di starter file"
+    "description": "Create a Diva starter file"
   }
 }

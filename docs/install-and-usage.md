@@ -1,12 +1,12 @@
-# Di Install And Usage
+# Diva Install And Usage
 
-This guide shows how to install the `Di` compiler and start running `.diva` programs.
+This guide shows how to install the `Diva` compiler and start running `.diva` programs.
 
 ## What You Get
 
 The repository includes:
 
-- the `di` compiler
+- the `diva` compiler (symlink `di`)
 - the runtime support files used by generated programs
 - install scripts for Linux / WSL and PowerShell
 - a local VS Code / Cursor extension for `.diva` files
@@ -56,15 +56,15 @@ Install only the compiler:
 
 On Linux / WSL, the default install locations are:
 
-- compiler: `~/.local/bin/di`
-- runtime: `~/.local/share/di/runtime/`
-- stdlib: `~/.local/share/di/stdlib/`
+- compiler: `~/.local/bin/diva` (and `di` → `diva`)
+- runtime: `~/.local/share/diva/runtime/`
+- stdlib: `~/.local/share/diva/stdlib/`
 
 On PowerShell, the default install locations are:
 
-- compiler: `~/.di/bin/di.exe`
-- runtime: `~/.di/runtime/`
-- stdlib: `~/.di/stdlib/`
+- compiler: `~/.diva/bin/diva.exe`
+- runtime: `~/.diva/runtime/`
+- stdlib: `~/.diva/stdlib/`
 
 If the compiler is not found after install, add the install directory to your `PATH`.
 
@@ -84,13 +84,13 @@ Install the local editor extension only:
 ./scripts/install-extension.ps1
 ```
 
-The language name is `Di` and source files use the `.diva` extension.
+The language name is `Diva` and source files use the `.diva` extension.
 
 ## First Program
 
 Create a file named `main.diva`:
 
-```di
+```diva
 extern func print_int(x: int): void
 
 func main(): int {
@@ -100,12 +100,12 @@ func main(): int {
 }
 ```
 
-Semicolons are optional in `Di`. The compiler still accepts them, but the recommended style is to leave them out.
+Semicolons are optional in `Diva`. The compiler still accepts them, but the recommended style is to leave them out.
 
 Run it:
 
 ```sh
-di run main.diva
+diva run main.diva
 ```
 
 ## Basic CLI
@@ -115,12 +115,12 @@ Common commands:
 ```sh
 di main.diva
 di build .
-di run .
+diva run .
 di check .
 di emit-ir .
-di watch .
-di new hello-di
-di new hello-lib --lib
+diva watch .
+diva new hello-di
+diva new hello-lib --lib
 ```
 
 Notes:
@@ -129,21 +129,21 @@ Notes:
 - `di build .` builds the current package directory
 - `di check .` validates a package without native linking
 - `di emit-ir .` writes LLVM IR into `build/`
-- `di watch .` watches the package entry file from `di.mod`
-- `di new hello-di` creates an app package
-- `di new hello-lib --lib` creates a library package
+- `diva watch .` watches the package entry file from `diva.mod`
+- `diva new hello-di` creates an app package
+- `diva new hello-lib --lib` creates a library package
 
 ## Create A New Project
 
 ```sh
-di new hello-di
+diva new hello-di
 cd hello-di
-di run .
+diva run .
 ```
 
 The generated project includes:
 
-- `di.mod`
+- `diva.mod`
 - `src/main.diva` for apps or `src/lib.diva` for libraries
 - `.gitignore`
 - `README.md`
@@ -161,11 +161,11 @@ dep.math_lib = "../math_lib"
 
 Then source files can import a dependency package by name:
 
-```di
+```diva
 import "pkg/math_lib"
 ```
 
-`pkg/<name>` resolves to the dependency package entry from that package's own `di.mod`.
+`pkg/<name>` resolves to the dependency package entry from that package's own `diva.mod`.
 
 ## Build From Source
 

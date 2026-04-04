@@ -8,12 +8,12 @@ sh "${ROOT_DIR}/scripts/install-filetype.sh"
 sh "${ROOT_DIR}/scripts/install-extension.sh" "${1:-${HOME}/.cursor/extensions}"
 
 echo
-echo "Di SDK install complete."
-echo "Compiler: ${HOME}/.local/bin/di"
-echo "File type: .diva"
+echo "Diva SDK install complete."
+echo "Compiler: ${HOME}/.local/bin/diva (symlink: di)"
+echo "File type: .diva (MIME text/x-diva)"
 echo "Extension target: ${1:-${HOME}/.cursor/extensions}"
 echo
 echo "Quickstart:"
-echo "  di new hello-di"
-echo "  cd hello-di"
-echo "  di run ."
+echo "  diva new hello-diva"
+echo "  cd hello-diva"
+echo "  diva run ."

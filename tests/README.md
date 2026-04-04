@@ -1,4 +1,4 @@
-# Di Tests
+# Diva Tests
 
 Current test coverage lives in `tests/run.sh`.
 
@@ -7,7 +7,7 @@ It currently checks:
 - example program integration runs
 - AST smoke output for a simple program
 - semantic failure cases with expected diagnostics
-- generated app and library package workflows through `di new` and `di new --lib`
+- generated app and library package workflows through `diva new` and `diva new --lib`
 
 ## Run
 
@@ -19,7 +19,7 @@ sh tests/run.sh
 
 ## Test Layout
 
-- `tests/run.sh`: installs `di` into a temporary home and runs the full smoke suite
+- `tests/run.sh`: installs `diva` into a temporary home and runs the full smoke suite
 - `tests/cases/fail/`: negative compilation cases that should fail with known diagnostics
 
 ## Next Useful Additions

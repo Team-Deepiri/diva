@@ -1,6 +1,6 @@
-# Di Runtime Model
+# Diva Runtime Model
 
-The first `Di` runtime model is intentionally conventional.
+The first `Diva` runtime model is intentionally conventional.
 
 ## Baseline
 
@@ -12,7 +12,7 @@ The first `Di` runtime model is intentionally conventional.
 
 ## Package Kinds
 
-`Di` currently has three package kinds through `di.mod`:
+`Diva` currently has three package kinds through `diva.mod`:
 
 - `app`: requires `main` and links a hosted executable
 - `lib`: validates and emits IR without requiring `main`

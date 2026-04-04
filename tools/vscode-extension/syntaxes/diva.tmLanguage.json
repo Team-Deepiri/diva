@@ -1,6 +1,6 @@
 {
   "scopeName": "source.diva",
-  "name": "Di",
+  "name": "Diva",
   "patterns": [
     { "include": "#comments" },
     { "include": "#keywords" },

@@ -2,7 +2,7 @@
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/di-tests.XXXXXX")
+TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/diva-tests.XXXXXX")
 HOME_DIR="${TEST_ROOT}/home"
 BIN_DIR="${HOME_DIR}/.local/bin"
 
@@ -32,9 +32,9 @@ assert_output_equals() {
     expected=$2
     output_file="${TEST_ROOT}/command.out"
 
-    if ! di run "${file_path}" >"${output_file}" 2>&1; then
+    if ! diva run "${file_path}" >"${output_file}" 2>&1; then
         sed -n '1,120p' "${output_file}" >&2
-        fail "command failed: di run ${file_path}"
+        fail "command failed: diva run ${file_path}"
     fi
 
     actual=$(strip_di_logs "${output_file}")
@@ -51,9 +51,9 @@ assert_contains() {
     needle=$2
     output_file="${TEST_ROOT}/command.out"
 
-    if ! di build "${file_path}" --ast >"${output_file}" 2>&1; then
+    if ! diva build "${file_path}" --ast >"${output_file}" 2>&1; then
         sed -n '1,120p' "${output_file}" >&2
-        fail "command failed: di build ${file_path} --ast"
+        fail "command failed: diva build ${file_path} --ast"
     fi
 
     if ! grep -F "${needle}" "${output_file}" >/dev/null; then
@@ -68,7 +68,7 @@ assert_error_contains() {
     needle=$2
     output_file="${TEST_ROOT}/command.out"
 
-    if di build "${file_path}" >"${output_file}" 2>&1; then
+    if diva build "${file_path}" >"${output_file}" 2>&1; then
         sed -n '1,120p' "${output_file}" >&2
         fail "expected failure for ${file_path}"
     fi
@@ -86,9 +86,9 @@ assert_ir_contains() {
     output_file="${TEST_ROOT}/command.out"
     ir_path=
 
-    if ! di emit-ir "${file_path}" >"${output_file}" 2>&1; then
+    if ! diva emit-ir "${file_path}" >"${output_file}" 2>&1; then
         sed -n '1,120p' "${output_file}" >&2
-        fail "command failed: di emit-ir ${file_path}"
+        fail "command failed: diva emit-ir ${file_path}"
     fi
 
     ir_path=$(sed -n 's/^\[di\] wrote LLVM IR to //p' "${output_file}" | tail -n 1)
@@ -103,7 +103,7 @@ assert_ir_contains() {
     fi
 }
 
-log "installing di into temporary home"
+log "installing diva into temporary home"
 HOME="${HOME_DIR}" sh "${ROOT_DIR}/scripts/install.sh" >"${TEST_ROOT}/install.out" 2>&1 || {
     sed -n '1,120p' "${TEST_ROOT}/install.out" >&2
     fail "install script failed"
@@ -113,12 +113,20 @@ HOME="${HOME_DIR}"
 export HOME
 PATH="${BIN_DIR}:${PATH}"
 export PATH
+DIVA_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
+export DIVA_BOOTSTRAP
+DI_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
+export DI_BOOTSTRAP
+DI_STDLIB_DIR="${HOME_DIR}/.local/share/diva/stdlib"
+export DI_STDLIB_DIR
+DI_RUNTIME_O="${HOME_DIR}/.local/share/diva/runtime/runtime.o"
+export DI_RUNTIME_O
 
 log "checking compiler stub packages (mir, backend, frontend)"
 for _pkg in mir backend frontend; do
-    if ! di check "${ROOT_DIR}/compiler/${_pkg}" >"${TEST_ROOT}/check-${_pkg}.out" 2>&1; then
+    if ! diva check "${ROOT_DIR}/compiler/${_pkg}" >"${TEST_ROOT}/check-${_pkg}.out" 2>&1; then
         sed -n '1,80p' "${TEST_ROOT}/check-${_pkg}.out" >&2
-        fail "di check compiler/${_pkg} failed"
+        fail "diva check compiler/${_pkg} failed"
     fi
 done
 
@@ -129,9 +137,9 @@ assert_output_equals "${ROOT_DIR}/examples/hello.diva" "10"
 assert_output_equals "${ROOT_DIR}/examples/host_argv.diva" "1"
 assert_output_equals "${ROOT_DIR}/examples/vec_demo.diva" "2
 20
-8
-hello di"
-assert_output_equals "${ROOT_DIR}/examples/branching.diva" "running di
+10
+hello diva"
+assert_output_equals "${ROOT_DIR}/examples/branching.diva" "running diva
 20
 1"
 assert_output_equals "${ROOT_DIR}/examples/loop.diva" "10"
@@ -150,7 +158,7 @@ assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.diva" "12
 5
 1
 1"
-assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from di0x12"
+assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from diva0x14"
 assert_output_equals "${ROOT_DIR}/examples/packages/app_with_dep" "42"
 assert_output_equals "${ROOT_DIR}/examples/utils_demo.diva" "util-1
 6
@@ -159,6 +167,16 @@ true
 0x4
 1
 1"
+
+log "checking Diva lexer (diva lex)"
+if ! diva lex "${ROOT_DIR}/examples/hello.diva" >"${TEST_ROOT}/lex.out" 2>&1; then
+    sed -n '1,40p' "${TEST_ROOT}/lex.out" >&2
+    fail "diva lex failed"
+fi
+if ! grep -q "KW_LET" "${TEST_ROOT}/lex.out"; then
+    sed -n '1,40p' "${TEST_ROOT}/lex.out" >&2
+    fail "diva lex output missing KW_LET"
+fi
 
 log "checking AST smoke output"
 assert_contains "${ROOT_DIR}/examples/hello.diva" "Program"
@@ -181,29 +199,29 @@ assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_package_dep" "unknow
 
 log "checking generated project workflow"
 rm -rf "${TEST_ROOT}/generated-app"
-if ! di new "${TEST_ROOT}/generated-app" >"${TEST_ROOT}/new.out" 2>&1; then
+if ! diva new "${TEST_ROOT}/generated-app" >"${TEST_ROOT}/new.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/new.out" >&2
-    fail "di new failed"
+    fail "diva new failed"
 fi
 
 if ! [ -f "${TEST_ROOT}/generated-app/.gitignore" ]; then
     fail "generated project missing expected files"
 fi
 
-if ! [ -f "${TEST_ROOT}/generated-app/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-app/src/main.diva" ]; then
+if ! [ -f "${TEST_ROOT}/generated-app/diva.mod" ] || ! [ -f "${TEST_ROOT}/generated-app/src/main.diva" ]; then
     fail "generated app package missing manifest or src entry"
 fi
 
 if ! (
     cd "${TEST_ROOT}/generated-app" &&
-    di run . >"${TEST_ROOT}/generated.out" 2>&1
+    diva run . >"${TEST_ROOT}/generated.out" 2>&1
 ); then
     sed -n '1,120p' "${TEST_ROOT}/generated.out" >&2
     fail "generated project failed to run"
 fi
 
 generated_output=$(strip_di_logs "${TEST_ROOT}/generated.out")
-if [ "${generated_output}" != "hello from di10" ]; then
+if [ "${generated_output}" != "hello from diva10" ]; then
     printf '[test:error] unexpected generated project output\n' >&2
     printf '[test:error] actual:\n%s\n' "${generated_output}" >&2
     exit 1
@@ -211,80 +229,80 @@ fi
 
 if ! (
     cd "${TEST_ROOT}/generated-app" &&
-    di check . >"${TEST_ROOT}/generated-check.out" 2>&1
+    diva check . >"${TEST_ROOT}/generated-check.out" 2>&1
 ); then
     sed -n '1,120p' "${TEST_ROOT}/generated-check.out" >&2
-    fail "generated app package failed di check"
+    fail "generated app package failed diva check"
 fi
 
 log "checking generated library workflow"
 rm -rf "${TEST_ROOT}/generated-lib"
-if ! di new "${TEST_ROOT}/generated-lib" --lib >"${TEST_ROOT}/new-lib.out" 2>&1; then
+if ! diva new "${TEST_ROOT}/generated-lib" --lib >"${TEST_ROOT}/new-lib.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/new-lib.out" >&2
-    fail "di new --lib failed"
+    fail "diva new --lib failed"
 fi
 
-if ! [ -f "${TEST_ROOT}/generated-lib/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-lib/src/lib.diva" ]; then
+if ! [ -f "${TEST_ROOT}/generated-lib/diva.mod" ] || ! [ -f "${TEST_ROOT}/generated-lib/src/lib.diva" ]; then
     fail "generated library package missing manifest or src entry"
 fi
 
 if ! (
     cd "${TEST_ROOT}/generated-lib" &&
-    di check . >"${TEST_ROOT}/generated-lib-check.out" 2>&1
+    diva check . >"${TEST_ROOT}/generated-lib-check.out" 2>&1
 ); then
     sed -n '1,120p' "${TEST_ROOT}/generated-lib-check.out" >&2
-    fail "generated library package failed di check"
+    fail "generated library package failed diva check"
 fi
 
 if ! (
     cd "${TEST_ROOT}/generated-lib" &&
-    di emit-ir . >"${TEST_ROOT}/generated-lib-ir.out" 2>&1
+    diva emit-ir . >"${TEST_ROOT}/generated-lib-ir.out" 2>&1
 ); then
     sed -n '1,120p' "${TEST_ROOT}/generated-lib-ir.out" >&2
-    fail "generated library package failed di emit-ir"
+    fail "generated library package failed diva emit-ir"
 fi
 
 log "checking generated kernel workflow"
 rm -rf "${TEST_ROOT}/generated-kernel"
-if ! di new "${TEST_ROOT}/generated-kernel" --kernel >"${TEST_ROOT}/new-kernel.out" 2>&1; then
+if ! diva new "${TEST_ROOT}/generated-kernel" --kernel >"${TEST_ROOT}/new-kernel.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/new-kernel.out" >&2
-    fail "di new --kernel failed"
+    fail "diva new --kernel failed"
 fi
 
-if ! [ -f "${TEST_ROOT}/generated-kernel/di.mod" ] || ! [ -f "${TEST_ROOT}/generated-kernel/src/boot.diva" ]; then
+if ! [ -f "${TEST_ROOT}/generated-kernel/diva.mod" ] || ! [ -f "${TEST_ROOT}/generated-kernel/src/boot.diva" ]; then
     fail "generated kernel package missing manifest or boot entry"
 fi
 
 if ! (
     cd "${TEST_ROOT}/generated-kernel" &&
-    di check . >"${TEST_ROOT}/generated-kernel-check.out" 2>&1
+    diva check . >"${TEST_ROOT}/generated-kernel-check.out" 2>&1
 ); then
     sed -n '1,120p' "${TEST_ROOT}/generated-kernel-check.out" >&2
-    fail "generated kernel package failed di check"
+    fail "generated kernel package failed diva check"
 fi
 
 if ! (
     cd "${TEST_ROOT}/generated-kernel" &&
-    di build . >"${TEST_ROOT}/generated-kernel-build.out" 2>&1
+    diva build . >"${TEST_ROOT}/generated-kernel-build.out" 2>&1
 ); then
     sed -n '1,120p' "${TEST_ROOT}/generated-kernel-build.out" >&2
-    fail "generated kernel package failed di build"
+    fail "generated kernel package failed diva build"
 fi
 
 log "checking kernel package workflow"
-if ! di check "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-check.out" 2>&1; then
+if ! diva check "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-check.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/kernel-check.out" >&2
-    fail "kernel package failed di check"
+    fail "kernel package failed diva check"
 fi
 
-if ! di emit-ir "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-ir.out" 2>&1; then
+if ! diva emit-ir "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-ir.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/kernel-ir.out" >&2
-    fail "kernel package failed di emit-ir"
+    fail "kernel package failed diva emit-ir"
 fi
 
-if ! di build "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-build.out" 2>&1; then
+if ! diva build "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-build.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/kernel-build.out" >&2
-    fail "kernel package failed di build"
+    fail "kernel package failed diva build"
 fi
 
     log "all integration checks passed (${_stage})"
@@ -292,18 +310,19 @@ fi
 
 run_all_tests seed
 
-log "checking self-host bootstrap (Di compiler package forwards to seed via DI_BOOTSTRAP)"
-export DI_BOOTSTRAP="${ROOT_DIR}/bootstrap/di-linux-amd64"
-RUNTIME_O="${HOME_DIR}/.local/share/di/runtime/runtime.o"
+log "checking self-host bootstrap (Diva compiler package forwards to seed)"
+export DIVA_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
+export DI_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
+RUNTIME_O="${HOME_DIR}/.local/share/diva/runtime/runtime.o"
 if ! [ -f "${RUNTIME_O}" ]; then
     fail "expected runtime object at ${RUNTIME_O}"
 fi
 BUILD_OUT="${TEST_ROOT}/compiler-selfhost-build.out"
 if ! DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
-    "${ROOT_DIR}/bootstrap/di-linux-amd64" build "${ROOT_DIR}/compiler" >"${BUILD_OUT}" 2>&1
+    "${ROOT_DIR}/bootstrap/diva-linux-amd64" build "${ROOT_DIR}/compiler" >"${BUILD_OUT}" 2>&1
 then
     sed -n '1,120p' "${BUILD_OUT}" >&2
-    fail "failed to build compiler/ (self-host driver) with seed di"
+    fail "failed to build compiler/ (self-host driver) with seed"
 fi
 SELFHOST_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD_OUT}" | tail -n 1)
 if [ -z "${SELFHOST_EXE}" ] || ! [ -x "${SELFHOST_EXE}" ]; then
@@ -311,18 +330,19 @@ if [ -z "${SELFHOST_EXE}" ] || ! [ -x "${SELFHOST_EXE}" ]; then
     sed -n '1,80p' "${BUILD_OUT}" >&2
     exit 1
 fi
-cp "${SELFHOST_EXE}" "${BIN_DIR}/di"
-chmod +x "${BIN_DIR}/di"
+cp "${SELFHOST_EXE}" "${BIN_DIR}/diva"
+chmod +x "${BIN_DIR}/diva"
+ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
 
 run_all_tests selfhost
 
-log "checking self-host convergence (stage3: compiler rebuilt with stage2 di)"
+log "checking self-host convergence (stage3: compiler rebuilt with stage2 diva)"
 BUILD3_OUT="${TEST_ROOT}/compiler-stage3-build.out"
 if ! DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
-    "${BIN_DIR}/di" build "${ROOT_DIR}/compiler" >"${BUILD3_OUT}" 2>&1
+    "${BIN_DIR}/diva" build "${ROOT_DIR}/compiler" >"${BUILD3_OUT}" 2>&1
 then
     sed -n '1,120p' "${BUILD3_OUT}" >&2
-    fail "failed to build compiler/ with stage2 di (stage3)"
+    fail "failed to build compiler/ with stage2 diva (stage3)"
 fi
 STAGE3_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD3_OUT}" | tail -n 1)
 if [ -z "${STAGE3_EXE}" ] || ! [ -x "${STAGE3_EXE}" ]; then
@@ -330,8 +350,9 @@ if [ -z "${STAGE3_EXE}" ] || ! [ -x "${STAGE3_EXE}" ]; then
     sed -n '1,80p' "${BUILD3_OUT}" >&2
     exit 1
 fi
-cp "${STAGE3_EXE}" "${BIN_DIR}/di"
-chmod +x "${BIN_DIR}/di"
+cp "${STAGE3_EXE}" "${BIN_DIR}/diva"
+chmod +x "${BIN_DIR}/diva"
+ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
 
 run_all_tests selfhost_stage3
 

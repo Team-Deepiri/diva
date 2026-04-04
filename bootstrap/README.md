@@ -1,8 +1,8 @@
 # Bootstrap seed compiler
 
-`di-linux-amd64` is the **Linux x86-64** reference `di` binary. It is the **trust root** for self-hosting: the in-tree Di compiler package (`compiler/`) is built with this seed, then used to rebuild itself (see `docs/selfhost-bootstrap.md`).
+`diva-linux-amd64` is the **Linux x86-64** reference compiler binary. It is the **trust root** for self-hosting: the in-tree Diva compiler package (`compiler/`) is built with this seed, then used to rebuild itself (see `docs/selfhost-bootstrap.md`).
 
-This repository does **not** ship the legacy C implementation. `scripts/install.sh` copies the seed from `bootstrap/di-linux-amd64` and installs the LLVM runtime object (`runtime/runtime.ll` via `clang`, or `bootstrap/runtime-linux-amd64.o` when `NO_CLANG=1`).
+This repository does **not** ship the legacy C implementation. `scripts/install.sh` copies the seed from `bootstrap/diva-linux-amd64` and installs the LLVM runtime object (`runtime/runtime.ll` via `clang`, or `bootstrap/runtime-linux-amd64.o` when `NO_CLANG=1`).
 
 ## Refresh the seed
 
@@ -15,14 +15,18 @@ rm -rf src include
 git checkout HEAD -- runtime/
 ```
 
-The last line puts `runtime/` back to your branch tip (LLVM IR only, no `runtime.c`).
+The last line puts `runtime/` back to your branch tip (LLVM IR only).
 
-Commit the updated `bootstrap/di-linux-amd64` when you want a frozen checkpoint for CI or collaborators.
+Commit the updated `bootstrap/diva-linux-amd64` when you want a frozen checkpoint for CI or collaborators.
 
 ## Runtime / stdlib resolution
 
-Set `DI_STDLIB_DIR` and `DI_RUNTIME_O` after install, or rely on the defaults under `~/.local/share/di/` (see `scripts/install.sh` output).
+Set `DI_STDLIB_DIR` and `DI_RUNTIME_O` after install, or rely on the defaults under `~/.local/share/diva/` (see `scripts/install.sh` output).
 
 ## Source extension
 
 Canonical sources use **`.diva`**. The CLI may still accept **`.di`** for compatibility where implemented by the seed.
+
+## Manifest filename
+
+Package manifests remain **`diva.mod`** (toolchain contract until the seed is rebuilt with a new name).

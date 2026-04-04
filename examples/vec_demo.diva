@@ -13,7 +13,7 @@ func main(): int {
     var b = str_builder_new()
     str_builder_append(b, "hello")
     str_builder_append(b, " ")
-    str_builder_append(b, "di")
+    str_builder_append(b, "diva")
     print_int(str_builder_len(b))
     print_str(str_builder_to_str(b))
     str_builder_free(b)

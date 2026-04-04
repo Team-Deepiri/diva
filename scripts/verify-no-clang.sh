@@ -3,7 +3,7 @@
 # Usage: NO_CLANG=1 sh scripts/verify-no-clang.sh
 set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-TEST_HOME=$(mktemp -d "${TMPDIR:-/tmp}/di-noclang.XXXXXX")
+TEST_HOME=$(mktemp -d "${TMPDIR:-/tmp}/diva-noclang.XXXXXX")
 cleanup() { rm -rf "${TEST_HOME}"; }
 trap cleanup EXIT INT TERM
 
@@ -28,12 +28,12 @@ fi
 PATH="${HOME}/.local/bin:${PATH}"
 export PATH
 export DI_STDLIB_DIR="${ROOT_DIR}/stdlib"
-RUNO="${HOME}/.local/share/di/runtime/runtime.o"
+RUNO="${HOME}/.local/share/diva/runtime/runtime.o"
 export DI_RUNTIME_O="${RUNO}"
 
-if ! di run "${ROOT_DIR}/examples/hello.diva" >"${TEST_HOME}/out.txt" 2>&1; then
+if ! diva run "${ROOT_DIR}/examples/hello.diva" >"${TEST_HOME}/out.txt" 2>&1; then
   sed -n '1,80p' "${TEST_HOME}/out.txt" >&2
-  echo "[verify-no-clang] di run hello.diva failed" >&2
+  echo "[verify-no-clang] diva run hello.diva failed" >&2
   exit 1
 fi
 
