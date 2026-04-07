@@ -115,7 +115,11 @@ func lex_source(src: str): int {
                 if c == 34 {
                     done = 1
                 } else {
-                    if c == 92 { i = i + 1 }
+                    if c == 92 {
+                        if i + 1 < n {
+                            i = i + 1
+                        }
+                    }
                 }
                 i = i + 1
             }

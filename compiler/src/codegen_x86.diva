@@ -332,8 +332,17 @@ func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str 
         while si < int_vec_len(str_toks) {
             lp_add(lp, ".Lstr") lp_add_int(lp, si) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
             var tok_idx = int_vec_get(str_toks, si)
-            var s = tok_text(src, toks, tok_idx)
-            lp_add(lp, "    .asciz ") lp_add(lp, s) lp_flush_sb(lp, sb, nl)
+            var s = tok_str_value(src, toks, tok_idx)
+            var bi = 0
+            var bn = str_len(s)
+            while bi < bn {
+                lp_add(lp, "    .byte ")
+                lp_add_int(lp, str_byte(s, bi))
+                lp_flush_sb(lp, sb, nl)
+                bi = bi + 1
+            }
+            lp_add(lp, "    .byte 0")
+            lp_flush_sb(lp, sb, nl)
             si = si + 1
         }
     }
