@@ -47,16 +47,13 @@ func sema_check_file(src: str, toks: int, file_node: int): int {
     return 0
 }
 
-// 1 = this file is in the native single-file subset (no imports, classes, packages, top-level let).
+// 1 = native build may lower this file (imports allowed for merged packages; no classes/packages/toplevel let).
 func sema_file_only_native_subset(file_node: int): int {
     var children = ast_child(file_node, 0)
     var n = int_vec_len(children)
     var i = 0
     while i < n {
         var k = ast_kind(int_vec_get(children, i))
-        if k == nd_import() {
-            return 0
-        }
         if k == nd_package_decl() {
             return 0
         }

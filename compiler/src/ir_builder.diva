@@ -554,7 +554,18 @@ func lower_func(ctx: int, src: str, node: int): int {
 
 func lower_extern(ctx: int, src: str, node: int): int {
     var name_tok = ast_child(node, 0)
-    mod_add_extern(bctx_mod(ctx), name_tok)
+    var m = bctx_mod(ctx)
+    var nm = ib_tok_text(ctx, src, name_tok)
+    var ec = mod_extern_count(m)
+    var ei = 0
+    while ei < ec {
+        var prev = int_vec_get(mod_externs(m), ei)
+        if str_eq(ib_tok_text(ctx, src, prev), nm) == 1 {
+            return 0
+        }
+        ei = ei + 1
+    }
+    mod_add_extern(m, name_tok)
     return 0
 }
 
