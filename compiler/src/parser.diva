@@ -599,7 +599,7 @@ func parse_top_level(ps: int, src: str): int {
             }
             p_expect(ps, src, tk_rbrace())
         } else {
-        if kind == tk_var() | kind == tk_let() {
+        if kind == tk_var() | kind == tk_let() | kind == tk_const() {
             int_vec_push(children, parse_var_decl(ps, src))
         } else {
         if kind == tk_eof() {

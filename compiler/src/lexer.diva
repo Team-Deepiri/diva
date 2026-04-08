@@ -36,6 +36,7 @@ func classify_keyword(src: str, start: int, length: int): int {
     if str_eq(w, "extern") == 1 { return tk_extern() }
     if str_eq(w, "var") == 1    { return tk_var() }
     if str_eq(w, "let") == 1    { return tk_let() }
+    if str_eq(w, "const") == 1  { return tk_const() }
     if str_eq(w, "if") == 1     { return tk_if() }
     if str_eq(w, "else") == 1   { return tk_else() }
     if str_eq(w, "while") == 1  { return tk_while() }
