@@ -461,7 +461,6 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         func_add_block(bctx_func(ctx), body_blk)
         bctx_set_blk(ctx, body_blk)
         lower_block(ctx, src, ast_child(node, 1))
-        ib_emit(ctx, ir_inst(ir_ret_void(), 0, 0, 0, 0))
         var update = ast_child(node, 2)
         if update >= 0 {
             lower_expr(ctx, src, update)
