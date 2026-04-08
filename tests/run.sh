@@ -34,6 +34,7 @@ strip_di_logs() {
       index($0, "(.text+") == 1 { next }
       index($0, "link failed (requires cc") == 1 { next }
       index($0, "loader: ") == 1 { next }
+      index($0, "sh: ") == 1 { next }
       { print }
     ' "$1"
 }
