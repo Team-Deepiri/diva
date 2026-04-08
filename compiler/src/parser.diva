@@ -356,6 +356,17 @@ func parse_block(ps: int, src: str): int {
         p_skip_semi(ps)
     }
     p_expect(ps, src, tk_rbrace())
+    var n = int_vec_len(stmts)
+    if n > 0 {
+        var last = int_vec_get(stmts, n - 1)
+        var last_kind = int_vec_get(last, 0)
+        if last_kind != nd_return() {
+            var ret = int_vec_new()
+            int_vec_push(ret, nd_return())
+            int_vec_push(ret, 0 - 1)
+            int_vec_push(stmts, ret)
+        }
+    }
     return ast_block(stmts)
 }
 
@@ -478,8 +489,13 @@ func parse_func_decl(ps: int, src: str): int {
     p_advance(ps)
     var name = p_expect(ps, src, tk_ident())
     var params = parse_params(ps, src)
-    p_expect(ps, src, tk_colon())
-    var ret = parse_type(ps, src)
+    var ret = 0
+    if p_cur(ps) == tk_colon() {
+        p_advance(ps)
+        ret = parse_type(ps, src)
+    } else {
+        ret = ast_type_name(0)
+    }
     var body = parse_block(ps, src)
     return ast_func(name, params, ret, body)
 }

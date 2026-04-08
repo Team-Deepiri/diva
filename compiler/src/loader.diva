@@ -19,9 +19,20 @@ func path_join_dir(base: str, rel: str): str {
         return rel
     }
     if str_byte(base, nb - 1) == 47 {
-        return base + rel
+        var b = str_builder_new()
+        str_builder_append(b, base)
+        str_builder_append(b, rel)
+        var r = str_builder_to_str(b)
+        str_builder_free(b)
+        return r
     }
-    return base + "/" + rel
+    var b2 = str_builder_new()
+    str_builder_append(b2, base)
+    str_builder_append(b2, "/")
+    str_builder_append(b2, rel)
+    var r2 = str_builder_to_str(b2)
+    str_builder_free(b2)
+    return r2
 }
 
 func dirname_of_file(path: str): str {
@@ -107,7 +118,7 @@ func list_resolved_imports(src: str, cur_abs: str, stdroot: str): str {
     var i = 0
     while i < n {
         if i + 8 <= n {
-            if str_slice(src, i, 8) == "import \"" {
+            if str_slice(src, i, 7) == "import " & str_byte(src, i + 7) == 34 {
                 var q = i + 8
                 while q < n & str_byte(src, q) != 34 {
                     q = q + 1
@@ -132,8 +143,18 @@ func list_resolved_imports(src: str, cur_abs: str, stdroot: str): str {
 }
 
 func path_in_done(done: str, p: str): int {
-    var wrapped = "\n" + done
-    if str_contains(wrapped, "\n" + p + "\n") == 1 {
+    var b = str_builder_new()
+    str_builder_append(b, "\n")
+    str_builder_append(b, done)
+    var wrapped = str_builder_to_str(b)
+    str_builder_free(b)
+    var b2 = str_builder_new()
+    str_builder_append(b2, "\n")
+    str_builder_append(b2, p)
+    str_builder_append(b2, "\n")
+    var search = str_builder_to_str(b2)
+    str_builder_free(b2)
+    if str_contains(wrapped, search) == 1 {
         return 1
     }
     return 0
@@ -159,7 +180,12 @@ func merge_emit_file(abs_path: str, done: str, stack: str, stdroot: str, out: in
     var src = read_file(abs_path)
     var deps = list_resolved_imports(src, abs_path, stdroot)
     var done2 = done
-    var stack2 = stack + abs_path + "\n"
+    var b_stack = str_builder_new()
+    str_builder_append(b_stack, stack)
+    str_builder_append(b_stack, abs_path)
+    str_builder_append(b_stack, "\n")
+    var stack2 = str_builder_to_str(b_stack)
+    str_builder_free(b_stack)
     var pos = 0
     var dn = str_len(deps)
     while pos < dn {
@@ -179,7 +205,13 @@ func merge_emit_file(abs_path: str, done: str, stack: str, stdroot: str, out: in
     }
     str_builder_append(out, src)
     str_builder_append(out, "\n")
-    return done2 + abs_path + "\n"
+    var b_done = str_builder_new()
+    str_builder_append(b_done, done2)
+    str_builder_append(b_done, abs_path)
+    str_builder_append(b_done, "\n")
+    var new_done = str_builder_to_str(b_done)
+    str_builder_free(b_done)
+    return new_done
 }
 
 func merge_package_sources(root: str): str {

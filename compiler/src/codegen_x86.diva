@@ -70,6 +70,12 @@ func asm_runtime_label(src: str, toks: int, name_tok: int): str {
     if str_eq(nm, "host_argv") == 1 {
         return "di_runtime_argv"
     }
+    if str_eq(nm, "host_getenv") == 1 {
+        return "di_runtime_getenv"
+    }
+    if str_eq(nm, "host_system") == 1 {
+        return "di_runtime_system"
+    }
     var b = str_builder_new()
     str_builder_append(b, "di_runtime_")
     str_builder_append(b, nm)

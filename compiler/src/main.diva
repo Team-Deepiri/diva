@@ -44,14 +44,14 @@ func system_exit_code(rc: int): int {
     return rc / 256
 }
 
-// Write assembly with a POSIX heredoc, then link with cc (one host_system; no nested compiler invocations).
-func native_link_asm_heredoc(asm: str, exe_path: str, runtime_o: str): int {
+// Write assembly to a temp file, then link with cc (uses heredoc with escaping + host_system; no direct write_file call to avoid seed codegen issues).
+func native_link_asm_heredoc(asm_src: str, exe_path: str, runtime_o: str): int {
     var b = str_builder_new()
-    str_builder_append(b, "cat >/tmp/diva-native-build.s <<'__DIVA_NATIVE_ASM_HEREDOC__'")
+    str_builder_append(b, "cat >/tmp/diva-native-build.s <<'__DIVA_NATIVE_ASM'")
     str_builder_append(b, newline_str())
-    str_builder_append(b, asm)
+    str_builder_append(b, asm_src)
     str_builder_append(b, newline_str())
-    str_builder_append(b, "__DIVA_NATIVE_ASM_HEREDOC__")
+    str_builder_append(b, "__DIVA_NATIVE_ASM")
     str_builder_append(b, newline_str())
     str_builder_append(b, "cc -no-pie -o '")
     str_builder_append(b, exe_path)
@@ -85,14 +85,14 @@ func native_compile_and_link(merged_src: str): int {
     var ir_result = build_ir(merged_src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     var strv = int_vec_get(ir_result, 1)
-    var asm = cg_module_to_str(m, merged_src, stream, strv, newline_str())
+    var asm_out = cg_module_to_str(m, merged_src, stream, strv, newline_str())
     var ro = host_getenv("DI_RUNTIME_O")
     if str_len(ro) == 0 {
         err_line("DI_RUNTIME_O must be set to the runtime object file (e.g. bootstrap/runtime-linux-amd64.o)")
         return 1
     }
     var exe_out = native_tmp_exe()
-    if native_link_asm_heredoc(asm, exe_out, ro) != 0 {
+    if native_link_asm_heredoc(asm_out, exe_out, ro) != 0 {
         err_line("link failed (requires cc and a valid DI_RUNTIME_O)")
         return 1
     }
@@ -285,7 +285,7 @@ func cmd_build(): int {
     if native_compile_and_link(merged) != 0 {
         return 1
     }
-    print_str("[native] built executable at ")
+    print_str("[di] built native executable at ")
     print_str(native_tmp_exe())
     stdout(newline_str())
     return 0
