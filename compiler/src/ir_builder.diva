@@ -318,6 +318,29 @@ func lower_expr(ctx: int, src: str, node: int): int {
         }
     }
 
+    if kind == nd_field() {
+        var obj_node = ast_child(node, 0)
+        var field_tok = ast_child(node, 1)
+        if ast_kind(obj_node) == nd_ident() {
+            var obj_name = ib_tok_text(ctx, src, ast_child(obj_node, 0))
+            var slot = ib_lookup_local(ctx, obj_name)
+            if slot >= 0 {
+                var r = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_load(), r, slot, 0, 0))
+                return r
+            }
+        }
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
+        return r
+    }
+
+    if kind == nd_obj_lit() {
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
+        return r
+    }
+
     var r = ib_fresh_vreg(ctx)
     ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
     return r

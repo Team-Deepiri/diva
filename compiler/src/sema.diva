@@ -117,12 +117,6 @@ func sema_file_only_native_subset(file_node: int): int {
         if k == nd_package_decl() {
             return 0
         }
-        if k == nd_class() {
-            return 0
-        }
-        if k == nd_var_decl() {
-            return 0
-        }
         i = i + 1
     }
     return 1

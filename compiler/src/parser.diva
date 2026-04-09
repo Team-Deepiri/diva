@@ -138,8 +138,12 @@ func parse_primary(ps: int, src: str): int {
     }
 
     if kind == tk_ident() | kind == tk_self() {
+        var ident_tok = tok
         p_advance(ps)
-        return ast_ident(tok)
+        if p_cur(ps) == tk_lbrace() {
+            return parse_struct_lit(ps, src, ident_tok)
+        }
+        return ast_ident(ident_tok)
     }
 
     if kind == tk_lparen() {
@@ -553,6 +557,34 @@ func parse_class_decl(ps: int, src: str): int {
     }
     p_expect(ps, src, tk_rbrace())
     return ast_class(name, members)
+}
+
+func parse_struct_lit(ps: int, src: str, type_tok: int): int {
+    p_advance(ps)
+    var fields = int_vec_new()
+    if p_cur(ps) != tk_rbrace() {
+        var done = 0
+        while done == 0 {
+            if p_cur(ps) == tk_ident() {
+                var fname = p_expect(ps, src, tk_ident())
+                p_expect(ps, src, tk_colon())
+                var fvalue = parse_expr(ps, src)
+                int_vec_push(fields, ast_field_init(fname, fvalue))
+                if p_cur(ps) == tk_comma() {
+                    p_advance(ps)
+                    if p_cur(ps) == tk_rbrace() {
+                        done = 1
+                    }
+                } else {
+                    done = 1
+                }
+            } else {
+                done = 1
+            }
+        }
+    }
+    p_expect(ps, src, tk_rbrace())
+    return ast_obj_lit(type_tok, fields)
 }
 
 func parse_top_level(ps: int, src: str): int {

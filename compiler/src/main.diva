@@ -190,18 +190,6 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
 
 // 1 = source needs the bootstrap compiler (parse/native-subset gap); 0 = try native pipeline.
 func native_driver_should_delegate(merged: str): int {
-    var stream = lex_source(merged)
-    if stream == 0 {
-        return 1
-    }
-    var pr = parse_source(merged, stream, 1)
-    if int_vec_get(pr, 1) != 0 {
-        return 1
-    }
-    var ast = int_vec_get(pr, 0)
-    if sema_file_only_native_subset(ast) == 0 {
-        return 1
-    }
     return 0
 }
 
