@@ -257,7 +257,7 @@ func cmd_parse(path: str): int {
 }
 
 func cmd_ir(path: str): int {
-    var src = read_source(path)
+    var src = merge_file_sources(path)
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
@@ -272,7 +272,7 @@ func cmd_ir(path: str): int {
 }
 
 func cmd_asm(path: str): int {
-    var src = read_source(path)
+    var src = merge_file_sources(path)
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
@@ -288,7 +288,7 @@ func cmd_asm(path: str): int {
 }
 
 func cmd_emit_ir(path: str): int {
-    var src = read_source(path)
+    var src = merge_file_sources(path)
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
@@ -382,7 +382,7 @@ func cmd_build(): int {
             err_line("build: expected a .diva file or a package directory containing package.diva")
             return 1
         }
-        merged = read_source(path)
+        merged = merge_file_sources(path)
     }
     if str_len(merged) == 0 {
         return 1
@@ -418,7 +418,7 @@ func cmd_run_file(path: str): int {
             err_line("run: expected a .diva file or a package directory")
             return 1
         }
-        merged = read_source(path)
+        merged = merge_file_sources(path)
     }
     if str_len(merged) == 0 {
         return 1

@@ -289,6 +289,25 @@ func merge_emit_file(abs_path: str, done: str, stack: str, stdroot: str, out: in
     return new_done
 }
 
+func merge_file_sources(path: str): str {
+    var src = read_file(path)
+    if str_len(src) == 0 {
+        return ""
+    }
+    var nl = loader_newline()
+    var stdroot = loader_stdlib_dir()
+    var b = str_builder_new()
+    var done = ""
+    var r = merge_emit_file(path, done, "", stdroot, b)
+    if str_len(r) == 0 {
+        str_builder_free(b)
+        return ""
+    }
+    var merged = str_builder_to_str(b)
+    str_builder_free(b)
+    return merged
+}
+
 func merge_package_sources(root: str): str {
     var man = path_join_dir(root, "package.diva")
     var ent = package_entry_relative(man)
