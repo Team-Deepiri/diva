@@ -1,0 +1,5 @@
+extern func print_str(x: str): void
+
+func test(): bool { return true }
+
+func main(): int { return 0 }

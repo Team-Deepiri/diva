@@ -1,0 +1,7 @@
+func test(x: bool): bool {
+    return x
+}
+
+func main(): int {
+    return 0
+}

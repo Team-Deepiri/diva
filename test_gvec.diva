@@ -1,0 +1,7 @@
+import "std/vec.diva"
+
+var g = 42
+
+func main(): int {
+    return g
+}

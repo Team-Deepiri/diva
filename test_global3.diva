@@ -1,0 +1,8 @@
+var x = 42
+
+func main(): int {
+    if x == 42 {
+        return 0
+    }
+    return 1
+}

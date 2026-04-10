@@ -1,0 +1,7 @@
+import "std/random.diva"
+
+func main(): int {
+    rng_seed(42)
+    var r = rng_next()
+    return r
+}

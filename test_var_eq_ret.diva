@@ -1,0 +1,8 @@
+func test(x: int): int {
+    var b = x == 1
+    return b
+}
+
+func main(): int {
+    return 0
+}

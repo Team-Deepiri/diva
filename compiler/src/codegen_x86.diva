@@ -343,6 +343,24 @@ func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str 
         fi = fi + 1
     }
 
+    var gc = mod_global_count(m)
+    if gc > 0 {
+        lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    .data") lp_flush_sb(lp, sb, nl)
+        var gi = 0
+        while gi < gc {
+            var g = mod_get_global(m, gi)
+            var gname = tok_text(src, toks, global_name_tok(g))
+            lp_add(lp, "    .globl ") lp_add(lp, gname) lp_flush_sb(lp, sb, nl)
+            lp_add(lp, gname) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
+            var ginit = global_init(g)
+            lp_add(lp, "    .quad ")
+            lp_add_int(lp, ginit)
+            lp_flush_sb(lp, sb, nl)
+            gi = gi + 1
+        }
+    }
+
     if int_vec_len(str_toks) > 0 {
         lp_add(lp, "    .section .rodata") lp_flush_sb(lp, sb, nl)
         var si = 0

@@ -1,0 +1,9 @@
+var x = 42
+
+func main(): int {
+    var y = x
+    if y == 42 {
+        return 0
+    }
+    return 1
+}

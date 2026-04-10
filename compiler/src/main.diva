@@ -382,7 +382,11 @@ func cmd_build(): int {
             err_line("build: expected a .diva file or a package directory containing package.diva")
             return 1
         }
+        // Use merged source to handle imports
         merged = merge_file_sources(path)
+        if str_len(merged) == 0 {
+            merged = read_source(path)
+        }
     }
     if str_len(merged) == 0 {
         return 1
@@ -418,7 +422,11 @@ func cmd_run_file(path: str): int {
             err_line("run: expected a .diva file or a package directory")
             return 1
         }
+        // Use merged source to handle imports
         merged = merge_file_sources(path)
+        if str_len(merged) == 0 {
+            merged = read_source(path)
+        }
     }
     if str_len(merged) == 0 {
         return 1

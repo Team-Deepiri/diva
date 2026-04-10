@@ -1,0 +1,11 @@
+import "std/io.diva"
+
+var g = 42
+
+func main(): int {
+    var x = g
+    if x == 42 {
+        return 0
+    }
+    return 1
+}

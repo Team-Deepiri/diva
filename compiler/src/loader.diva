@@ -66,7 +66,6 @@ func path_is_package_dir(root: str): int {
     return 1
 }
 
-// Quoted value for `kind = "..."` in package.diva (empty if missing).
 func package_manifest_kind_value(root: str): str {
     var mf = path_join_dir(root, "package.diva")
     if file_size(mf) < 0 {
@@ -234,7 +233,6 @@ func path_in_done(done: str, p: str, nl: str): int {
     return 0
 }
 
-// Returns updated done list, or "" on error (message on stderr).
 func merge_emit_file(abs_path: str, done: str, stack: str, stdroot: str, out: int): str {
     var nl = loader_newline()
     if path_in_done(done, abs_path, nl) == 1 {

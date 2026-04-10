@@ -1,0 +1,12 @@
+func test(x: int): int {
+    var a = x
+    var b = a == 1
+    if b {
+        return 0
+    }
+    return 1
+}
+
+func main(): int {
+    return 0
+}
