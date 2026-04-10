@@ -1,0 +1,5 @@
+import "std/random.diva"
+
+func main(): int {
+    return 0
+}

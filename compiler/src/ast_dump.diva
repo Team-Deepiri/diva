@@ -189,6 +189,19 @@ func ast_dump_func_decl(node: int, depth: int, src: str, toks: int, nl: str): in
 
 func dump_top(node: int, depth: int, src: str, toks: int, nl: str): int {
     var k = ast_kind(node)
+    var j = 0
+    while j < depth - 1 {
+        print_str("  ")
+        j = j + 1
+    }
+    if k == nd_import() {
+        var tok = ast_child(node, 0)
+        print_str("Import(")
+        print_str(tok_text(src, toks, tok))
+        print_str(")")
+        print_str(nl)
+        return 0
+    }
     if k == nd_extern_func() {
         return dump_extern(node, depth, src, toks, nl)
     }

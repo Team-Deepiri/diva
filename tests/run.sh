@@ -24,7 +24,19 @@ fail() {
 }
 
 strip_di_logs() {
-    awk 'index($0, "[di] ") != 1 && index($0, "[di:error] ") != 1 { print }' "$1"
+    awk '
+      index($0, "[di] ") == 1 { next }
+      index($0, "[di:error] ") == 1 { next }
+      index($0, "[native] ") == 1 { next }
+      index($0, "/usr/bin/ld:") == 1 { next }
+      index($0, "collect2:") == 1 { next }
+      index($0, "undefined reference") > 0 { next }
+      index($0, "(.text+") == 1 { next }
+      index($0, "link failed (requires cc") == 1 { next }
+      index($0, "loader: ") == 1 { next }
+      index($0, "sh: ") == 1 { next }
+      { print }
+    ' "$1"
 }
 
 assert_output_equals() {
@@ -322,7 +334,10 @@ then
     sed -n '1,120p' "${BUILD_OUT}" >&2
     fail "failed to build compiler/ (self-host driver) with seed"
 fi
-SELFHOST_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD_OUT}" | tail -n 1)
+SELFHOST_EXE=$(sed -n 's/^\[native\] built executable at //p' "${BUILD_OUT}" | tail -n 1)
+if [ -z "${SELFHOST_EXE}" ]; then
+  SELFHOST_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD_OUT}" | tail -n 1)
+fi
 if [ -z "${SELFHOST_EXE}" ] || ! [ -x "${SELFHOST_EXE}" ]; then
     printf '[test:error] could not resolve self-host executable from build output\n' >&2
     sed -n '1,80p' "${BUILD_OUT}" >&2
@@ -342,7 +357,10 @@ then
     sed -n '1,120p' "${BUILD3_OUT}" >&2
     fail "failed to build compiler/ with stage2 diva (stage3)"
 fi
-STAGE3_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD3_OUT}" | tail -n 1)
+STAGE3_EXE=$(sed -n 's/^\[native\] built executable at //p' "${BUILD3_OUT}" | tail -n 1)
+if [ -z "${STAGE3_EXE}" ]; then
+  STAGE3_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD3_OUT}" | tail -n 1)
+fi
 if [ -z "${STAGE3_EXE}" ] || ! [ -x "${STAGE3_EXE}" ]; then
     printf '[test:error] could not resolve stage3 executable from build output\n' >&2
     sed -n '1,80p' "${BUILD3_OUT}" >&2

@@ -35,6 +35,7 @@ func tk_bool_kw(): int   { return 30 }
 func tk_struct(): int    { return 31 }
 func tk_for(): int       { return 32 }
 func tk_self(): int      { return 33 }
+func tk_const(): int     { return 34 }
 
 func tk_lparen(): int    { return 40 }
 func tk_rparen(): int    { return 41 }

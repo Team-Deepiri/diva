@@ -270,6 +270,22 @@ func ast_array_lit(elems: int): int {
     return n
 }
 
+func ast_obj_lit(type_tok: int, fields: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_obj_lit())
+    int_vec_push(n, type_tok)
+    int_vec_push(n, fields)
+    return n
+}
+
+func ast_field_init(name_tok: int, value: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_field_init())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, value)
+    return n
+}
+
 // Range: [kind, start_expr, end_expr]
 func ast_range(start: int, end: int): int {
     var n = int_vec_new()

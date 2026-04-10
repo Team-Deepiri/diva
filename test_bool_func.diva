@@ -1,0 +1,3 @@
+func print_bool(value: bool): int { return 0 }
+
+func main(): int { return 0 }

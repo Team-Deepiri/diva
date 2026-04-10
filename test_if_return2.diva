@@ -1,0 +1,10 @@
+func test(x: int): int {
+    if x == 1 {
+        return 0
+    }
+    return 1
+}
+
+func main(): int {
+    return test(0)
+}

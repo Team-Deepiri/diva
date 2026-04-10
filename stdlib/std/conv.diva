@@ -30,6 +30,22 @@ func str_to_int(s: str): int {
     return result
 }
 
+func char_to_str_ascii_table_path(): str {
+    var root = host_getenv("DI_STDLIB_DIR")
+    if str_len(root) == 0 {
+        root = "stdlib"
+    }
+    var b = str_builder_new()
+    if b == 0 {
+        return ""
+    }
+    str_builder_append(b, root)
+    str_builder_append(b, "/std/char_to_str_table.bin")
+    var p = str_builder_to_str(b)
+    str_builder_free(b)
+    return p
+}
+
 func char_to_str(code: int): str {
     var b = str_builder_new()
     if b == 0 {
@@ -37,21 +53,27 @@ func char_to_str(code: int): str {
     }
     if code == 10 {
         str_builder_append(b, "\n")
+        var r = str_builder_to_str(b)
+        str_builder_free(b)
+        return r
     }
     if code == 9 {
         str_builder_append(b, "\t")
+        var r2 = str_builder_to_str(b)
+        str_builder_free(b)
+        return r2
     }
-    if code == 32 {
-        str_builder_append(b, " ")
-    }
-    if code >= 48 {
-        if code <= 57 {
-            str_builder_append(b, int_to_str(code - 48))
+    if code >= 32 & code <= 126 {
+        var tbl = read_file(char_to_str_ascii_table_path())
+        var need = (code - 32) + 1
+        if str_len(tbl) >= need {
+            var one = str_slice(tbl, code - 32, 1)
+            str_builder_free(b)
+            return one
         }
     }
-    var result = str_builder_to_str(b)
     str_builder_free(b)
-    return result
+    return ""
 }
 
 func bool_to_str(value: bool): str {

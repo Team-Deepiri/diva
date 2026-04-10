@@ -138,8 +138,12 @@ func parse_primary(ps: int, src: str): int {
     }
 
     if kind == tk_ident() | kind == tk_self() {
+        var ident_tok = tok
         p_advance(ps)
-        return ast_ident(tok)
+        if p_cur(ps) == tk_lbrace() {
+            return parse_struct_lit(ps, src, ident_tok)
+        }
+        return ast_ident(ident_tok)
     }
 
     if kind == tk_lparen() {
@@ -347,7 +351,8 @@ func parse_expr(ps: int, src: str): int {
 // --- Statement parsing ---
 // parse_block calls parse_stmt (defined later) — seed supports forward refs.
 
-func parse_block(ps: int, src: str): int {
+// add_implicit_void_ret: only for top-level void function bodies — not if/while/else blocks.
+func parse_block(ps: int, src: str, add_implicit_void_ret: int): int {
     p_expect(ps, src, tk_lbrace())
     var stmts = int_vec_new()
     while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
@@ -356,6 +361,17 @@ func parse_block(ps: int, src: str): int {
         p_skip_semi(ps)
     }
     p_expect(ps, src, tk_rbrace())
+    var n = int_vec_len(stmts)
+    if n > 0 & add_implicit_void_ret == 1 {
+        var last = int_vec_get(stmts, n - 1)
+        var last_kind = int_vec_get(last, 0)
+        if last_kind != nd_return() {
+            var ret = int_vec_new()
+            int_vec_push(ret, nd_return())
+            int_vec_push(ret, 0 - 1)
+            int_vec_push(stmts, ret)
+        }
+    }
     return ast_block(stmts)
 }
 
@@ -383,14 +399,14 @@ func parse_var_decl(ps: int, src: str): int {
 func parse_if_stmt(ps: int, src: str): int {
     p_advance(ps)
     var cond = parse_expr(ps, src)
-    var then_body = parse_block(ps, src)
+    var then_body = parse_block(ps, src, 0)
     var else_body = 0 - 1
     if p_cur(ps) == tk_else() {
         p_advance(ps)
         if p_cur(ps) == tk_if() {
             else_body = parse_if_stmt(ps, src)
         } else {
-            else_body = parse_block(ps, src)
+            else_body = parse_block(ps, src, 0)
         }
     }
     return ast_if(cond, then_body, else_body)
@@ -404,7 +420,7 @@ func parse_while_stmt(ps: int, src: str): int {
         p_advance(ps)
         update = parse_expr(ps, src)
     }
-    var body = parse_block(ps, src)
+    var body = parse_block(ps, src, 0)
     return ast_while(cond, body, update)
 }
 
@@ -413,7 +429,7 @@ func parse_flux_stmt(ps: int, src: str): int {
     var vtok = p_expect(ps, src, tk_ident())
     p_expect(ps, src, tk_in())
     var iterable = parse_expr(ps, src)
-    var body = parse_block(ps, src)
+    var body = parse_block(ps, src, 0)
     return ast_flux(vtok, iterable, body)
 }
 
@@ -478,9 +494,23 @@ func parse_func_decl(ps: int, src: str): int {
     p_advance(ps)
     var name = p_expect(ps, src, tk_ident())
     var params = parse_params(ps, src)
-    p_expect(ps, src, tk_colon())
-    var ret = parse_type(ps, src)
-    var body = parse_block(ps, src)
+    var ret = 0
+    if p_cur(ps) == tk_colon() {
+        p_advance(ps)
+        ret = parse_type(ps, src)
+    } else {
+        ret = ast_type_name(0)
+    }
+    var void_body = 0
+    if ret >= 0 {
+        if ast_kind(ret) == nd_type_name() {
+            var rn = p_text(ps, src, ast_child(ret, 0))
+            if str_eq(rn, "void") == 1 {
+                void_body = 1
+            }
+        }
+    }
+    var body = parse_block(ps, src, void_body)
     return ast_func(name, params, ret, body)
 }
 
@@ -529,6 +559,34 @@ func parse_class_decl(ps: int, src: str): int {
     return ast_class(name, members)
 }
 
+func parse_struct_lit(ps: int, src: str, type_tok: int): int {
+    p_advance(ps)
+    var fields = int_vec_new()
+    if p_cur(ps) != tk_rbrace() {
+        var done = 0
+        while done == 0 {
+            if p_cur(ps) == tk_ident() {
+                var fname = p_expect(ps, src, tk_ident())
+                p_expect(ps, src, tk_colon())
+                var fvalue = parse_expr(ps, src)
+                int_vec_push(fields, ast_field_init(fname, fvalue))
+                if p_cur(ps) == tk_comma() {
+                    p_advance(ps)
+                    if p_cur(ps) == tk_rbrace() {
+                        done = 1
+                    }
+                } else {
+                    done = 1
+                }
+            } else {
+                done = 1
+            }
+        }
+    }
+    p_expect(ps, src, tk_rbrace())
+    return ast_obj_lit(type_tok, fields)
+}
+
 func parse_top_level(ps: int, src: str): int {
     var children = int_vec_new()
     while p_cur(ps) != tk_eof() {
@@ -573,7 +631,7 @@ func parse_top_level(ps: int, src: str): int {
             }
             p_expect(ps, src, tk_rbrace())
         } else {
-        if kind == tk_var() | kind == tk_let() {
+        if kind == tk_var() | kind == tk_let() | kind == tk_const() {
             int_vec_push(children, parse_var_decl(ps, src))
         } else {
         if kind == tk_eof() {

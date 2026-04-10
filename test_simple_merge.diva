@@ -1,0 +1,9 @@
+import "std/vec.diva"
+
+func test(): int {
+    return 0
+}
+
+func main(): int {
+    return test()
+}

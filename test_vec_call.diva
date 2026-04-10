@@ -1,0 +1,6 @@
+import "std/vec.diva"
+
+func main(): int {
+    var v = int_vec_new()
+    return v
+}

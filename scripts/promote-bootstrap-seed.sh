@@ -71,4 +71,3 @@ else
 fi
 
 echo "[promote] OK. New seed is bootstrap/diva-linux-amd64 (backup: ${BACKUP})."
-echo "[promote] Commit with: git add bootstrap/diva-linux-amd64 && git commit -m \"chore(bootstrap): promote self-built compiler seed\""

@@ -64,18 +64,35 @@ func asm_user_label(src: str, toks: int, name_tok: int): str {
 
 func asm_runtime_label(src: str, toks: int, name_tok: int): str {
     var nm = tok_text(src, toks, name_tok)
-    if str_eq(nm, "host_argc") == 1 {
-        return "di_runtime_argc"
-    }
-    if str_eq(nm, "host_argv") == 1 {
-        return "di_runtime_argv"
-    }
-    var b = str_builder_new()
-    str_builder_append(b, "di_runtime_")
-    str_builder_append(b, nm)
-    var r = str_builder_to_str(b)
-    str_builder_free(b)
-    return r
+    if str_eq(nm, "set_argv") == 1 { return "di_runtime_set_argv" }
+    if str_eq(nm, "argc") == 1 { return "di_runtime_argc" }
+    if str_eq(nm, "argv") == 1 { return "di_runtime_argv" }
+    if str_eq(nm, "getenv") == 1 { return "di_runtime_getenv" }
+    if str_eq(nm, "system") == 1 { return "di_runtime_system" }
+    if str_eq(nm, "file_size") == 1 { return "di_runtime_file_size" }
+    if str_eq(nm, "read_file") == 1 { return "di_runtime_read_file" }
+    if str_eq(nm, "str_len") == 1 { return "di_runtime_str_len" }
+    if str_eq(nm, "str_byte") == 1 { return "di_runtime_str_byte" }
+    if str_eq(nm, "str_slice") == 1 { return "di_runtime_str_slice" }
+    if str_eq(nm, "str_eq") == 1 { return "di_runtime_str_eq" }
+    if str_eq(nm, "int_to_str") == 1 { return "di_runtime_int_to_str" }
+    if str_eq(nm, "int_vec_new") == 1 { return "di_runtime_int_vec_new" }
+    if str_eq(nm, "int_vec_push") == 1 { return "di_runtime_int_vec_push" }
+    if str_eq(nm, "int_vec_len") == 1 { return "di_runtime_int_vec_len" }
+    if str_eq(nm, "int_vec_get") == 1 { return "di_runtime_int_vec_get" }
+    if str_eq(nm, "int_vec_free") == 1 { return "di_runtime_int_vec_free" }
+    if str_eq(nm, "str_builder_new") == 1 { return "di_runtime_str_builder_new" }
+    if str_eq(nm, "str_builder_append") == 1 { return "di_runtime_str_builder_append" }
+    if str_eq(nm, "str_builder_len") == 1 { return "di_runtime_str_builder_len" }
+    if str_eq(nm, "str_builder_to_str") == 1 { return "di_runtime_str_builder_to_str" }
+    if str_eq(nm, "str_builder_free") == 1 { return "di_runtime_str_builder_free" }
+    if str_eq(nm, "print_int") == 1 { return "di_runtime_print_int" }
+    if str_eq(nm, "print_str") == 1 { return "di_runtime_print_str" }
+    if str_eq(nm, "print_hex") == 1 { return "di_runtime_print_hex" }
+    if str_eq(nm, "write") == 1 { return "di_runtime_write" }
+    if str_eq(nm, "exit") == 1 { return "di_runtime_exit" }
+    if str_eq(nm, "abort") == 1 { return "di_runtime_abort" }
+    return nm
 }
 
 func call_is_extern(m: int, src: str, toks: int, call_tok: int): int {
@@ -324,6 +341,24 @@ func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str 
     while fi < fc {
         cg_func(lp, sb, nl, m, src, toks, mod_get_func(m, fi), fi)
         fi = fi + 1
+    }
+
+    var gc = mod_global_count(m)
+    if gc > 0 {
+        lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    .data") lp_flush_sb(lp, sb, nl)
+        var gi = 0
+        while gi < gc {
+            var g = mod_get_global(m, gi)
+            var gname = tok_text(src, toks, global_name_tok(g))
+            lp_add(lp, "    .globl ") lp_add(lp, gname) lp_flush_sb(lp, sb, nl)
+            lp_add(lp, gname) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
+            var ginit = global_init(g)
+            lp_add(lp, "    .quad ")
+            lp_add_int(lp, ginit)
+            lp_flush_sb(lp, sb, nl)
+            gi = gi + 1
+        }
     }
 
     if int_vec_len(str_toks) > 0 {

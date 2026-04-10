@@ -5,6 +5,7 @@
 import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
+import "std/str.diva"
 import "tokens.diva"
 import "ast.diva"
 import "ir.diva"
@@ -23,6 +24,8 @@ import "cell.diva"
 //   [8] = str_vec (int_vec of string literal token indices)
 //   [9] = toks handle (direct)
 //   [10] = strtab_cell (string table counter)
+//   [11] = global_names_cell (global var name hashes)
+//   [12] = global_vals_cell (global var init values)
 
 func bctx_new(src: str, toks: int): int {
     var ctx = int_vec_new()
@@ -37,6 +40,8 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, int_vec_new())          // [8] str_vec
     int_vec_push(ctx, toks)                   // [9] toks
     int_vec_push(ctx, mut_new(0))            // [10] strtab_cell
+    int_vec_push(ctx, mut_new(int_vec_new())) // [11] global_names_cell
+    int_vec_push(ctx, mut_new(int_vec_new())) // [12] global_vals_cell
     return ctx
 }
 
@@ -59,6 +64,9 @@ func bctx_set_label(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 4),
 func bctx_set_names(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 5), v) }
 func bctx_set_slots(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 6), v) }
 func bctx_set_array_lens(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 7), v) }
+func bctx_global_names(ctx: int): int { return mut_get(int_vec_get(ctx, 11)) }
+func bctx_global_vals(ctx: int): int  { return mut_get(int_vec_get(ctx, 12)) }
+func bctx_set_global_vals(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 12), v) }
 
 // --- String table (counter stored in strtab_cell) ---
 
@@ -223,6 +231,19 @@ func lower_expr(ctx: int, src: str, node: int): int {
         var name = ib_tok_text(ctx, src, tok_idx)
         var slot = ib_lookup_local(ctx, name)
         if slot < 0 {
+            var h = ib_name_hash(name)
+            var gnames = bctx_global_names(ctx)
+            var gvals = bctx_global_vals(ctx)
+            var found = 0
+            var i = int_vec_len(gnames) - 1
+            while i >= 0 {
+                if int_vec_get(gnames, i) == h {
+                    var r = ib_fresh_vreg(ctx)
+                    ib_emit(ctx, ir_inst(ir_const(), r, int_vec_get(gvals, i), 0, 0))
+                    return r
+                }
+                i = i - 1
+            }
             var r = ib_fresh_vreg(ctx)
             ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
             return r
@@ -316,6 +337,29 @@ func lower_expr(ctx: int, src: str, node: int): int {
                 }
             }
         }
+    }
+
+    if kind == nd_field() {
+        var obj_node = ast_child(node, 0)
+        var field_tok = ast_child(node, 1)
+        if ast_kind(obj_node) == nd_ident() {
+            var obj_name = ib_tok_text(ctx, src, ast_child(obj_node, 0))
+            var slot = ib_lookup_local(ctx, obj_name)
+            if slot >= 0 {
+                var r = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_load(), r, slot, 0, 0))
+                return r
+            }
+        }
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
+        return r
+    }
+
+    if kind == nd_obj_lit() {
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
+        return r
     }
 
     var r = ib_fresh_vreg(ctx)
@@ -569,6 +613,40 @@ func lower_extern(ctx: int, src: str, node: int): int {
     return 0
 }
 
+func lower_global(ctx: int, src: str, node: int): int {
+    var name_tok = ast_child(node, 0)
+    var name = ib_tok_text(ctx, src, name_tok)
+    var init = ast_child(node, 2)
+    var gtype = ir_ty_int()
+    var init_val = 0
+    if init >= 0 {
+        var ik = ast_kind(init)
+        if ik == nd_int_lit() {
+            init_val = ast_child(init, 0)
+        } else {
+            if ik == nd_bool_lit() {
+                init_val = ast_child(init, 0)
+            } else {
+                var r = lower_expr(ctx, src, init)
+                var i = 0
+                while i < int_vec_len(bctx_global_vals(ctx)) {
+                    var gval = int_vec_get(bctx_global_vals(ctx), i)
+                    if gval == r {
+                        init_val = 0
+                    }
+                    i = i + 1
+                }
+                init_val = 0
+            }
+        }
+    }
+    var g = ir_global_new(name_tok, gtype, init_val)
+    mod_add_global(bctx_mod(ctx), g)
+    int_vec_push(bctx_global_names(ctx), ib_name_hash(name))
+    int_vec_push(bctx_global_vals(ctx), init_val)
+    return 0
+}
+
 // --- File lowering ---
 
 func lower_file(ctx: int, src: str, file_node: int): int {
@@ -578,11 +656,43 @@ func lower_file(ctx: int, src: str, file_node: int): int {
     while i < n {
         var child = int_vec_get(children, i)
         var kind = ast_kind(child)
+        if kind == nd_import() {
+            var imp_tok = ast_child(child, 0)
+            var imp_name = tok_str_value(src, bctx_toks(ctx), imp_tok)
+            var stdroot = loader_stdlib_dir()
+            var imp_path = ""
+            if str_len(imp_name) >= 4 {
+                if str_eq(str_slice(imp_name, 0, 4), "std/") == 1 {
+                    var b = str_builder_new()
+                    str_builder_append(b, stdroot)
+                    str_builder_append(b, "/")
+                    str_builder_append(b, imp_name)
+                    imp_path = str_builder_to_str(b)
+                    str_builder_free(b)
+                }
+            }
+            if str_len(imp_path) > 0 {
+                var imp_src = read_file(imp_path)
+                if str_len(imp_src) > 0 {
+                    var imp_stream = lex_source(imp_src)
+                    if imp_stream != 0 {
+                        var imp_pr = parse_source(imp_src, imp_stream, 0)
+                        if int_vec_get(imp_pr, 1) == 0 {
+                            var imp_ast = int_vec_get(imp_pr, 0)
+                            lower_file(ctx, imp_src, imp_ast)
+                        }
+                    }
+                }
+            }
+        }
         if kind == nd_func() {
             lower_func(ctx, src, child)
         }
         if kind == nd_extern_func() {
             lower_extern(ctx, src, child)
+        }
+        if kind == nd_var_decl() {
+            lower_global(ctx, src, child)
         }
         i = i + 1
     }

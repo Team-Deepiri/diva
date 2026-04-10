@@ -1,0 +1,14 @@
+func test(x: int): int {
+    if x == 1 {
+        return 0
+    }
+    return 1
+}
+
+func main(): int {
+    var r = test(0)
+    if r == 1 {
+        println("pass")
+    }
+    return 0
+}

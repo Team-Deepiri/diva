@@ -1,0 +1,8 @@
+import "std/vec.diva"
+
+func loader_stdlib_dir(): str { return "stdlib" }
+func loader_newline(): str { return "\n" }
+
+func main(): int {
+    return 0
+}
