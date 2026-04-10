@@ -112,13 +112,48 @@ func tok_int_value(src: str, stream: int, index: int): int {
     return result
 }
 
+// Decoded string value: \" -> ", \\ -> \, other backslash sequences stay as two (or one) literal chars.
 func tok_str_value(src: str, stream: int, index: int): str {
-    var s = tok_start(stream, index) + 1
-    var l = tok_len(stream, index) - 2
-    if l <= 0 {
+    var t0 = tok_start(stream, index)
+    var tl = tok_len(stream, index)
+    var inner_len = tl - 2
+    if inner_len <= 0 {
         return ""
     }
-    return str_slice(src, s, l)
+    var inner_start = t0 + 1
+    var q = str_slice(src, t0, 1)
+    var b = str_builder_new()
+    var i = 0
+    while i < inner_len {
+        var c = str_byte(src, inner_start + i)
+        if c == 92 {
+            if i + 1 >= inner_len {
+                str_builder_append(b, str_slice(src, inner_start + i, 1))
+                i = i + 1
+            } else {
+                var n2 = str_byte(src, inner_start + i + 1)
+                if n2 == 34 {
+                    str_builder_append(b, q)
+                    i = i + 2
+                } else {
+                    if n2 == 92 {
+                        str_builder_append(b, str_slice(src, inner_start + i, 1))
+                        i = i + 2
+                    } else {
+                        str_builder_append(b, str_slice(src, inner_start + i, 1))
+                        str_builder_append(b, str_slice(src, inner_start + i + 1, 1))
+                        i = i + 2
+                    }
+                }
+            }
+        } else {
+            str_builder_append(b, str_slice(src, inner_start + i, 1))
+            i = i + 1
+        }
+    }
+    var r = str_builder_to_str(b)
+    str_builder_free(b)
+    return r
 }
 
 // --- Token kind names (for diagnostics) ---
