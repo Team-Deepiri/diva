@@ -65,6 +65,10 @@ func tk_fatarrow(): int  { return 64 }
 func tk_dotdot(): int    { return 65 }
 func tk_coloncolon(): int { return 66 }
 func tk_percent(): int   { return 67 }
+func tk_shl(): int      { return 68 }
+func tk_shr(): int      { return 69 }
+func tk_ampamp(): int   { return 70 }
+func tk_pipepipe(): int { return 71 }
 
 // --- Token stream ---
 
@@ -214,5 +218,9 @@ func tk_name(kind: int): str {
     if kind == 65 { return "DOTDOT" }
     if kind == 66 { return "COLONCOLON" }
     if kind == 67 { return "PERCENT" }
+    if kind == 68 { return "SHL" }
+    if kind == 69 { return "SHR" }
+    if kind == 70 { return "AMPAMP" }
+    if kind == 71 { return "PIPEPIPE" }
     return "???"
 }

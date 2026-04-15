@@ -183,6 +183,22 @@ func lex_source(src: str): int {
             tok_stream_push(stream, tk_coloncolon(), i, 2)
             i = i + 2
         } else {
+        if lex_try_two(src, i, n, 60, 60) == 1 {
+            tok_stream_push(stream, tk_shl(), i, 2)
+            i = i + 2
+        } else {
+        if lex_try_two(src, i, n, 62, 62) == 1 {
+            tok_stream_push(stream, tk_shr(), i, 2)
+            i = i + 2
+        } else {
+        if lex_try_two(src, i, n, 38, 38) == 1 {
+            tok_stream_push(stream, tk_ampamp(), i, 2)
+            i = i + 2
+        } else {
+        if lex_try_two(src, i, n, 124, 124) == 1 {
+            tok_stream_push(stream, tk_pipepipe(), i, 2)
+            i = i + 2
+        } else {
             var pk = lex_punct_kind(b)
             if pk >= 0 {
                 tok_stream_push(stream, pk, i, 1)

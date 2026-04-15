@@ -57,6 +57,8 @@ func binop_gt(): int   { return 10 }
 func binop_ge(): int   { return 11 }
 func binop_and(): int  { return 12 }
 func binop_or(): int   { return 13 }
+func binop_shl(): int  { return 14 }
+func binop_shr(): int  { return 15 }
 
 // --- Unary operator sub-kinds ---
 

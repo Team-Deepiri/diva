@@ -272,6 +272,8 @@ func lower_expr(ctx: int, src: str, node: int): int {
         if op == binop_ge()  { irop = ir_ge() }
         if op == binop_and() { irop = ir_and() }
         if op == binop_or()  { irop = ir_or() }
+        if op == binop_shl() { irop = ir_shl() }
+        if op == binop_shr() { irop = ir_shr() }
         ib_emit(ctx, ir_inst(irop, r, left, right, 0))
         return r
     }

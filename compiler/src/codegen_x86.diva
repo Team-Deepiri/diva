@@ -200,7 +200,23 @@ func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, 
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
-
+    
+    if op == ir_shl() {
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rcx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    salq %cl, %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 0
+    }
+    
+    if op == ir_shr() {
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rcx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    sarq %cl, %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 0
+    }
+    
     if op == ir_not() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    testq %rax, %rax") lp_flush_sb(lp, sb, nl)

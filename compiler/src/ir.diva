@@ -40,7 +40,9 @@ func ir_ge(): int        { return 14 }
 func ir_and(): int       { return 15 }
 func ir_or(): int        { return 16 }
 func ir_not(): int       { return 17 }
-func ir_load(): int      { return 18 }
+func ir_shl(): int       { return 18 }
+func ir_shr(): int       { return 19 }
+func ir_load(): int      { return 20 }
 func ir_store(): int     { return 19 }
 func ir_call(): int      { return 20 }
 func ir_ret(): int       { return 21 }
@@ -73,7 +75,9 @@ func ir_op_name(op: int): str {
     if op == 15 { return "and" }
     if op == 16 { return "or" }
     if op == 17 { return "not" }
-    if op == 18 { return "load" }
+    if op == 18 { return "shl" }
+    if op == 19 { return "shr" }
+    if op == 20 { return "load" }
     if op == 19 { return "store" }
     if op == 20 { return "call" }
     if op == 21 { return "ret" }

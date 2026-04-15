@@ -287,13 +287,25 @@ func parse_mul(ps: int, src: str): int {
 }
 
 func parse_add(ps: int, src: str): int {
-    var left = parse_mul(ps, src)
+    var left = parse_shift(ps, src)
     while p_cur(ps) == tk_plus() | p_cur(ps) == tk_minus() {
         var op = p_cur(ps)
         p_advance(ps)
-        var right = parse_mul(ps, src)
+        var right = parse_shift(ps, src)
         if op == tk_plus()  { left = ast_binop(binop_add(), left, right) }
         if op == tk_minus() { left = ast_binop(binop_sub(), left, right) }
+    }
+    return left
+}
+
+func parse_shift(ps: int, src: str): int {
+    var left = parse_mul(ps, src)
+    while p_cur(ps) == tk_shl() | p_cur(ps) == tk_shr() {
+        var op = p_cur(ps)
+        p_advance(ps)
+        var right = parse_mul(ps, src)
+        if op == tk_shl() { left = ast_binop(binop_shl(), left, right) }
+        if op == tk_shr() { left = ast_binop(binop_shr(), left, right) }
     }
     return left
 }
