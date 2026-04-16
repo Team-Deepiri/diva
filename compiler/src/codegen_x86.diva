@@ -403,6 +403,62 @@ func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str 
     return out
 }
 
+func cg_module_to_bin(m: int, str_toks: int, out: int): int {
+    // Basic x86_64 binary emission
+    // We only support a single function 'main' for now in this native backend
+    var fc = mod_func_count(m)
+    if fc == 0 { return 0 }
+    
+    var f = mod_get_func(m, 0) // Assume first func is main
+    
+    // push rbp; mov rbp, rsp; sub rsp, 2048
+    int_vec_push(out, 85) 
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 229)
+    int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236)
+    int_vec_push(out, 0) int_vec_push(out, 8) int_vec_push(out, 0) int_vec_push(out, 0)
+
+    var bc = func_block_count(f)
+    var bi = 0
+    while bi < bc {
+        var blk = func_get_block(f, bi)
+        var insts = block_insts(blk)
+        var ic = int_vec_len(insts)
+        var ii = 0
+        while ii < ic {
+            var inst = int_vec_get(insts, ii)
+            var op = inst_op(inst)
+            var res = inst_result(inst)
+            var a = inst_a(inst)
+            
+            if op == ir_const() {
+                // movq $imm, -offset(%rbp)
+                // 48 C7 45 [offset] [imm32]
+                var offset = 256 - (res + 1) * 8
+                int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 69)
+                int_vec_push(out, offset & 255)
+                int_vec_push(out, a & 255)
+                int_vec_push(out, (a / 256) & 255)
+                int_vec_push(out, (a / 65536) & 255)
+                int_vec_push(out, (a / 16777216) & 255)
+            }
+            if op == ir_ret() {
+                // movq -offset(%rbp), %rax
+                // 48 8B 45 [offset]
+                var offset = 256 - (a + 1) * 8
+                int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69)
+                int_vec_push(out, offset & 255)
+                // leave; ret
+                int_vec_push(out, 201) // leave
+                int_vec_push(out, 195) // ret
+            }
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    
+    return 0
+}
+
 func cg_module_print(m: int, src: str, toks: int, str_toks: int, nl: str): int {
     var s = cg_module_to_str(m, src, toks, str_toks, nl)
     stdout(s)
