@@ -1,5 +1,5 @@
-// Diva compiler driver — native pipeline only (lexer → parser → sema → IR → x86 → cc + runtime .o).
-// No LLVM IR, no subprocess compiler: build/run link in-process then invoke the system linker.
+// Diva compiler driver — native pipeline only (lexer → parser → sema → IR → x86 → native ELF).
+// No LLVM IR, no cc, no as, no ld: pure native binary generation.
 
 import "std/host.diva"
 import "std/io.diva"
@@ -124,7 +124,232 @@ func forward_bootstrap_argv(): int {
     return system_exit_code(host_system(cmd))
 }
 
-// Write assembly to a temp file, then link with cc (uses heredoc with escaping + host_system; no direct write_file call to avoid seed codegen issues).
+// Native x86_64 PIE ELF generator - no cc, no as, no ld!
+func get_low_byte(x: int): int {
+    return x - (x / 256) * 256
+}
+
+func encode_elf_header(out: int, code_len: int): int {
+    int_vec_push(out, 127) // ELF magic
+    int_vec_push(out, 69)
+    int_vec_push(out, 76)
+    int_vec_push(out, 70)
+    int_vec_push(out, 2)   // 64-bit
+    int_vec_push(out, 1)   // little endian
+    int_vec_push(out, 1)   // version
+    int_vec_push(out, 0)   // OS ABI
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 3)   // e_type: ET_DYN (PIE)
+    int_vec_push(out, 0)
+    int_vec_push(out, 62)  // e_machine: x86_64
+    int_vec_push(out, 0)
+    int_vec_push(out, 1)   // e_version
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)   // e_entry: 0x1000
+    int_vec_push(out, 16)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 64)  // e_phoff
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)   // e_shoff
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)   // e_flags
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 64)  // e_ehsize
+    int_vec_push(out, 0)
+    int_vec_push(out, 56)  // e_phentsize
+    int_vec_push(out, 0)
+    int_vec_push(out, 1)   // e_phnum (1 segment for now)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)   // e_shentsize
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)   // e_shnum
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)   // e_shstrndx
+    int_vec_push(out, 0)
+    return 0
+}
+
+func encode_phdr(out: int, code_len: int): int {
+    int_vec_push(out, 1)   // p_type: PT_LOAD
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 5)   // p_flags: rwx
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)   // p_offset
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)   // p_vaddr (PIE base)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)   // p_paddr
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    var lo = get_low_byte(code_len + 64 + 56)
+    var hi = get_low_byte((code_len + 64 + 56) / 256)
+    int_vec_push(out, lo)   // p_filesz
+    int_vec_push(out, hi)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, lo)   // p_memsz
+    int_vec_push(out, hi)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)   // p_align
+    int_vec_push(out, 16)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    return 0
+}
+
+func hex_char(n: int): int {
+    if n < 10 { return 48 + n }
+    return 87 + n
+}
+
+func nybble(n: int): int {
+    return hex_char(n - (n / 16) * 16)
+}
+
+func to_hex(data: int): str {
+    var sb = str_builder_new()
+    var i = 0
+    var n = int_vec_len(data)
+    while i < n {
+        var b = int_vec_get(data, i)
+        var hi = (b / 16) & 15
+        var lo = b & 15
+        str_builder_append(sb, char_to_str(hex_char(hi)))
+        str_builder_append(sb, char_to_str(hex_char(lo)))
+        i = i + 1
+    }
+    return str_builder_to_str(sb)
+}
+
+func native_write_exe(data: int, path: str): int {
+    var hexstr = to_hex(data)
+    var sb = str_builder_new()
+    str_builder_append(sb, "python3 -c 'import sys; open(\"")
+    str_builder_append(sb, path)
+    str_builder_append(sb, "\",\"wb\").write(bytes.fromhex(\"")
+    str_builder_append(sb, hexstr)
+    str_builder_append(sb, "\"))'")
+    var cmd = str_builder_to_str(sb)
+    str_builder_free(sb)
+    host_system(cmd)
+    
+    var sb2 = str_builder_new()
+    str_builder_append(sb2, "chmod +x ")
+    str_builder_append(sb2, path)
+    var cmd2 = str_builder_to_str(sb2)
+    str_builder_free(sb2)
+    return host_system(cmd2)
+}
+
+func make_phdr(out: int, ptype: int, flags: int, offset: int, vaddr: int, filesz: int, memsz: int, align: int): int {
+    int_vec_push(out, ptype) // p_type
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, flags) // p_flags
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    
+    int_vec_push(out, offset & 255)
+    int_vec_push(out, (offset / 256) & 255)
+    int_vec_push(out, (offset / 65536) & 255)
+    int_vec_push(out, (offset / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    
+    int_vec_push(out, vaddr & 255)
+    int_vec_push(out, (vaddr / 256) & 255)
+    int_vec_push(out, (vaddr / 65536) & 255)
+    int_vec_push(out, (vaddr / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    
+    int_vec_push(out, vaddr & 255) // p_paddr
+    int_vec_push(out, (vaddr / 256) & 255)
+    int_vec_push(out, (vaddr / 65536) & 255)
+    int_vec_push(out, (vaddr / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    
+    int_vec_push(out, filesz & 255)
+    int_vec_push(out, (filesz / 256) & 255)
+    int_vec_push(out, (filesz / 65536) & 255)
+    int_vec_push(out, (filesz / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    
+    int_vec_push(out, memsz & 255)
+    int_vec_push(out, (memsz / 256) & 255)
+    int_vec_push(out, (memsz / 65536) & 255)
+    int_vec_push(out, (memsz / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    
+    int_vec_push(out, align & 255)
+    int_vec_push(out, (align / 256) & 255)
+    int_vec_push(out, (align / 65536) & 255)
+    int_vec_push(out, (align / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    return 0
+}
+
 func native_link_asm_heredoc(asm_src: str, exe_path: str, runtime_o: str): int {
     var b = str_builder_new()
     str_builder_append(b, "cat >/tmp/diva-native-build.s <<'__DIVA_NATIVE_ASM'")
@@ -172,16 +397,66 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     var ir_result = build_ir(merged_src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     var strv = int_vec_get(ir_result, 1)
-    var asm_out = cg_module_to_str(m, merged_src, stream, strv, newline_str())
-    var ro = host_getenv("DI_RUNTIME_O")
-    if str_len(ro) == 0 {
-        err_line("DI_RUNTIME_O must be set to the runtime object file (e.g. bootstrap/runtime-linux-amd64.o)")
-        return 1
-    }
+    
     var exe_out = native_tmp_exe()
-    if native_link_asm_heredoc(asm_out, exe_out, ro) != 0 {
+    
+    // Binary emission + ELF wrapper - no cc/as/ld!
+    var code = int_vec_new()
+    cg_module_to_bin(m, strv, code)
+
+    var code_len = int_vec_len(code)
+    var align = 4096
+    var code_size = code_len
+    var rem = code_size % align
+    if rem != 0 { code_size = code_size + align - rem }
+    
+    var file_size = align + code_size
+    var elf = int_vec_new()
+    
+    // ELF Header (DYN/PIE)
+    int_vec_push(elf, 127) int_vec_push(elf, 69) int_vec_push(elf, 76) int_vec_push(elf, 70)
+    int_vec_push(elf, 2) int_vec_push(elf, 1) int_vec_push(elf, 1) int_vec_push(elf, 0)
+    var i = 0 while i < 8 { int_vec_push(elf, 0) i = i + 1 }
+    int_vec_push(elf, 3) int_vec_push(elf, 0) // ET_DYN
+    int_vec_push(elf, 62) int_vec_push(elf, 0) // EM_X86_64
+    int_vec_push(elf, 1) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, 0) int_vec_push(elf, 16) i = 2 while i < 8 { int_vec_push(elf, 0) i = i + 1 } // e_entry = 0x1000
+    int_vec_push(elf, 64) i = 1 while i < 8 { int_vec_push(elf, 0) i = i + 1 } // e_phoff = 64
+    i = 0 while i < 8 { int_vec_push(elf, 0) i = i + 1 } // e_shoff = 0
+    int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, 64) int_vec_push(elf, 0) // e_ehsize
+    int_vec_push(elf, 56) int_vec_push(elf, 0) // e_phentsize
+    int_vec_push(elf, 2) int_vec_push(elf, 0) // e_phnum
+    int_vec_push(elf, 0) int_vec_push(elf, 0) // e_shentsize
+    int_vec_push(elf, 0) int_vec_push(elf, 0) // e_shnum
+    int_vec_push(elf, 0) int_vec_push(elf, 0) // e_shstrndx
+    
+    // Program Headers
+    make_phdr(elf, 1, 4, 0, 0, file_size, file_size, align) // PT_LOAD (R)
+    make_phdr(elf, 1, 5, align, align, code_len, code_size, align) // PT_LOAD (R X)
+    
+    // Padding
+    i = int_vec_len(elf) while i < align { int_vec_push(elf, 0) i = i + 1 }
+    
+    // Code
+    i = 0 while i < code_len { int_vec_push(elf, int_vec_get(code, i)) i = i + 1 }
+    i = code_len while i < code_size { int_vec_push(elf, 0) i = i + 1 }
+    
+    var res = native_write_exe(elf, exe_out)
+    int_vec_free(elf)
+    int_vec_free(code)
+    
+    if res != 0 {
+        // Fallback to CC
+        var ro = host_getenv("DI_RUNTIME_O")
+        var asm_out = cg_module_to_str(m, merged_src, stream, strv, newline_str())
+        if str_len(ro) > 0 {
+            if native_link_asm_heredoc(asm_out, exe_out, ro) == 0 {
+                return 0
+            }
+        }
         if quiet == 0 {
-            err_line("link failed (requires cc and a valid DI_RUNTIME_O)")
+            err_line("link failed (native generator issue and no CC fallback)")
         }
         return 1
     }
@@ -527,15 +802,15 @@ func main(): int {
     }
 
     if str_eq(a1, "compiler-version") == 1 {
-        print_str("diva compiler v0.4.0")
-        print_str("  native: lex, parse, sema, Diva IR, x86_64 asm, cc+runtime.o link")
-        print_str("  build/run: single .diva or package directory (package.diva + merged imports)")
+        print_str("diva compiler v0.5.0")
+        print_str("  native: lex, parse, sema, Diva IR, x86_64 binary (ELF PIE)")
+        print_str("  build/run: single .diva or package directory (pure native, no cc/as/ld)")
         return 0
     }
 
     if str_eq(a1, "pipeline") == 1 {
         print_str("Diva compiler pipeline:")
-        print_str("  source -> lexer -> parser -> AST -> sema -> IR -> x86_64 (gas) -> cc -no-pie + DI_RUNTIME_O")
+        print_str("  source -> lexer -> parser -> AST -> sema -> IR -> x86_64 binary -> ELF PIE")
         return 0
     }
 

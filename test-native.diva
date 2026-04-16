@@ -1,0 +1,44 @@
+import "std/host.diva"
+import "std/io.diva"
+
+func main(): int {
+    print_str("Starting\n")
+    var hex = "7f454c46020101000000000000000000"
+    hex = hex + "02003e00010000000010400000000000"
+    hex = hex + "40c810000000000000000000040003800"
+    hex = hex + "02004000050004000000000000000000"
+    hex = hex + "00400000000000000000400000000000"
+    hex = hex + "00b000000000000000b00000000000000"
+    hex = hex + "00100000000000000100000005000000"
+    hex = hex + "00100000000000000010400000000000"
+    hex = hex + "00100000000000000010400000000000"
+    hex = hex + "0010000000000000"
+    var i = 0
+    while i < 4081 {
+        hex = hex + "00"
+        i = i + 1
+    }
+    hex = hex + "b83c000000"
+    hex = hex + "bf2a000000"
+    hex = hex + "0f05"
+    i = 0
+    while i < 165 {
+        hex = hex + "00"
+        i = i + 1
+    }
+    var f = str_builder_new()
+    str_builder_append(f, "echo ")
+    str_builder_append(f, hex)
+    str_builder_append(f, " > /tmp/hex.txt")
+    var cmd = str_builder_to_str(f)
+    str_builder_free(f)
+    host_system(cmd)
+    print_str("Hex saved\n")
+    host_system("python3 -c \"import sys; open('/tmp/native-test.elf','wb').write(bytes.fromhex(open('/tmp/hex.txt').read()))\" && chmod +x /tmp/native-test.elf")
+    print_str("Running\n")
+    var rc = host_system("/tmp/native-test.elf")
+    print_str("Exit: ")
+    print_int(rc)
+    print_str("\n")
+    return 0
+}
