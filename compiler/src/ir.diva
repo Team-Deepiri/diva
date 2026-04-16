@@ -43,18 +43,18 @@ func ir_not(): int       { return 17 }
 func ir_shl(): int       { return 18 }
 func ir_shr(): int       { return 19 }
 func ir_load(): int      { return 20 }
-func ir_store(): int     { return 19 }
-func ir_call(): int      { return 20 }
-func ir_ret(): int       { return 21 }
-func ir_ret_void(): int  { return 22 }
-func ir_br(): int        { return 23 }
-func ir_br_cond(): int   { return 24 }
-func ir_alloca(): int    { return 25 }
-func ir_param(): int     { return 26 }
-func ir_copy(): int      { return 27 }
-func ir_phi(): int       { return 28 }
-func ir_str_arg(): int   { return 29 }
-func ir_global(): int    { return 30 }
+func ir_store(): int     { return 21 }
+func ir_call(): int      { return 22 }
+func ir_ret(): int       { return 23 }
+func ir_ret_void(): int  { return 24 }
+func ir_br(): int        { return 25 }
+func ir_br_cond(): int   { return 26 }
+func ir_alloca(): int    { return 27 }
+func ir_param(): int     { return 28 }
+func ir_copy(): int      { return 29 }
+func ir_phi(): int       { return 30 }
+func ir_str_arg(): int   { return 31 }
+func ir_global(): int    { return 32 }
 
 func ir_op_name(op: int): str {
     if op == 0  { return "nop" }
@@ -78,18 +78,18 @@ func ir_op_name(op: int): str {
     if op == 18 { return "shl" }
     if op == 19 { return "shr" }
     if op == 20 { return "load" }
-    if op == 19 { return "store" }
-    if op == 20 { return "call" }
-    if op == 21 { return "ret" }
-    if op == 22 { return "ret.void" }
-    if op == 23 { return "br" }
-    if op == 24 { return "br.cond" }
-    if op == 25 { return "alloca" }
-    if op == 26 { return "param" }
-    if op == 27 { return "copy" }
-    if op == 28 { return "phi" }
-    if op == 29 { return "str.arg" }
-    if op == 30 { return "global" }
+    if op == 21 { return "store" }
+    if op == 22 { return "call" }
+    if op == 23 { return "ret" }
+    if op == 24 { return "ret.void" }
+    if op == 25 { return "br" }
+    if op == 26 { return "br.cond" }
+    if op == 27 { return "alloca" }
+    if op == 28 { return "param" }
+    if op == 29 { return "copy" }
+    if op == 30 { return "phi" }
+    if op == 31 { return "str.arg" }
+    if op == 32 { return "global" }
     return "???"
 }
 
