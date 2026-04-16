@@ -1,0 +1,26 @@
+func write_out(data: int, path: str): int {
+    var hexstr = to_hex(data)
+    
+    var sb1 = str_builder_new()
+    str_builder_append(sb1, "echo ")
+    str_builder_append(sb1, hexstr)
+    str_builder_append(sb1, " > /tmp/hex.txt")
+    var cmd1 = str_builder_to_str(sb1)
+    str_builder_free(sb1)
+    host_system(cmd1)
+    
+    var sb2 = str_builder_new()
+    str_builder_append(sb2, "python3 -c 'import sys; open(\"")
+    str_builder_append(sb2, path)
+    str_builder_append(sb2, "\",\"wb\").write(bytes.fromhex(open(\"/tmp/hex.txt\").read()))'")
+    var cmd2 = str_builder_to_str(sb2)
+    str_builder_free(sb2)
+    var r = host_system(cmd2)
+    
+    var sb3 = str_builder_new()
+    str_builder_append(sb3, "chmod +x ")
+    str_builder_append(sb3, path)
+    var cmd3 = str_builder_to_str(sb3)
+    str_builder_free(sb3)
+    return host_system(cmd3)
+}

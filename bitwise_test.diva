@@ -1,0 +1,6 @@
+import "std/bitwise.diva"
+
+func main(): int {
+    var result = bit_and(5, 3)
+    return result
+}

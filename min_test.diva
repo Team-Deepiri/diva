@@ -1,0 +1,20 @@
+import "std/vec.diva"
+import "std/host.diva"
+
+func main(): int {
+    var code_len = 10
+    var code_size = 10
+    var align = 4096
+    var rem = code_size - (code_size / align) * align
+    if rem != 0 {
+        code_size = code_size + align - rem
+    }
+    var code = []
+    code = code + [1]
+    var i = 0
+    while i < int_vec_len(code) {
+        i = i + 1
+    }
+    var result = 0
+    return result
+}

@@ -1,0 +1,11 @@
+import "std/vec.diva"
+
+func test(): int[] {
+    var x = [1, 2, 3]
+    return x
+}
+
+func main(): int {
+    var a = test()
+    return 0
+}

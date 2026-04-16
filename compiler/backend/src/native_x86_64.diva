@@ -1,0 +1,190 @@
+// Native x86_64 ELF64 binary generator in Diva
+// Generates executable binaries without cc/as/ld
+
+import "std/host.diva"
+import "std/io.diva"
+import "std/vec.diva"
+import "ir.diva"
+
+func emit_byte(out: int[], b: int): int[] {
+    return out + [b & 255]
+}
+
+func emit_word(out: int[], w: int): int[] {
+    out = out + [w & 255]
+    out = out + [(w >> 8) & 255]
+    out = out + [(w >> 16) & 255]
+    out = out + [(w >> 24) & 255]
+    return out
+}
+
+func emit_qword(out: int[], q: int): int[] {
+    out = out + [q & 255]
+    out = out + [(q >> 8) & 255]
+    out = out + [(q >> 16) & 255]
+    out = out + [(q >> 24) & 255]
+    out = out + [(q >> 32) & 255]
+    out = out + [(q >> 40) & 255]
+    out = out + [(q >> 48) & 255]
+    out = out + [(q >> 56) & 255]
+    return out
+}
+
+func encode_elf64_header(out: int[], entry: int, phoff: int, phentsize: int, phnum: int): int[] {
+    out = out + [127] // ELF magic
+    out = out + [69]  // E
+    out = out + [76]  // L
+    out = out + [70]  // F
+    out = out + [2]   // EI_CLASS: 64-bit
+    out = out + [1]   // EI_DATA: little endian
+    out = out + [1]   // EI_VERSION
+    out = out + [0]   // EI_OSABI
+    out = out + [0]   // EI_ABIVERSION
+    out = out + [3, 0]  // e_type: ET_DYN (PIE)
+    out = out + [62, 0] // e_machine: EM_X86_64
+    out = out + [1, 0, 0, 0] // e_version
+    out = emit_qword(out, entry)
+    out = emit_qword(out, phoff)
+    out = out + [0, 0, 0, 0, 0, 0, 0, 0] // e_shoff = 0
+    out = out + [0, 0, 0, 0] // e_flags
+    out = out + [64, 0] // e_ehsize
+    out = out + [phentsize, 0] // e_phentsize
+    out = out + [phnum & 255, (phnum >> 8) & 255] // e_phnum
+    out = out + [0, 0] // e_shentsize
+    out = out + [0, 0] // e_shnum
+    out = out + [0, 0] // e_shstrndx
+    return out
+}
+
+func encode_program_header(out: int[], ptype: int, flags: int, offset: int, vaddr: int, filesz: int, memsz: int, align: int): int[] {
+    out = emit_word(out, ptype)
+    out = emit_word(out, flags)
+    out = emit_qword(out, offset)
+    out = emit_qword(out, vaddr)
+    out = emit_qword(out, vaddr) // p_paddr = vaddr
+    out = emit_qword(out, filesz)
+    out = emit_qword(out, memsz)
+    out = emit_qword(out, align)
+    return out
+}
+
+func x86_mov_rax_imm(imm: int): int[] {
+    return [0x48, 0xC7, 0xC0, imm & 255, (imm >> 8) & 255, (imm >> 16) & 255, (imm >> 24) & 255]
+}
+
+func x86_mov_rdi_imm(imm: int): int[] {
+    return [0x48, 0xC7, 0xC7, imm & 255, (imm >> 8) & 255, (imm >> 16) & 255, (imm >> 24) & 255]
+}
+
+func x86_syscall(): int[] {
+    return [0x0F, 0x05]
+}
+
+func x86_ret(): int[] {
+    return [0xC3]
+}
+
+func x86_standard_prologue(): int[] {
+    var code = []
+    code = code + [0x55] // push rbp
+    code = code + [0x48, 0x89, 0xE5] // mov rbp, rsp
+    return code
+}
+
+func x86_standard_epilogue(): int[] {
+    return [0x5D] // pop rbp
+}
+
+func bytes_to_hex(bytes: int[]): str {
+    var hex = "0123456789abcdef"
+    var result = ""
+    var i = 0
+    while i < bytes.length {
+        var hi = str_byte(hex, (bytes[i] >> 4) & 15)
+        var lo = str_byte(hex, bytes[i] & 15)
+        result = result + str_slice(hex, (bytes[i] >> 4) & 15, 1)
+        result = result + str_slice(hex, bytes[i] & 15, 1)
+        i = i + 1
+    }
+    return result
+}
+
+func write_binary_via_shell(bytes: int[], path: str): int {
+    var hexstr = bytes_to_hex(bytes)
+    var b = str_builder_new()
+    str_builder_append(b, "printf '")
+    str_builder_append(b, hexstr)
+    str_builder_append(b, "' > ")
+    str_builder_append(b, path)
+    var cmd = str_builder_to_str(b)
+    str_builder_free(b)
+    return host_system(cmd)
+}
+
+func native_cg_module(m: int, entry_addr: int, runtime_o_size: int): int[] {
+    var elf = []
+    var code = []
+    
+    code = code + x86_standard_prologue()
+    code = code + x86_mov_rax_imm(60) // exit syscall
+    code = code + x86_mov_rdi_imm(0)  // exit code 0
+    code = code + x86_syscall()
+    code = code + x86_standard_epilogue()
+    code = code + x86_ret()
+    
+    var code_size = code.length
+    var align = 0x1000
+    while (code_size & (align - 1)) != 0 {
+        code_size = code_size + 1
+    }
+    
+    var base = 0x400000
+    var code_vaddr = 0x1000  // PIE-relative
+    var code_offset = 0x1000
+    
+    elf = encode_elf64_header(elf, code_vaddr, 64, 56, 2)
+    
+    // Single PT_LOAD for PIE - maps entire file
+    elf = encode_program_header(elf, 1, 5, 0, 0, code.length + 176, code_size + 176, align)
+    
+    var i = 0
+    while i < code.length {
+        elf = elf + [code[i]]
+        i = i + 1
+    }
+    
+    i = code.length
+    while i < code_size {
+        elf = elf + [0]
+        i = i + 1
+    }
+    
+    return elf
+}
+
+func native_emit_elf(m: int, path: str, runtime_o_size: int): int {
+    var entry_addr = 0x401000
+    var elf = native_cg_module(m, entry_addr, runtime_o_size)
+    return write_binary_via_shell(elf, path)
+}
+
+func main(): int {
+    print_str("=== Native x86_64 ELF Generator ===\n")
+    print_str("This generates ELF64 binaries without cc/as/ld\n")
+    
+    var elf = native_cg_module(0, 0x401000, 0)
+    
+    print_str("ELF size: ")
+    print_int(elf.length)
+    print_str(" bytes\n")
+    
+    var result = write_binary_via_shell(elf, "/tmp/native-test")
+    if result == 0 {
+        print_str("Binary written to /tmp/native-test\n")
+        print_str("Run it to test!\n")
+    } else {
+        print_str("Failed to write binary\n")
+    }
+    
+    return 0
+}

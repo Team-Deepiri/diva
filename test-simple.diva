@@ -1,0 +1,7 @@
+import "std/host.diva"
+import "std/io.diva"
+
+func main(): int {
+    print_str("test\n")
+    return 0
+}

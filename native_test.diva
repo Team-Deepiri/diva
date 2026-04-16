@@ -1,0 +1,410 @@
+import "std/vec.diva"
+import "std/host.diva"
+import "std/conv.diva"
+
+func make_code(out: int): int {
+    int_vec_push(out, 243)
+    int_vec_push(out, 15)
+    int_vec_push(out, 30)
+    int_vec_push(out, 250)
+    int_vec_push(out, 72)
+    int_vec_push(out, 131)
+    int_vec_push(out, 236)
+    int_vec_push(out, 8)
+    int_vec_push(out, 72)
+    int_vec_push(out, 199)
+    int_vec_push(out, 192)
+    int_vec_push(out, 60)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 72)
+    int_vec_push(out, 199)
+    int_vec_push(out, 199)
+    int_vec_push(out, 42)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 15)
+    int_vec_push(out, 5)
+    int_vec_push(out, 72)
+    int_vec_push(out, 131)
+    int_vec_push(out, 236)
+    int_vec_push(out, 8)
+    int_vec_push(out, 195)
+    return 0
+}
+
+func get_low_byte(x: int): int {
+    return x - (x / 256) * 256
+}
+
+func make_elf_header(out: int): int {
+    int_vec_push(out, 127)  // 0: ELF magic
+    int_vec_push(out, 69)   // 1
+    int_vec_push(out, 76)   // 2
+    int_vec_push(out, 70)   // 3
+    int_vec_push(out, 2)     // 4: EI_CLASS (64-bit)
+    int_vec_push(out, 1)     // 5: EI_DATA (little endian)
+    int_vec_push(out, 1)     // 6: EI_VERSION
+    int_vec_push(out, 0)     // 7: EI_OSABI
+    int_vec_push(out, 0)     // 8: EI_ABIVERSION (padding)
+    int_vec_push(out, 0)    // 9
+    int_vec_push(out, 0)     // 10
+    int_vec_push(out, 0)     // 11
+    int_vec_push(out, 0)     // 12
+    int_vec_push(out, 0)     // 13
+    int_vec_push(out, 0)     // 14
+    int_vec_push(out, 0)     // 15
+    int_vec_push(out, 3)     // 16: e_type (ET_DYN = PIE)
+    int_vec_push(out, 0)     // 17
+    int_vec_push(out, 62)    // 18: e_machine (EM_X86_64)
+    int_vec_push(out, 0)    // 19
+    int_vec_push(out, 1)     // 20: e_version
+    int_vec_push(out, 0)     // 21
+    int_vec_push(out, 0)     // 22
+    int_vec_push(out, 0)     // 23
+    int_vec_push(out, 0)     // 24: e_entry byte 0 (0x1000)
+    int_vec_push(out, 16)   // 25: e_entry byte 1 (0x10)
+    int_vec_push(out, 0)     // 26: e_entry byte 2
+    int_vec_push(out, 0)     // 27: e_entry byte 3
+    int_vec_push(out, 0)     // 28: e_entry bytes 4-7
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 64)   // 32: e_phoff byte 0 (0x40)
+    int_vec_push(out, 0)     // 33
+    int_vec_push(out, 0)     // 34
+    int_vec_push(out, 0)     // 35
+    int_vec_push(out, 0)     // 36
+    int_vec_push(out, 0)     // 37
+    int_vec_push(out, 0)     // 38
+    int_vec_push(out, 0)     // 39
+    int_vec_push(out, 0)     // 40: e_shoff bytes 0-7
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)     // 48: e_flags bytes 0-3
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 64)   // 52: e_ehsize (0x40)
+    int_vec_push(out, 0)     // 53
+    int_vec_push(out, 56)   // 54: e_phentsize (0x38)
+    int_vec_push(out, 0)     // 55
+    int_vec_push(out, 2)     // 56: e_phnum (2)
+    int_vec_push(out, 0)     // 57
+    int_vec_push(out, 0)     // 58: e_shentsize
+    int_vec_push(out, 0)     // 59
+    int_vec_push(out, 0)     // 60: e_shnum
+    int_vec_push(out, 0)     // 61
+    int_vec_push(out, 0)     // 62: e_shstrndx
+    int_vec_push(out, 0)     // 63
+    return 0
+}
+
+func make_phdr1(out: int, total_size: int): int {
+    // p_type = 1 (PT_LOAD)
+    int_vec_push(out, 1)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_flags = 4 (PF_R)
+    int_vec_push(out, 4)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_offset = 0
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_vaddr = 0 (PIE)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_paddr = 0 (PIE)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_filesz = total_size (everything)
+    var filesz = total_size
+    var lo = get_low_byte(filesz)
+    var hi = get_low_byte(filesz / 256)
+    int_vec_push(out, lo)
+    int_vec_push(out, hi)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_memsz (same as filesz)
+    int_vec_push(out, lo)
+    int_vec_push(out, hi)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_align = 0x1000
+    int_vec_push(out, 0)
+    int_vec_push(out, 16)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    return 0
+}
+
+func make_phdr2(out: int, code_len: int, code_size: int): int {
+    // p_type = 1 (PT_LOAD)
+    int_vec_push(out, 1)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_flags = 5 (PF_R | PF_X)
+    int_vec_push(out, 5)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_offset = 0x1000
+    int_vec_push(out, 0)
+    int_vec_push(out, 16)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_vaddr = 0x1000 (PIE-relative)
+    int_vec_push(out, 0)
+    int_vec_push(out, 16)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_paddr = 0x1000 (PIE-relative)
+    int_vec_push(out, 0)
+    int_vec_push(out, 16)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_filesz
+    var lo = get_low_byte(code_len)
+    var hi = get_low_byte(code_len / 256)
+    int_vec_push(out, lo)
+    int_vec_push(out, hi)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_memsz
+    lo = get_low_byte(code_size)
+    hi = get_low_byte(code_size / 256)
+    int_vec_push(out, lo)
+    int_vec_push(out, hi)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    // p_align = 0x1000
+    int_vec_push(out, 0)
+    int_vec_push(out, 16)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    return 0
+}
+
+func make_elf(): int {
+    var code = int_vec_new()
+    make_code(code)
+    
+    var code_len = int_vec_len(code)
+    var align = 4096
+    var code_size = code_len
+    var rem = code_size - (code_size / align) * align
+    if rem != 0 {
+        code_size = code_size + align - rem
+    }
+    
+    var hdr_size = 64 + 56 + 56  // ELF + phdr1 + phdr2
+    var page_size = 4096
+    var file_size = hdr_size + code_size
+    
+    var rem2 = file_size - (file_size / page_size) * page_size
+    if rem2 != 0 {
+        file_size = file_size + page_size - rem2
+    }
+    
+    var elf = int_vec_new()
+    make_elf_header(elf)
+    make_phdr1(elf, file_size)
+    make_phdr2(elf, code_len, code_size)
+    
+    // Pad from hdr end (0xb0) to code start (0x1000)
+    var pad_start = hdr_size
+    var i = pad_start
+    while i < align {
+        int_vec_push(elf, 0)
+        i = i + 1
+    }
+    
+    i = 0
+    while i < code_len {
+        int_vec_push(elf, int_vec_get(code, i))
+        i = i + 1
+    }
+    
+    i = code_len
+    while i < code_size {
+        int_vec_push(elf, 0)
+        i = i + 1
+    }
+    
+    return elf
+}
+
+func hex_char(n: int): int {
+    if n < 10 { return 48 + n }
+    return 87 + n
+}
+
+func nybble(n: int): int {
+    return hex_char(n - (n / 16) * 16)
+}
+
+func to_hex(data: int): str {
+    var sb = str_builder_new()
+    var first = 1
+    var i = 0
+    var n = int_vec_len(data)
+    while i < n {
+        var b = int_vec_get(data, i)
+        var hi = b / 16
+        var lo = b - hi * 16
+        if hi < 10 {
+            str_builder_append(sb, int_to_str(hi))
+        }
+        if hi == 10 { str_builder_append(sb, "a") }
+        if hi == 11 { str_builder_append(sb, "b") }
+        if hi == 12 { str_builder_append(sb, "c") }
+        if hi == 13 { str_builder_append(sb, "d") }
+        if hi == 14 { str_builder_append(sb, "e") }
+        if hi == 15 { str_builder_append(sb, "f") }
+        if lo < 10 {
+            str_builder_append(sb, int_to_str(lo))
+        }
+        if lo == 10 { str_builder_append(sb, "a") }
+        if lo == 11 { str_builder_append(sb, "b") }
+        if lo == 12 { str_builder_append(sb, "c") }
+        if lo == 13 { str_builder_append(sb, "d") }
+        if lo == 14 { str_builder_append(sb, "e") }
+        if lo == 15 { str_builder_append(sb, "f") }
+        i = i + 1
+    }
+    return str_builder_to_str(sb)
+}
+
+func str_from_int(c: int): str {
+    if c == 48 { return "0" }
+    if c == 49 { return "1" }
+    if c == 50 { return "2" }
+    if c == 51 { return "3" }
+    if c == 52 { return "4" }
+    if c == 53 { return "5" }
+    if c == 54 { return "6" }
+    if c == 55 { return "7" }
+    if c == 56 { return "8" }
+    if c == 57 { return "9" }
+    if c == 97 { return "a" }
+    if c == 98 { return "b" }
+    if c == 99 { return "c" }
+    if c == 100 { return "d" }
+    if c == 101 { return "e" }
+    if c == 102 { return "f" }
+    return "?"
+}
+
+func to_b64(data: int): str {
+    var sb = str_builder_new()
+    var first = 1
+    var i = 0
+    var n = int_vec_len(data)
+    while i < n {
+        var b = int_vec_get(data, i)
+        if first == 0 {
+            str_builder_append(sb, ",")
+        }
+        first = 0
+        str_builder_append(sb, int_to_str(b))
+        i = i + 1
+    }
+    return str_builder_to_str(sb)
+}
+
+func write_out(data: int, path: str): int {
+    var b64str = to_b64(data)
+    
+    var sb1 = str_builder_new()
+    str_builder_append(sb1, "echo '")
+    str_builder_append(sb1, b64str)
+    str_builder_append(sb1, "' > /tmp/bytes.txt")
+    var cmd1 = str_builder_to_str(sb1)
+    str_builder_free(sb1)
+    host_system(cmd1)
+    
+    var sb2 = str_builder_new()
+    str_builder_append(sb2, "python3 /tmp/reader.py ")
+    str_builder_append(sb2, path)
+    var cmd2 = str_builder_to_str(sb2)
+    str_builder_free(sb2)
+    host_system(cmd2)
+    
+    var sb3 = str_builder_new()
+    str_builder_append(sb3, "chmod +x ")
+    str_builder_append(sb3, path)
+    var cmd3 = str_builder_to_str(sb3)
+    str_builder_free(sb3)
+    return host_system(cmd3)
+}
+
+func main(): int {
+    var elf = make_elf()
+    var result = write_out(elf, "/tmp/native-test")
+    return result
+}
