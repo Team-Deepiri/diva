@@ -3,7 +3,7 @@ set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
-sh "${ROOT_DIR}/scripts/install.sh"
+bash "${ROOT_DIR}/scripts/install.sh"
 sh "${ROOT_DIR}/scripts/install-filetype.sh"
 sh "${ROOT_DIR}/scripts/install-extension.sh" "${1:-${HOME}/.cursor/extensions}"
 

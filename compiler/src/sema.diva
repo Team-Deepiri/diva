@@ -9,7 +9,7 @@ import "ast.diva"
 import "std/host.diva"
 
 func sema_err(msg: str): int {
-    stderr("sema: ")
+    stderr("[diva] sema: ")
     stderr(msg)
     stderr(char_to_str(10))
     return 1
@@ -63,7 +63,7 @@ func sema_dup_let_flat_block(block: int, src: str, toks: int): int {
                 var pt = int_vec_get(names, j)
                 if str_eq(tok_text(src, toks, pt), nm) == 1 {
                     int_vec_free(names)
-                    stderr("sema: duplicate declaration of '")
+                    stderr("[diva] sema: duplicate declaration of '")
                     stderr(nm)
                     stderr("' in the same scope")
                     stderr(char_to_str(10))

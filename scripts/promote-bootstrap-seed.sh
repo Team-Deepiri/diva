@@ -41,9 +41,12 @@ then
   exit 1
 fi
 
-DRIVER=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD_LOG}" | tail -n 1)
+DRIVER=$(sed -n 's/^\[native\] built executable at //p' "${BUILD_LOG}" | tail -n 1)
+if [ -z "${DRIVER}" ]; then
+  DRIVER=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD_LOG}" | tail -n 1)
+fi
 if [ -z "${DRIVER}" ] || [ ! -x "${DRIVER}" ]; then
-  echo "[promote] could not find built executable in log (expected \"[di] built native executable at <path>\")." >&2
+  echo "[promote] could not find built executable in log (expected \"[native] built executable at <path>\" or \"[di] built native executable at <path>\")." >&2
   sed -n '1,40p' "${BUILD_LOG}" >&2 || true
   exit 1
 fi

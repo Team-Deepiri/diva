@@ -27,6 +27,7 @@ strip_di_logs() {
     awk '
       index($0, "[di] ") == 1 { next }
       index($0, "[di:error] ") == 1 { next }
+      index($0, "[diva] ") == 1 { next }
       index($0, "[native] ") == 1 { next }
       index($0, "/usr/bin/ld:") == 1 { next }
       index($0, "collect2:") == 1 { next }
@@ -114,7 +115,7 @@ assert_ir_contains() {
 }
 
 log "installing diva into temporary home"
-HOME="${HOME_DIR}" sh "${ROOT_DIR}/scripts/install.sh" >"${TEST_ROOT}/install.out" 2>&1 || {
+HOME="${HOME_DIR}" bash "${ROOT_DIR}/scripts/install.sh" >"${TEST_ROOT}/install.out" 2>&1 || {
     sed -n '1,120p' "${TEST_ROOT}/install.out" >&2
     fail "install script failed"
 }

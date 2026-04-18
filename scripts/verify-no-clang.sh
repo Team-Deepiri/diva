@@ -13,7 +13,7 @@ mkdir -p "${HOME}/.local/bin"
 
 # Capture install log and reject any clang invocation
 LOG="${TEST_HOME}/install.log"
-if ! sh "${ROOT_DIR}/scripts/install.sh" >"${LOG}" 2>&1; then
+if ! bash "${ROOT_DIR}/scripts/install.sh" >"${LOG}" 2>&1; then
   sed -n '1,80p' "${LOG}" >&2
   echo "[verify-no-clang] install failed" >&2
   exit 1

@@ -190,25 +190,31 @@ func list_resolved_imports(src: str, cur_abs: str, stdroot: str, nl: str): str {
     var n = str_len(src)
     var i = 0
     while i < n {
-        if i + 8 <= n {
-            if str_eq(str_slice(src, i, 7), "import ") == 1 & str_byte(src, i + 7) == 34 {
-                var q = i + 8
-                while q < n & str_byte(src, q) != 34 {
+        var line_end = i
+        while line_end < n & str_byte(src, line_end) != 10 {
+            line_end = line_end + 1
+        }
+        var line = str_slice(src, i, line_end - i)
+        var ln = str_len(line)
+        var j = 0
+        while j < ln & (str_byte(line, j) == 32 | str_byte(line, j) == 9) {
+            j = j + 1
+        }
+        if j + 8 <= ln {
+            if str_eq(str_slice(line, j, 7), "import ") == 1 & str_byte(line, j + 7) == 34 {
+                var q = j + 8
+                while q < ln & str_byte(line, q) != 34 {
                     q = q + 1
                 }
-                if q < n {
-                    var inner = str_slice(src, i + 8, q - i - 8)
+                if q < ln {
+                    var inner = str_slice(line, j + 8, q - j - 8)
                     var rp = resolve_import_path(cur_abs, inner, stdroot)
                     str_builder_append(b, rp)
                     str_builder_append(b, nl)
                 }
-                i = q + 1
-            } else {
-                i = i + 1
             }
-        } else {
-            i = i + 1
         }
+        i = line_end + 1
     }
     var r = str_builder_to_str(b)
     str_builder_free(b)

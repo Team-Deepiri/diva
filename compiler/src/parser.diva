@@ -140,8 +140,16 @@ func parse_primary(ps: int, src: str): int {
     if kind == tk_ident() | kind == tk_self() {
         var ident_tok = tok
         p_advance(ps)
+        // `if cond {` with `cond` an ident must not be parsed as `Type { ... }` struct literal.
+        // Struct types in-tree use PascalCase; only treat `Ident {` as struct lit when Ident starts with A-Z.
         if p_cur(ps) == tk_lbrace() {
-            return parse_struct_lit(ps, src, ident_tok)
+            var iname = p_text(ps, src, ident_tok)
+            if str_len(iname) > 0 {
+                var fb = str_byte(iname, 0)
+                if fb >= 65 & fb <= 90 {
+                    return parse_struct_lit(ps, src, ident_tok)
+                }
+            }
         }
         return ast_ident(ident_tok)
     }

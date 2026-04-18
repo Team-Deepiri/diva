@@ -285,11 +285,18 @@ func to_hex(data: int): str {
 func native_write_exe(data: int, path: str): int {
     var hexstr = to_hex(data)
     var sb = str_builder_new()
-    str_builder_append(sb, "python3 -c 'import sys; open(\"")
-    str_builder_append(sb, path)
-    str_builder_append(sb, "\",\"wb\").write(bytes.fromhex(\"")
+    str_builder_append(sb, "python3 -c ")
+    str_builder_append(sb, char_to_str(34))
+    str_builder_append(sb, "import sys; open(sys.argv[2],")
+    str_builder_append(sb, char_to_str(39))
+    str_builder_append(sb, "wb")
+    str_builder_append(sb, char_to_str(39))
+    str_builder_append(sb, ").write(bytes.fromhex(sys.argv[1]))")
+    str_builder_append(sb, char_to_str(34))
+    str_builder_append(sb, " ")
     str_builder_append(sb, hexstr)
-    str_builder_append(sb, "\"))'")
+    str_builder_append(sb, " ")
+    str_builder_append(sb, path)
     var cmd = str_builder_to_str(sb)
     str_builder_free(sb)
     host_system(cmd)
@@ -407,7 +414,7 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     var code_len = int_vec_len(code)
     var align = 4096
     var code_size = code_len
-    var rem = code_size % align
+    var rem = code_size - (code_size / align) * align
     if rem != 0 { code_size = code_size + align - rem }
     
     var file_size = align + code_size
@@ -469,6 +476,7 @@ func native_driver_should_delegate(merged: str): int {
 }
 
 func err_line(msg: str): int {
+    stderr("[diva] ")
     stderr(msg)
     stderr(char_to_str(10))
     return 0
@@ -476,7 +484,7 @@ func err_line(msg: str): int {
 
 func read_source(path: str): str {
     if file_size(path) < 0 {
-        stderr("error: cannot read file: ")
+        stderr("[diva] error: cannot read file: ")
         stderr(path)
         stderr(char_to_str(10))
         return ""

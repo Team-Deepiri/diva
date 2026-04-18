@@ -34,6 +34,10 @@ Options:
 
    After a successful promotion, commit the updated `bootstrap/diva-linux-amd64` so clones pick up the new trust root.
 
+## Why the seed is not “auto-replaced” in git
+
+The repository only updates `bootstrap/diva-linux-amd64` when someone **commits** a new ELF produced by a successful promote (or the historical C bootstrap path). CI and pull requests do not silently overwrite this binary: if `diva-linux-amd64 build compiler` or `./scripts/promote-bootstrap-seed.sh` prints the same `[di:error] …` line thousands of times, the **current seed cannot parse or lower the merged compiler**—fix the in-tree `.diva` sources until a single `build compiler` run finishes, then run promote and commit the new seed so everyone picks it up.
+
 ## Runtime / stdlib resolution
 
 Set `DI_STDLIB_DIR` and `DI_RUNTIME_O` after install, or rely on defaults under `~/.local/share/diva/` (see `scripts/install.sh`).
