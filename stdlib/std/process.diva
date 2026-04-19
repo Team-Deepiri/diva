@@ -84,7 +84,9 @@ func exit_with(code: int): int {
 
 func cmd_join(a: str, b: str): str {
     var sb = str_builder_new()
-    if sb == 0 { return "" }
+    if sb == 0 {
+        return ""
+    }
     str_builder_append(sb, a)
     str_builder_append(sb, " ")
     str_builder_append(sb, b)
@@ -103,7 +105,9 @@ func cmd_join4(a: str, b: str, c: str, d: str): str {
 
 func cmd_pipe(left: str, right: str): str {
     var sb = str_builder_new()
-    if sb == 0 { return "" }
+    if sb == 0 {
+        return ""
+    }
     str_builder_append(sb, left)
     str_builder_append(sb, " | ")
     str_builder_append(sb, right)
@@ -114,7 +118,9 @@ func cmd_pipe(left: str, right: str): str {
 
 func cmd_and(left: str, right: str): str {
     var sb = str_builder_new()
-    if sb == 0 { return "" }
+    if sb == 0 {
+        return ""
+    }
     str_builder_append(sb, left)
     str_builder_append(sb, " && ")
     str_builder_append(sb, right)
@@ -125,7 +131,9 @@ func cmd_and(left: str, right: str): str {
 
 func cmd_redirect(cmd: str, file: str): str {
     var sb = str_builder_new()
-    if sb == 0 { return "" }
+    if sb == 0 {
+        return ""
+    }
     str_builder_append(sb, cmd)
     str_builder_append(sb, " > ")
     str_builder_append(sb, file)

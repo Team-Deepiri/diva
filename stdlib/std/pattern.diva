@@ -83,7 +83,9 @@ func str_replace(s: str, old: str, new_val: str): str {
         return s
     }
     var b = str_builder_new()
-    if b == 0 { return s }
+    if b == 0 {
+        return s
+    }
     var i = 0
     while i < slen {
         if i <= slen - olen {
@@ -132,7 +134,9 @@ func str_replace_first(s: str, old: str, new_val: str): str {
         }
         if match == 1 {
             var b = str_builder_new()
-            if b == 0 { return s }
+            if b == 0 {
+                return s
+            }
             if i > 0 {
                 str_builder_append(b, str_slice(s, 0, i))
             }
@@ -180,7 +184,9 @@ func str_count(s: str, sub: str): int {
 func str_to_upper(s: str): str {
     var n = str_len(s)
     var b = str_builder_new()
-    if b == 0 { return s }
+    if b == 0 {
+        return s
+    }
     var i = 0
     while i < n {
         var c = str_byte(s, i)
@@ -200,7 +206,9 @@ func str_to_upper(s: str): str {
 func str_to_lower(s: str): str {
     var n = str_len(s)
     var b = str_builder_new()
-    if b == 0 { return s }
+    if b == 0 {
+        return s
+    }
     var i = 0
     while i < n {
         var c = str_byte(s, i)
@@ -220,7 +228,9 @@ func str_to_lower(s: str): str {
 func str_reverse(s: str): str {
     var n = str_len(s)
     var b = str_builder_new()
-    if b == 0 { return s }
+    if b == 0 {
+        return s
+    }
     var i = n - 1
     while i >= 0 {
         str_builder_append(b, str_slice(s, i, 1))

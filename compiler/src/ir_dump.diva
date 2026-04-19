@@ -43,24 +43,60 @@ func dump_inst(inst: int, src: str, toks: int): int {
         str_builder_append(b, int_to_str(a))
         str_builder_append(b, "]")
     } else {
-    if op == ir_add() { str_builder_append(b, "add ") }
-    if op == ir_sub() { str_builder_append(b, "sub ") }
-    if op == ir_mul() { str_builder_append(b, "mul ") }
-    if op == ir_div() { str_builder_append(b, "div ") }
-    if op == ir_mod() { str_builder_append(b, "mod ") }
-    if op == ir_eq()  { str_builder_append(b, "eq ") }
-    if op == ir_ne()  { str_builder_append(b, "ne ") }
-    if op == ir_lt()  { str_builder_append(b, "lt ") }
-    if op == ir_le()  { str_builder_append(b, "le ") }
-    if op == ir_gt()  { str_builder_append(b, "gt ") }
-    if op == ir_ge()  { str_builder_append(b, "ge ") }
-    if op == ir_and() { str_builder_append(b, "and ") }
-    if op == ir_or()  { str_builder_append(b, "or ") }
-    if op == ir_not() { str_builder_append(b, "not ") }
-    if op == ir_neg() { str_builder_append(b, "neg ") }
-    if op == ir_load() { str_builder_append(b, "load ") }
-    if op == ir_store() { str_builder_append(b, "store ") }
-    if op == ir_alloca() { str_builder_append(b, "alloca") }
+    if op == ir_add() {
+        str_builder_append(b, "add ")
+    }
+    if op == ir_sub() {
+        str_builder_append(b, "sub ")
+    }
+    if op == ir_mul() {
+        str_builder_append(b, "mul ")
+    }
+    if op == ir_div() {
+        str_builder_append(b, "div ")
+    }
+    if op == ir_mod() {
+        str_builder_append(b, "mod ")
+    }
+    if op == ir_eq() {
+        str_builder_append(b, "eq ")
+    }
+    if op == ir_ne() {
+        str_builder_append(b, "ne ")
+    }
+    if op == ir_lt() {
+        str_builder_append(b, "lt ")
+    }
+    if op == ir_le() {
+        str_builder_append(b, "le ")
+    }
+    if op == ir_gt() {
+        str_builder_append(b, "gt ")
+    }
+    if op == ir_ge() {
+        str_builder_append(b, "ge ")
+    }
+    if op == ir_and() {
+        str_builder_append(b, "and ")
+    }
+    if op == ir_or() {
+        str_builder_append(b, "or ")
+    }
+    if op == ir_not() {
+        str_builder_append(b, "not ")
+    }
+    if op == ir_neg() {
+        str_builder_append(b, "neg ")
+    }
+    if op == ir_load() {
+        str_builder_append(b, "load ")
+    }
+    if op == ir_store() {
+        str_builder_append(b, "store ")
+    }
+    if op == ir_alloca() {
+        str_builder_append(b, "alloca")
+    }
     if op == ir_param() {
         str_builder_append(b, "param ")
         str_builder_append(b, int_to_str(a))
@@ -71,8 +107,12 @@ func dump_inst(inst: int, src: str, toks: int): int {
         str_builder_append(b, " argc=")
         str_builder_append(b, int_to_str(bv))
     }
-    if op == ir_ret() { str_builder_append(b, "ret ") }
-    if op == ir_ret_void() { str_builder_append(b, "ret.void") }
+    if op == ir_ret() {
+        str_builder_append(b, "ret ")
+    }
+    if op == ir_ret_void() {
+        str_builder_append(b, "ret.void")
+    }
     if op == ir_br() {
         str_builder_append(b, "br bb")
         str_builder_append(b, int_to_str(a))
@@ -107,16 +147,26 @@ func dump_func(f: int, src: str, toks: int): int {
     var pc = func_param_count(f)
     var i = 0
     while i < pc {
-        if i > 0 { str_builder_append(b, ", ") }
+        if i > 0 {
+            str_builder_append(b, ", ")
+        }
         str_builder_append(b, dump_vreg_str(i))
         i = i + 1
     }
     str_builder_append(b, ")")
     var rt = func_ret_type(f)
-    if rt == ir_ty_void() { str_builder_append(b, " -> void") }
-    if rt == ir_ty_int()  { str_builder_append(b, " -> int") }
-    if rt == ir_ty_str()  { str_builder_append(b, " -> str") }
-    if rt == ir_ty_bool() { str_builder_append(b, " -> bool") }
+    if rt == ir_ty_void() {
+        str_builder_append(b, " -> void")
+    }
+    if rt == ir_ty_int() {
+        str_builder_append(b, " -> int")
+    }
+    if rt == ir_ty_str() {
+        str_builder_append(b, " -> str")
+    }
+    if rt == ir_ty_bool() {
+        str_builder_append(b, " -> bool")
+    }
     str_builder_append(b, " {")
     print_str(str_builder_to_str(b))
     str_builder_free(b)

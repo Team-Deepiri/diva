@@ -40,7 +40,7 @@ func sema_top_level_func_hashes(file_node: int): int {
     return 0
 }
 
-// Same-block `let` duplicates (flat list of stmts in one nd_block); matches seed wording for tests.
+// Same-block 'let' duplicates (flat list of stmts in one nd_block); matches seed wording for tests.
 func sema_dup_let_flat_block(block: int, src: str, toks: int): int {
     if block < 0 {
         return 0

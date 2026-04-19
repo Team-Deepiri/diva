@@ -259,7 +259,9 @@ func encode_phdr(out: int, code_len: int): int {
 }
 
 func hex_char(n: int): int {
-    if n < 10 { return 48 + n }
+    if n < 10 {
+        return 48 + n
+    }
     return 87 + n
 }
 
@@ -287,7 +289,8 @@ func native_write_exe(data: int, path: str): int {
     var sb = str_builder_new()
     str_builder_append(sb, "python3 -c ")
     str_builder_append(sb, char_to_str(34))
-    str_builder_append(sb, "import sys; open(sys.argv[2],")
+    str_builder_append(sb, "imp")
+    str_builder_append(sb, "ort sys; open(sys.argv[2],")
     str_builder_append(sb, char_to_str(39))
     str_builder_append(sb, "wb")
     str_builder_append(sb, char_to_str(39))
@@ -415,7 +418,9 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     var align = 4096
     var code_size = code_len
     var rem = code_size - (code_size / align) * align
-    if rem != 0 { code_size = code_size + align - rem }
+    if rem != 0 {
+        code_size = code_size + align - rem
+    }
     
     var file_size = align + code_size
     var elf = int_vec_new()
@@ -501,7 +506,7 @@ func path_is_diva_file(p: str): int {
     return str_eq(suf, ".diva")
 }
 
-// Real LF byte from file — Diva `"\n"` in source is two chars (backslash + n), not ASCII 10.
+// Real LF byte from file — Diva '\n' in source is two chars (backslash + n), not ASCII 10.
 func newline_str(): str {
     var s = read_file("compiler/res/lf.txt")
     if str_len(s) >= 1 {
@@ -521,13 +526,19 @@ func cmd_lex(path: str): int {
 
 func cmd_parse(path: str): int {
     var src = read_source(path)
-    if str_len(src) == 0 { return 1 }
+    if str_len(src) == 0 {
+        return 1
+    }
     var stream = lex_source(src)
-    if stream == 0 { err_line("lexer error") return 1 }
+    if stream == 0 {
+        err_line("lexer error") return 1
+    }
     var pr = parse_source(src, stream, 0)
     var ast = int_vec_get(pr, 0)
     var had_err = int_vec_get(pr, 1)
-    if had_err != 0 { err_line("parse failed") return 1 }
+    if had_err != 0 {
+        err_line("parse failed") return 1
+    }
     var children = ast_child(ast, 0)
     var n = int_vec_len(children)
     var b = str_builder_new()
@@ -541,13 +552,21 @@ func cmd_parse(path: str): int {
 
 func cmd_ir(path: str): int {
     var src = merge_file_sources(path)
-    if str_len(src) == 0 { return 1 }
+    if str_len(src) == 0 {
+        return 1
+    }
     var stream = lex_source(src)
-    if stream == 0 { return 1 }
+    if stream == 0 {
+        return 1
+    }
     var pr = parse_source(src, stream, 0)
     var ast = int_vec_get(pr, 0)
-    if int_vec_get(pr, 1) != 0 { err_line("parse failed") return 1 }
-    if sema_check_file(src, stream, ast) != 0 { return 1 }
+    if int_vec_get(pr, 1) != 0 {
+        err_line("parse failed") return 1
+    }
+    if sema_check_file(src, stream, ast) != 0 {
+        return 1
+    }
     var ir_result = build_ir(src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     dump_module(m, src, stream)
@@ -556,13 +575,21 @@ func cmd_ir(path: str): int {
 
 func cmd_asm(path: str): int {
     var src = merge_file_sources(path)
-    if str_len(src) == 0 { return 1 }
+    if str_len(src) == 0 {
+        return 1
+    }
     var stream = lex_source(src)
-    if stream == 0 { return 1 }
+    if stream == 0 {
+        return 1
+    }
     var pr = parse_source(src, stream, 0)
     var ast = int_vec_get(pr, 0)
-    if int_vec_get(pr, 1) != 0 { print_str("parse failed") return 1 }
-    if sema_check_file(src, stream, ast) != 0 { return 1 }
+    if int_vec_get(pr, 1) != 0 {
+        print_str("parse failed") return 1
+    }
+    if sema_check_file(src, stream, ast) != 0 {
+        return 1
+    }
     var ir_result = build_ir(src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     var strvec = int_vec_get(ir_result, 1)
@@ -572,16 +599,22 @@ func cmd_asm(path: str): int {
 
 func cmd_emit_ir(path: str): int {
     var src = merge_file_sources(path)
-    if str_len(src) == 0 { return 1 }
+    if str_len(src) == 0 {
+        return 1
+    }
     var stream = lex_source(src)
-    if stream == 0 { return 1 }
+    if stream == 0 {
+        return 1
+    }
     var pr = parse_source(src, stream, 1)
     if int_vec_get(pr, 1) != 0 {
         err_line("emit-ir: parse failed")
         return 1
     }
     var ast = int_vec_get(pr, 0)
-    if sema_check_file(src, stream, ast) != 0 { return 1 }
+    if sema_check_file(src, stream, ast) != 0 {
+        return 1
+    }
     var ir_result = build_ir(src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     dump_module(m, src, stream)
@@ -590,9 +623,13 @@ func cmd_emit_ir(path: str): int {
 
 func cmd_build_ast(path: str): int {
     var src = read_source(path)
-    if str_len(src) == 0 { return 1 }
+    if str_len(src) == 0 {
+        return 1
+    }
     var stream = lex_source(src)
-    if stream == 0 { return 1 }
+    if stream == 0 {
+        return 1
+    }
     var pr = parse_source(src, stream, 0)
     var ast = int_vec_get(pr, 0)
     if int_vec_get(pr, 1) != 0 {

@@ -117,7 +117,9 @@ func ib_name_hash(name: str): int {
         h = h * 33 + str_byte(name, i)
         i = i + 1
     }
-    if h < 0 { h = 0 - h }
+    if h < 0 {
+        h = 0 - h
+    }
     return h
 }
 
@@ -259,21 +261,51 @@ func lower_expr(ctx: int, src: str, node: int): int {
         var right = lower_expr(ctx, src, ast_child(node, 2))
         var r = ib_fresh_vreg(ctx)
         var irop = ir_nop()
-        if op == binop_add() { irop = ir_add() }
-        if op == binop_sub() { irop = ir_sub() }
-        if op == binop_mul() { irop = ir_mul() }
-        if op == binop_div() { irop = ir_div() }
-        if op == binop_mod() { irop = ir_mod() }
-        if op == binop_eq()  { irop = ir_eq() }
-        if op == binop_ne()  { irop = ir_ne() }
-        if op == binop_lt()  { irop = ir_lt() }
-        if op == binop_le()  { irop = ir_le() }
-        if op == binop_gt()  { irop = ir_gt() }
-        if op == binop_ge()  { irop = ir_ge() }
-        if op == binop_and() { irop = ir_and() }
-        if op == binop_or()  { irop = ir_or() }
-        if op == binop_shl() { irop = ir_shl() }
-        if op == binop_shr() { irop = ir_shr() }
+        if op == binop_add() {
+            irop = ir_add()
+        }
+        if op == binop_sub() {
+            irop = ir_sub()
+        }
+        if op == binop_mul() {
+            irop = ir_mul()
+        }
+        if op == binop_div() {
+            irop = ir_div()
+        }
+        if op == binop_mod() {
+            irop = ir_mod()
+        }
+        if op == binop_eq() {
+            irop = ir_eq()
+        }
+        if op == binop_ne() {
+            irop = ir_ne()
+        }
+        if op == binop_lt() {
+            irop = ir_lt()
+        }
+        if op == binop_le() {
+            irop = ir_le()
+        }
+        if op == binop_gt() {
+            irop = ir_gt()
+        }
+        if op == binop_ge() {
+            irop = ir_ge()
+        }
+        if op == binop_and() {
+            irop = ir_and()
+        }
+        if op == binop_or() {
+            irop = ir_or()
+        }
+        if op == binop_shl() {
+            irop = ir_shl()
+        }
+        if op == binop_shr() {
+            irop = ir_shr()
+        }
         ib_emit(ctx, ir_inst(irop, r, left, right, 0))
         return r
     }
@@ -533,7 +565,9 @@ func lower_stmt(ctx: int, src: str, node: int): int {
 }
 
 func lower_block(ctx: int, src: str, node: int): int {
-    if node < 0 { return 0 }
+    if node < 0 {
+        return 0
+    }
     var kind = ast_kind(node)
     if kind == nd_block() {
         var stmts = ast_child(node, 0)
@@ -565,9 +599,15 @@ func lower_func(ctx: int, src: str, node: int): int {
     if ret_type >= 0 {
         if ast_kind(ret_type) == nd_type_name() {
             var tname = ib_tok_text(ctx, src, ast_child(ret_type, 0))
-            if str_eq(tname, "void") == 1 { ret_ty = ir_ty_void() }
-            if str_eq(tname, "str") == 1  { ret_ty = ir_ty_str() }
-            if str_eq(tname, "bool") == 1 { ret_ty = ir_ty_bool() }
+            if str_eq(tname, "void") == 1 {
+                ret_ty = ir_ty_void()
+            }
+            if str_eq(tname, "str") == 1 {
+                ret_ty = ir_ty_str()
+            }
+            if str_eq(tname, "bool") == 1 {
+                ret_ty = ir_ty_bool()
+            }
         }
     }
 

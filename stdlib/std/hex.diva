@@ -12,21 +12,45 @@ func hex_encode_byte(b: int): str {
     if hi < 10 {
         str_builder_append(sb, int_to_str(hi))
     }
-    if hi == 10 { str_builder_append(sb, "a") }
-    if hi == 11 { str_builder_append(sb, "b") }
-    if hi == 12 { str_builder_append(sb, "c") }
-    if hi == 13 { str_builder_append(sb, "d") }
-    if hi == 14 { str_builder_append(sb, "e") }
-    if hi == 15 { str_builder_append(sb, "f") }
+    if hi == 10 {
+        str_builder_append(sb, "a")
+    }
+    if hi == 11 {
+        str_builder_append(sb, "b")
+    }
+    if hi == 12 {
+        str_builder_append(sb, "c")
+    }
+    if hi == 13 {
+        str_builder_append(sb, "d")
+    }
+    if hi == 14 {
+        str_builder_append(sb, "e")
+    }
+    if hi == 15 {
+        str_builder_append(sb, "f")
+    }
     if lo < 10 {
         str_builder_append(sb, int_to_str(lo))
     }
-    if lo == 10 { str_builder_append(sb, "a") }
-    if lo == 11 { str_builder_append(sb, "b") }
-    if lo == 12 { str_builder_append(sb, "c") }
-    if lo == 13 { str_builder_append(sb, "d") }
-    if lo == 14 { str_builder_append(sb, "e") }
-    if lo == 15 { str_builder_append(sb, "f") }
+    if lo == 10 {
+        str_builder_append(sb, "a")
+    }
+    if lo == 11 {
+        str_builder_append(sb, "b")
+    }
+    if lo == 12 {
+        str_builder_append(sb, "c")
+    }
+    if lo == 13 {
+        str_builder_append(sb, "d")
+    }
+    if lo == 14 {
+        str_builder_append(sb, "e")
+    }
+    if lo == 15 {
+        str_builder_append(sb, "f")
+    }
     var result = str_builder_to_str(sb)
     str_builder_free(sb)
     return result

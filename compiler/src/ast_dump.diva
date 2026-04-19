@@ -1,4 +1,4 @@
-// AST text dump — matches seed `diva build --ast` shape for tests (hello.diva).
+// AST text dump — matches seed 'diva build --ast' shape for tests (hello.diva).
 
 import "std/host.diva"
 import "std/io.diva"

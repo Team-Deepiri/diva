@@ -39,7 +39,9 @@ func table_probe(meta: int, key: int): int {
     var keys = int_vec_get(meta, 1)
     var flags = int_vec_get(meta, 3)
     var h = hash_int(key)
-    if h < 0 { h = 0 - h }
+    if h < 0 {
+        h = 0 - h
+    }
     var idx = h - (h / cap) * cap
     var start = idx
     var first_tomb = 0 - 1

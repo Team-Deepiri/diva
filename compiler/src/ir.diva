@@ -57,39 +57,105 @@ func ir_str_arg(): int   { return 31 }
 func ir_global(): int    { return 32 }
 
 func ir_op_name(op: int): str {
-    if op == 0  { return "nop" }
-    if op == 1  { return "const" }
-    if op == 2  { return "const.str" }
-    if op == 3  { return "add" }
-    if op == 4  { return "sub" }
-    if op == 5  { return "mul" }
-    if op == 6  { return "div" }
-    if op == 7  { return "mod" }
-    if op == 8  { return "neg" }
-    if op == 9  { return "eq" }
-    if op == 10 { return "ne" }
-    if op == 11 { return "lt" }
-    if op == 12 { return "le" }
-    if op == 13 { return "gt" }
-    if op == 14 { return "ge" }
-    if op == 15 { return "and" }
-    if op == 16 { return "or" }
-    if op == 17 { return "not" }
-    if op == 18 { return "shl" }
-    if op == 19 { return "shr" }
-    if op == 20 { return "load" }
-    if op == 21 { return "store" }
-    if op == 22 { return "call" }
-    if op == 23 { return "ret" }
-    if op == 24 { return "ret.void" }
-    if op == 25 { return "br" }
-    if op == 26 { return "br.cond" }
-    if op == 27 { return "alloca" }
-    if op == 28 { return "param" }
-    if op == 29 { return "copy" }
-    if op == 30 { return "phi" }
-    if op == 31 { return "str.arg" }
-    if op == 32 { return "global" }
+    if op == 0 {
+        return "nop"
+    }
+    if op == 1 {
+        return "const"
+    }
+    if op == 2 {
+        return "const.str"
+    }
+    if op == 3 {
+        return "add"
+    }
+    if op == 4 {
+        return "sub"
+    }
+    if op == 5 {
+        return "mul"
+    }
+    if op == 6 {
+        return "div"
+    }
+    if op == 7 {
+        return "mod"
+    }
+    if op == 8 {
+        return "neg"
+    }
+    if op == 9 {
+        return "eq"
+    }
+    if op == 10 {
+        return "ne"
+    }
+    if op == 11 {
+        return "lt"
+    }
+    if op == 12 {
+        return "le"
+    }
+    if op == 13 {
+        return "gt"
+    }
+    if op == 14 {
+        return "ge"
+    }
+    if op == 15 {
+        return "and"
+    }
+    if op == 16 {
+        return "or"
+    }
+    if op == 17 {
+        return "not"
+    }
+    if op == 18 {
+        return "shl"
+    }
+    if op == 19 {
+        return "shr"
+    }
+    if op == 20 {
+        return "load"
+    }
+    if op == 21 {
+        return "store"
+    }
+    if op == 22 {
+        return "call"
+    }
+    if op == 23 {
+        return "ret"
+    }
+    if op == 24 {
+        return "ret.void"
+    }
+    if op == 25 {
+        return "br"
+    }
+    if op == 26 {
+        return "br.cond"
+    }
+    if op == 27 {
+        return "alloca"
+    }
+    if op == 28 {
+        return "param"
+    }
+    if op == 29 {
+        return "copy"
+    }
+    if op == 30 {
+        return "phi"
+    }
+    if op == 31 {
+        return "str.arg"
+    }
+    if op == 32 {
+        return "global"
+    }
     return "???"
 }
 

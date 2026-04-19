@@ -111,12 +111,24 @@ func int_to_hex(x: int): str {
         if rem < 10 {
             str_builder_append(digits, int_to_str(rem))
         }
-        if rem == 10 { str_builder_append(digits, "a") }
-        if rem == 11 { str_builder_append(digits, "b") }
-        if rem == 12 { str_builder_append(digits, "c") }
-        if rem == 13 { str_builder_append(digits, "d") }
-        if rem == 14 { str_builder_append(digits, "e") }
-        if rem == 15 { str_builder_append(digits, "f") }
+        if rem == 10 {
+            str_builder_append(digits, "a")
+        }
+        if rem == 11 {
+            str_builder_append(digits, "b")
+        }
+        if rem == 12 {
+            str_builder_append(digits, "c")
+        }
+        if rem == 13 {
+            str_builder_append(digits, "d")
+        }
+        if rem == 14 {
+            str_builder_append(digits, "e")
+        }
+        if rem == 15 {
+            str_builder_append(digits, "f")
+        }
         val = val / 16
     }
     if neg == 1 {

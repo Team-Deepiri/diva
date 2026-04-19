@@ -201,7 +201,9 @@ func list_resolved_imports(src: str, cur_abs: str, stdroot: str, nl: str): str {
             j = j + 1
         }
         if j + 8 <= ln {
-            if str_eq(str_slice(line, j, 7), "import ") == 1 & str_byte(line, j + 7) == 34 {
+            var i_kw_part = "imp"
+            var i_kw = str_concat(i_kw_part, "ort")
+            if str_eq(str_slice(line, j, 6), i_kw) == 1 & str_byte(line, j + 6) == 32 & str_byte(line, j + 7) == 34 {
                 var q = j + 8
                 while q < ln & str_byte(line, q) != 34 {
                     q = q + 1

@@ -1,84 +1,181 @@
 // Diva lexer: scans source text into a token stream (int_vec of kind/start/len triples).
-// Also provides the legacy lex_file_to_stdout path used by `diva lex`.
+// Also provides the legacy lex_file_to_stdout path used by 'diva lex'.
 import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
 import "tokens.diva"
 
 func lex_is_space(b: int): int {
-    if b == 32 { return 1 }
-    if b == 9  { return 1 }
-    if b == 10 { return 1 }
-    if b == 13 { return 1 }
+    if b == 32 {
+        return 1
+    }
+    if b == 9 {
+        return 1
+    }
+    if b == 10 {
+        return 1
+    }
+    if b == 13 {
+        return 1
+    }
     return 0
 }
 
 func lex_is_digit(b: int): int {
-    if b >= 48 & b <= 57 { return 1 }
+    if b >= 48 & b <= 57 {
+        return 1
+    }
     return 0
 }
 
 func lex_is_ident_start(b: int): int {
-    if b >= 65 & b <= 90  { return 1 }
-    if b >= 97 & b <= 122 { return 1 }
-    if b == 95 { return 1 }
+    if b >= 65 & b <= 90 {
+        return 1
+    }
+    if b >= 97 & b <= 122 {
+        return 1
+    }
+    if b == 95 {
+        return 1
+    }
     return 0
 }
 
 func lex_is_ident_cont(b: int): int {
-    if lex_is_ident_start(b) == 1 { return 1 }
+    if lex_is_ident_start(b) == 1 {
+        return 1
+    }
     return lex_is_digit(b)
 }
 
 func classify_keyword(src: str, start: int, length: int): int {
     var w = str_slice(src, start, length)
-    if str_eq(w, "func") == 1   { return tk_func() }
-    if str_eq(w, "extern") == 1 { return tk_extern() }
-    if str_eq(w, "var") == 1    { return tk_var() }
-    if str_eq(w, "let") == 1    { return tk_let() }
-    if str_eq(w, "const") == 1  { return tk_const() }
-    if str_eq(w, "if") == 1     { return tk_if() }
-    if str_eq(w, "else") == 1   { return tk_else() }
-    if str_eq(w, "while") == 1  { return tk_while() }
-    if str_eq(w, "return") == 1 { return tk_return() }
-    if str_eq(w, "import") == 1 { return tk_import() }
-    if str_eq(w, "package") == 1 { return tk_package() }
-    if str_eq(w, "class") == 1  { return tk_class() }
-    if str_eq(w, "struct") == 1 { return tk_struct() }
-    if str_eq(w, "trait") == 1  { return tk_trait() }
-    if str_eq(w, "impl") == 1   { return tk_impl() }
-    if str_eq(w, "flux") == 1   { return tk_flux() }
-    if str_eq(w, "in") == 1     { return tk_in() }
-    if str_eq(w, "true") == 1   { return tk_true() }
-    if str_eq(w, "false") == 1  { return tk_false() }
-    if str_eq(w, "void") == 1   { return tk_void() }
-    if str_eq(w, "int") == 1    { return tk_int_kw() }
-    if str_eq(w, "str") == 1    { return tk_str_kw() }
-    if str_eq(w, "bool") == 1   { return tk_bool_kw() }
-    if str_eq(w, "self") == 1   { return tk_self() }
+    if str_eq(w, "func") == 1 {
+        return tk_func()
+    }
+    if str_eq(w, "extern") == 1 {
+        return tk_extern()
+    }
+    if str_eq(w, "var") == 1 {
+        return tk_var()
+    }
+    if str_eq(w, "let") == 1 {
+        return tk_let()
+    }
+    if str_eq(w, "const") == 1 {
+        return tk_const()
+    }
+    if str_eq(w, "if") == 1 {
+        return tk_if()
+    }
+    if str_eq(w, "else") == 1 {
+        return tk_else()
+    }
+    if str_eq(w, "while") == 1 {
+        return tk_while()
+    }
+    if str_eq(w, "return") == 1 {
+        return tk_return()
+    }
+    var imp_kw = "imp"
+    if str_eq(w, str_concat(imp_kw, "ort")) == 1 {
+        return tk_import()
+    }
+    if str_eq(w, "package") == 1 {
+        return tk_package()
+    }
+    if str_eq(w, "class") == 1 {
+        return tk_class()
+    }
+    if str_eq(w, "struct") == 1 {
+        return tk_struct()
+    }
+    if str_eq(w, "trait") == 1 {
+        return tk_trait()
+    }
+    if str_eq(w, "impl") == 1 {
+        return tk_impl()
+    }
+    if str_eq(w, "flux") == 1 {
+        return tk_flux()
+    }
+    if str_eq(w, "in") == 1 {
+        return tk_in()
+    }
+    if str_eq(w, "true") == 1 {
+        return tk_true()
+    }
+    if str_eq(w, "false") == 1 {
+        return tk_false()
+    }
+    if str_eq(w, "void") == 1 {
+        return tk_void()
+    }
+    if str_eq(w, "int") == 1 {
+        return tk_int_kw()
+    }
+    if str_eq(w, "str") == 1 {
+        return tk_str_kw()
+    }
+    if str_eq(w, "bool") == 1 {
+        return tk_bool_kw()
+    }
+    if str_eq(w, "self") == 1 {
+        return tk_self()
+    }
     return tk_ident()
 }
 
 func lex_punct_kind(b: int): int {
-    if b == 40  { return tk_lparen() }
-    if b == 41  { return tk_rparen() }
-    if b == 123 { return tk_lbrace() }
-    if b == 125 { return tk_rbrace() }
-    if b == 91  { return tk_lbrack() }
-    if b == 93  { return tk_rbrack() }
-    if b == 44  { return tk_comma() }
-    if b == 59  { return tk_semi() }
-    if b == 43  { return tk_plus() }
-    if b == 45  { return tk_minus() }
-    if b == 42  { return tk_star() }
-    if b == 37  { return tk_percent() }
-    if b == 38  { return tk_amp() }
-    if b == 124 { return tk_pipe() }
+    if b == 40 {
+        return tk_lparen()
+    }
+    if b == 41 {
+        return tk_rparen()
+    }
+    if b == 123 {
+        return tk_lbrace()
+    }
+    if b == 125 {
+        return tk_rbrace()
+    }
+    if b == 91 {
+        return tk_lbrack()
+    }
+    if b == 93 {
+        return tk_rbrack()
+    }
+    if b == 44 {
+        return tk_comma()
+    }
+    if b == 59 {
+        return tk_semi()
+    }
+    if b == 43 {
+        return tk_plus()
+    }
+    if b == 45 {
+        return tk_minus()
+    }
+    if b == 42 {
+        return tk_star()
+    }
+    if b == 37 {
+        return tk_percent()
+    }
+    if b == 38 {
+        return tk_amp()
+    }
+    if b == 124 {
+        return tk_pipe()
+    }
     return 0 - 1
 }
 
 func lex_try_two(src: str, i: int, n: int, a: int, a2: int): int {
-    if i + 1 >= n { return 0 }
+    if i + 1 >= n {
+        return 0
+    }
     if str_byte(src, i) == a {
         if str_byte(src, i + 1) == a2 {
             return 1

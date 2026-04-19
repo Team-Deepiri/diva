@@ -33,13 +33,17 @@ func ps_set_err(ps: int): int         { return mut_set(int_vec_get(ps, 2), 1) }
 // --- Core helpers ---
 
 func p_cur(ps: int): int {
-    if ps_pos(ps) >= ps_tlen(ps) { return tk_eof() }
+    if ps_pos(ps) >= ps_tlen(ps) {
+        return tk_eof()
+    }
     return tok_kind(ps_toks(ps), ps_pos(ps))
 }
 
 func p_advance(ps: int): int {
     var old = ps_pos(ps)
-    if old < ps_tlen(ps) { ps_set_pos(ps, old + 1) }
+    if old < ps_tlen(ps) {
+        ps_set_pos(ps, old + 1)
+    }
     return old
 }
 
@@ -91,16 +95,26 @@ func parse_type(ps: int, src: str): int {
     if kind == tk_int_kw() {
         p_advance(ps)
         var t = ast_type_name(tok)
-        if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(t) }
+        if p_cur(ps) == tk_lbrack() {
+            p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(t)
+        }
         return t
     }
-    if kind == tk_str_kw()  { p_advance(ps) return ast_type_name(tok) }
-    if kind == tk_bool_kw() { p_advance(ps) return ast_type_name(tok) }
-    if kind == tk_void()    { p_advance(ps) return ast_type_name(tok) }
+    if kind == tk_str_kw() {
+        p_advance(ps) return ast_type_name(tok)
+    }
+    if kind == tk_bool_kw() {
+        p_advance(ps) return ast_type_name(tok)
+    }
+    if kind == tk_void() {
+        p_advance(ps) return ast_type_name(tok)
+    }
     if kind == tk_ident() {
         p_advance(ps)
         var t = ast_type_name(tok)
-        if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(t) }
+        if p_cur(ps) == tk_lbrack() {
+            p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(t)
+        }
         return t
     }
     if ps_quiet(ps) == 0 {
@@ -140,8 +154,8 @@ func parse_primary(ps: int, src: str): int {
     if kind == tk_ident() | kind == tk_self() {
         var ident_tok = tok
         p_advance(ps)
-        // `if cond {` with `cond` an ident must not be parsed as `Type { ... }` struct literal.
-        // Struct types in-tree use PascalCase; only treat `Ident {` as struct lit when Ident starts with A-Z.
+        // 'if cond {' with 'cond' an ident must not be parsed as 'Type { ... }' struct literal.
+        // Struct types in-tree use PascalCase; only treat 'Ident {' as struct lit when Ident starts with A-Z.
         if p_cur(ps) == tk_lbrace() {
             var iname = p_text(ps, src, ident_tok)
             if str_len(iname) > 0 {
@@ -287,9 +301,15 @@ func parse_mul(ps: int, src: str): int {
         var op = p_cur(ps)
         p_advance(ps)
         var right = parse_unary(ps, src)
-        if op == tk_star()    { left = ast_binop(binop_mul(), left, right) }
-        if op == tk_slash()   { left = ast_binop(binop_div(), left, right) }
-        if op == tk_percent() { left = ast_binop(binop_mod(), left, right) }
+        if op == tk_star() {
+            left = ast_binop(binop_mul(), left, right)
+        }
+        if op == tk_slash() {
+            left = ast_binop(binop_div(), left, right)
+        }
+        if op == tk_percent() {
+            left = ast_binop(binop_mod(), left, right)
+        }
     }
     return left
 }
@@ -300,8 +320,12 @@ func parse_add(ps: int, src: str): int {
         var op = p_cur(ps)
         p_advance(ps)
         var right = parse_shift(ps, src)
-        if op == tk_plus()  { left = ast_binop(binop_add(), left, right) }
-        if op == tk_minus() { left = ast_binop(binop_sub(), left, right) }
+        if op == tk_plus() {
+            left = ast_binop(binop_add(), left, right)
+        }
+        if op == tk_minus() {
+            left = ast_binop(binop_sub(), left, right)
+        }
     }
     return left
 }
@@ -312,8 +336,12 @@ func parse_shift(ps: int, src: str): int {
         var op = p_cur(ps)
         p_advance(ps)
         var right = parse_mul(ps, src)
-        if op == tk_shl() { left = ast_binop(binop_shl(), left, right) }
-        if op == tk_shr() { left = ast_binop(binop_shr(), left, right) }
+        if op == tk_shl() {
+            left = ast_binop(binop_shl(), left, right)
+        }
+        if op == tk_shr() {
+            left = ast_binop(binop_shr(), left, right)
+        }
     }
     return left
 }
@@ -324,10 +352,18 @@ func parse_cmp(ps: int, src: str): int {
         var op = p_cur(ps)
         p_advance(ps)
         var right = parse_add(ps, src)
-        if op == tk_lt() { left = ast_binop(binop_lt(), left, right) }
-        if op == tk_gt() { left = ast_binop(binop_gt(), left, right) }
-        if op == tk_le() { left = ast_binop(binop_le(), left, right) }
-        if op == tk_ge() { left = ast_binop(binop_ge(), left, right) }
+        if op == tk_lt() {
+            left = ast_binop(binop_lt(), left, right)
+        }
+        if op == tk_gt() {
+            left = ast_binop(binop_gt(), left, right)
+        }
+        if op == tk_le() {
+            left = ast_binop(binop_le(), left, right)
+        }
+        if op == tk_ge() {
+            left = ast_binop(binop_ge(), left, right)
+        }
     }
     return left
 }
@@ -338,8 +374,12 @@ func parse_eq(ps: int, src: str): int {
         var op = p_cur(ps)
         p_advance(ps)
         var right = parse_cmp(ps, src)
-        if op == tk_eqeq() { left = ast_binop(binop_eq(), left, right) }
-        if op == tk_ne()   { left = ast_binop(binop_ne(), left, right) }
+        if op == tk_eqeq() {
+            left = ast_binop(binop_eq(), left, right)
+        }
+        if op == tk_ne() {
+            left = ast_binop(binop_ne(), left, right)
+        }
     }
     return left
 }
@@ -376,7 +416,9 @@ func parse_block(ps: int, src: str, add_implicit_void_ret: int): int {
     p_expect(ps, src, tk_lbrace())
     var stmts = int_vec_new()
     while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
-        if ps_err(ps) != 0 { return ast_block(stmts) }
+        if ps_err(ps) != 0 {
+            return ast_block(stmts)
+        }
         int_vec_push(stmts, parse_stmt(ps, src))
         p_skip_semi(ps)
     }
@@ -550,7 +592,9 @@ func parse_class_decl(ps: int, src: str): int {
     p_expect(ps, src, tk_lbrace())
     var members = int_vec_new()
     while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
-        if ps_err(ps) != 0 { return ast_class(name, members) }
+        if ps_err(ps) != 0 {
+            return ast_class(name, members)
+        }
         if p_cur(ps) == tk_var() {
             p_advance(ps)
             var fname = p_expect(ps, src, tk_ident())
@@ -610,7 +654,9 @@ func parse_struct_lit(ps: int, src: str, type_tok: int): int {
 func parse_top_level(ps: int, src: str): int {
     var children = int_vec_new()
     while p_cur(ps) != tk_eof() {
-        if ps_err(ps) != 0 { return ast_file(children) }
+        if ps_err(ps) != 0 {
+            return ast_file(children)
+        }
         p_skip_semi(ps)
         var kind = p_cur(ps)
 

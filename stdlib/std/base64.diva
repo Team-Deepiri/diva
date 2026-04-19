@@ -2,47 +2,185 @@ import "std/host.diva"
 import "std/vec.diva"
 
 func b64_char(idx: int): str {
-    if idx ==  0 { return "A" }  if idx ==  1 { return "B" }
-    if idx ==  2 { return "C" }  if idx ==  3 { return "D" }
-    if idx ==  4 { return "E" }  if idx ==  5 { return "F" }
-    if idx ==  6 { return "G" }  if idx ==  7 { return "H" }
-    if idx ==  8 { return "I" }  if idx ==  9 { return "J" }
-    if idx == 10 { return "K" }  if idx == 11 { return "L" }
-    if idx == 12 { return "M" }  if idx == 13 { return "N" }
-    if idx == 14 { return "O" }  if idx == 15 { return "P" }
-    if idx == 16 { return "Q" }  if idx == 17 { return "R" }
-    if idx == 18 { return "S" }  if idx == 19 { return "T" }
-    if idx == 20 { return "U" }  if idx == 21 { return "V" }
-    if idx == 22 { return "W" }  if idx == 23 { return "X" }
-    if idx == 24 { return "Y" }  if idx == 25 { return "Z" }
-    if idx == 26 { return "a" }  if idx == 27 { return "b" }
-    if idx == 28 { return "c" }  if idx == 29 { return "d" }
-    if idx == 30 { return "e" }  if idx == 31 { return "f" }
-    if idx == 32 { return "g" }  if idx == 33 { return "h" }
-    if idx == 34 { return "i" }  if idx == 35 { return "j" }
-    if idx == 36 { return "k" }  if idx == 37 { return "l" }
-    if idx == 38 { return "m" }  if idx == 39 { return "n" }
-    if idx == 40 { return "o" }  if idx == 41 { return "p" }
-    if idx == 42 { return "q" }  if idx == 43 { return "r" }
-    if idx == 44 { return "s" }  if idx == 45 { return "t" }
-    if idx == 46 { return "u" }  if idx == 47 { return "v" }
-    if idx == 48 { return "w" }  if idx == 49 { return "x" }
-    if idx == 50 { return "y" }  if idx == 51 { return "z" }
-    if idx == 52 { return "0" }  if idx == 53 { return "1" }
-    if idx == 54 { return "2" }  if idx == 55 { return "3" }
-    if idx == 56 { return "4" }  if idx == 57 { return "5" }
-    if idx == 58 { return "6" }  if idx == 59 { return "7" }
-    if idx == 60 { return "8" }  if idx == 61 { return "9" }
-    if idx == 62 { return "+" }  if idx == 63 { return "/" }
+    if idx ==  0 {
+        return "A"
+    }  if idx ==  1 {
+        return "B"
+    }
+    if idx ==  2 {
+        return "C"
+    }  if idx ==  3 {
+        return "D"
+    }
+    if idx ==  4 {
+        return "E"
+    }  if idx ==  5 {
+        return "F"
+    }
+    if idx ==  6 {
+        return "G"
+    }  if idx ==  7 {
+        return "H"
+    }
+    if idx ==  8 {
+        return "I"
+    }  if idx ==  9 {
+        return "J"
+    }
+    if idx == 10 {
+        return "K"
+    }  if idx == 11 {
+        return "L"
+    }
+    if idx == 12 {
+        return "M"
+    }  if idx == 13 {
+        return "N"
+    }
+    if idx == 14 {
+        return "O"
+    }  if idx == 15 {
+        return "P"
+    }
+    if idx == 16 {
+        return "Q"
+    }  if idx == 17 {
+        return "R"
+    }
+    if idx == 18 {
+        return "S"
+    }  if idx == 19 {
+        return "T"
+    }
+    if idx == 20 {
+        return "U"
+    }  if idx == 21 {
+        return "V"
+    }
+    if idx == 22 {
+        return "W"
+    }  if idx == 23 {
+        return "X"
+    }
+    if idx == 24 {
+        return "Y"
+    }  if idx == 25 {
+        return "Z"
+    }
+    if idx == 26 {
+        return "a"
+    }  if idx == 27 {
+        return "b"
+    }
+    if idx == 28 {
+        return "c"
+    }  if idx == 29 {
+        return "d"
+    }
+    if idx == 30 {
+        return "e"
+    }  if idx == 31 {
+        return "f"
+    }
+    if idx == 32 {
+        return "g"
+    }  if idx == 33 {
+        return "h"
+    }
+    if idx == 34 {
+        return "i"
+    }  if idx == 35 {
+        return "j"
+    }
+    if idx == 36 {
+        return "k"
+    }  if idx == 37 {
+        return "l"
+    }
+    if idx == 38 {
+        return "m"
+    }  if idx == 39 {
+        return "n"
+    }
+    if idx == 40 {
+        return "o"
+    }  if idx == 41 {
+        return "p"
+    }
+    if idx == 42 {
+        return "q"
+    }  if idx == 43 {
+        return "r"
+    }
+    if idx == 44 {
+        return "s"
+    }  if idx == 45 {
+        return "t"
+    }
+    if idx == 46 {
+        return "u"
+    }  if idx == 47 {
+        return "v"
+    }
+    if idx == 48 {
+        return "w"
+    }  if idx == 49 {
+        return "x"
+    }
+    if idx == 50 {
+        return "y"
+    }  if idx == 51 {
+        return "z"
+    }
+    if idx == 52 {
+        return "0"
+    }  if idx == 53 {
+        return "1"
+    }
+    if idx == 54 {
+        return "2"
+    }  if idx == 55 {
+        return "3"
+    }
+    if idx == 56 {
+        return "4"
+    }  if idx == 57 {
+        return "5"
+    }
+    if idx == 58 {
+        return "6"
+    }  if idx == 59 {
+        return "7"
+    }
+    if idx == 60 {
+        return "8"
+    }  if idx == 61 {
+        return "9"
+    }
+    if idx == 62 {
+        return "+"
+    }  if idx == 63 {
+        return "/"
+    }
     return "="
 }
 
 func b64_val(c: int): int {
-    if c >= 65 { if c <= 90  { return c - 65 } }
-    if c >= 97 { if c <= 122 { return c - 71 } }
-    if c >= 48 { if c <= 57  { return c + 4  } }
-    if c == 43 { return 62 }
-    if c == 47 { return 63 }
+    if c >= 65 { if c <= 90 {
+        return c - 65
+    } }
+    if c >= 97 { if c <= 122 {
+        return c - 71
+    } }
+    if c >= 48 { if c <= 57 {
+        return c + 4
+    } }
+    if c == 43 {
+        return 62
+    }
+    if c == 47 {
+        return 63
+    }
     return 0 - 1
 }
 
@@ -100,13 +238,27 @@ func base64_decode_to_vec(s: str): int {
         var v1 = 0
         var v2 = 0
         var v3 = 0
-        if i + 1 < n { v1 = b64_val(str_byte(s, i + 1)) }
-        if i + 2 < n { v2 = b64_val(str_byte(s, i + 2)) }
-        if i + 3 < n { v3 = b64_val(str_byte(s, i + 3)) }
-        if v0 < 0 { v0 = 0 }
-        if v1 < 0 { v1 = 0 }
-        if v2 < 0 { v2 = 0 }
-        if v3 < 0 { v3 = 0 }
+        if i + 1 < n {
+            v1 = b64_val(str_byte(s, i + 1))
+        }
+        if i + 2 < n {
+            v2 = b64_val(str_byte(s, i + 2))
+        }
+        if i + 3 < n {
+            v3 = b64_val(str_byte(s, i + 3))
+        }
+        if v0 < 0 {
+            v0 = 0
+        }
+        if v1 < 0 {
+            v1 = 0
+        }
+        if v2 < 0 {
+            v2 = 0
+        }
+        if v3 < 0 {
+            v3 = 0
+        }
         int_vec_push(vec, v0 * 4 + v1 / 16)
         if i + 2 < n {
             if str_byte(s, i + 2) != 61 {
