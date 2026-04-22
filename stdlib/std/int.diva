@@ -1,8 +1,8 @@
 func sign(x: int): int {
-    if x < 0 {
+    if (x < 0) {
         return 0 - 1
     }
-    if x > 0 {
+    if (x > 0) {
         return 1
     }
     return 0
@@ -20,10 +20,10 @@ func gcd(a: int, b: int): int {
     var left = a
     var right = b
 
-    if left < 0 {
+    if (left < 0) {
         left = 0 - left
     }
-    if right < 0 {
+    if (right < 0) {
         right = 0 - right
     }
 

@@ -2,7 +2,7 @@ extern func print_int(x: int): void
 extern func print_str(x: str): void
 
 func max(a: int, b: int): int {
-    if a >= b {
+    if (b <= a) {
         return a
     } else {
         return b

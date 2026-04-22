@@ -17,7 +17,7 @@ func log_level_error(): int { return 4 }
 func log_level_fatal(): int { return 5 }
 
 func log_msg(level: int, tag: str, msg: str): int {
-    if level < log_level {
+    if (level < log_level) {
         return 0
     }
     var b = str_builder_new()
@@ -31,7 +31,7 @@ func log_msg(level: int, tag: str, msg: str): int {
     str_builder_append(b, "\n")
     var line = str_builder_to_str(b)
     str_builder_free(b)
-    if level >= 3 {
+    if (level >= 3) {
         return stderr(line)
     }
     return stdout(line)
@@ -64,7 +64,7 @@ func log_fatal(msg: str): int {
 }
 
 func log_kv(level: int, tag: str, key: str, val: str): int {
-    if level < log_level {
+    if (level < log_level) {
         return 0
     }
     var b = str_builder_new()
@@ -80,7 +80,7 @@ func log_kv(level: int, tag: str, key: str, val: str): int {
     str_builder_append(b, "\n")
     var line = str_builder_to_str(b)
     str_builder_free(b)
-    if level >= 3 {
+    if (level >= 3) {
         return stderr(line)
     }
     return stdout(line)

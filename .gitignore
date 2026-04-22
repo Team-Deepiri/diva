@@ -1,4 +1,5 @@
 build/
+compiler/src/_bootstrap_merged.diva
 *.ll
 *.c
 *.exe

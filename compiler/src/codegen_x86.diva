@@ -64,90 +64,34 @@ func asm_user_label(src: str, toks: int, name_tok: int): str {
 
 func asm_runtime_label(src: str, toks: int, name_tok: int): str {
     var nm = tok_text(src, toks, name_tok)
-    if str_eq(nm, "set_argv") == 1 {
-        return "di_runtime_set_argv"
-    }
-    if str_eq(nm, "argc") == 1 {
-        return "di_runtime_argc"
-    }
-    if str_eq(nm, "argv") == 1 {
-        return "di_runtime_argv"
-    }
-    if str_eq(nm, "getenv") == 1 {
-        return "di_runtime_getenv"
-    }
-    if str_eq(nm, "system") == 1 {
-        return "di_runtime_system"
-    }
-    if str_eq(nm, "file_size") == 1 {
-        return "di_runtime_file_size"
-    }
-    if str_eq(nm, "read_file") == 1 {
-        return "di_runtime_read_file"
-    }
-    if str_eq(nm, "str_len") == 1 {
-        return "di_runtime_str_len"
-    }
-    if str_eq(nm, "str_byte") == 1 {
-        return "di_runtime_str_byte"
-    }
-    if str_eq(nm, "str_slice") == 1 {
-        return "di_runtime_str_slice"
-    }
-    if str_eq(nm, "str_eq") == 1 {
-        return "di_runtime_str_eq"
-    }
-    if str_eq(nm, "int_to_str") == 1 {
-        return "di_runtime_int_to_str"
-    }
-    if str_eq(nm, "int_vec_new") == 1 {
-        return "di_runtime_int_vec_new"
-    }
-    if str_eq(nm, "int_vec_push") == 1 {
-        return "di_runtime_int_vec_push"
-    }
-    if str_eq(nm, "int_vec_len") == 1 {
-        return "di_runtime_int_vec_len"
-    }
-    if str_eq(nm, "int_vec_get") == 1 {
-        return "di_runtime_int_vec_get"
-    }
-    if str_eq(nm, "int_vec_free") == 1 {
-        return "di_runtime_int_vec_free"
-    }
-    if str_eq(nm, "str_builder_new") == 1 {
-        return "di_runtime_str_builder_new"
-    }
-    if str_eq(nm, "str_builder_append") == 1 {
-        return "di_runtime_str_builder_append"
-    }
-    if str_eq(nm, "str_builder_len") == 1 {
-        return "di_runtime_str_builder_len"
-    }
-    if str_eq(nm, "str_builder_to_str") == 1 {
-        return "di_runtime_str_builder_to_str"
-    }
-    if str_eq(nm, "str_builder_free") == 1 {
-        return "di_runtime_str_builder_free"
-    }
-    if str_eq(nm, "print_int") == 1 {
-        return "di_runtime_print_int"
-    }
-    if str_eq(nm, "print_str") == 1 {
-        return "di_runtime_print_str"
-    }
-    if str_eq(nm, "print_hex") == 1 {
-        return "di_runtime_print_hex"
-    }
-    if str_eq(nm, "write") == 1 {
-        return "di_runtime_write"
-    }
-    if str_eq(nm, "exit") == 1 {
-        return "di_runtime_exit"
-    }
-    if str_eq(nm, "abort") == 1 {
-        return "di_runtime_abort"
-    }
+    if str_eq(nm, "set_argv") == 1 { return "di_runtime_set_argv" }
+    if str_eq(nm, "argc") == 1 { return "di_runtime_argc" }
+    if str_eq(nm, "argv") == 1 { return "di_runtime_argv" }
+    if str_eq(nm, "getenv") == 1 { return "di_runtime_getenv" }
+    if str_eq(nm, "system") == 1 { return "di_runtime_system" }
+    if str_eq(nm, "file_size") == 1 { return "di_runtime_file_size" }
+    if str_eq(nm, "read_file") == 1 { return "di_runtime_read_file" }
+    if str_eq(nm, "str_len") == 1 { return "di_runtime_str_len" }
+    if str_eq(nm, "str_byte") == 1 { return "di_runtime_str_byte" }
+    if str_eq(nm, "str_slice") == 1 { return "di_runtime_str_slice" }
+    if str_eq(nm, "str_eq") == 1 { return "di_runtime_str_eq" }
+    if str_eq(nm, "int_to_str") == 1 { return "di_runtime_int_to_str" }
+    if str_eq(nm, "int_vec_new") == 1 { return "di_runtime_int_vec_new" }
+    if str_eq(nm, "int_vec_push") == 1 { return "di_runtime_int_vec_push" }
+    if str_eq(nm, "int_vec_len") == 1 { return "di_runtime_int_vec_len" }
+    if str_eq(nm, "int_vec_get") == 1 { return "di_runtime_int_vec_get" }
+    if str_eq(nm, "int_vec_free") == 1 { return "di_runtime_int_vec_free" }
+    if str_eq(nm, "str_builder_new") == 1 { return "di_runtime_str_builder_new" }
+    if str_eq(nm, "str_builder_append") == 1 { return "di_runtime_str_builder_append" }
+    if str_eq(nm, "str_builder_len") == 1 { return "di_runtime_str_builder_len" }
+    if str_eq(nm, "str_builder_to_str") == 1 { return "di_runtime_str_builder_to_str" }
+    if str_eq(nm, "str_builder_free") == 1 { return "di_runtime_str_builder_free" }
+    if str_eq(nm, "print_int") == 1 { return "di_runtime_print_int" }
+    if str_eq(nm, "print_str") == 1 { return "di_runtime_print_str" }
+    if str_eq(nm, "print_hex") == 1 { return "di_runtime_print_hex" }
+    if str_eq(nm, "write") == 1 { return "di_runtime_write" }
+    if str_eq(nm, "exit") == 1 { return "di_runtime_exit" }
+    if str_eq(nm, "abort") == 1 { return "di_runtime_abort" }
     return nm
 }
 
@@ -155,7 +99,7 @@ func call_is_extern(m: int, src: str, toks: int, call_tok: int): int {
     var cname = tok_text(src, toks, call_tok)
     var fc = mod_func_count(m)
     var i = 0
-    while i < fc {
+    while (i < fc) {
         var ftok = func_name_tok(mod_get_func(m, i))
         if str_eq(tok_text(src, toks, ftok), cname) == 1 {
             return 0
@@ -166,24 +110,12 @@ func call_is_extern(m: int, src: str, toks: int, call_tok: int): int {
 }
 
 func abi_reg_name(i: int): str {
-    if i == 0 {
-        return "%rdi"
-    }
-    if i == 1 {
-        return "%rsi"
-    }
-    if i == 2 {
-        return "%rdx"
-    }
-    if i == 3 {
-        return "%rcx"
-    }
-    if i == 4 {
-        return "%r8"
-    }
-    if i == 5 {
-        return "%r9"
-    }
+    if i == 0 { return "%rdi" }
+    if i == 1 { return "%rsi" }
+    if i == 2 { return "%rdx" }
+    if i == 3 { return "%rcx" }
+    if i == 4 { return "%r8" }
+    if i == 5 { return "%r9" }
     return "%rdi"
 }
 
@@ -217,15 +149,9 @@ func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, 
 
     if op == ir_add() | op == ir_sub() | op == ir_mul() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
-        if op == ir_add() {
-            lp_add(lp, "    addq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
-        }
-        if op == ir_sub() {
-            lp_add(lp, "    subq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
-        }
-        if op == ir_mul() {
-            lp_add(lp, "    imulq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
-        }
+        if op == ir_add() { lp_add(lp, "    addq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl) }
+        if op == ir_sub() { lp_add(lp, "    subq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl) }
+        if op == ir_mul() { lp_add(lp, "    imulq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl) }
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
@@ -235,9 +161,7 @@ func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, 
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    cqto") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    idivq ") lp_add(lp, stack_offset(bv)) lp_flush_sb(lp, sb, nl)
-        if op == ir_div() {
-            lp_add(lp, "    movq %rax, ")
-        } else { lp_add(lp, "    movq %rdx, ") }
+        if op == ir_div() { lp_add(lp, "    movq %rax, ") } else { lp_add(lp, "    movq %rdx, ") }
         lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
     }
@@ -252,24 +176,12 @@ func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, 
     if op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() | op == ir_gt() | op == ir_ge() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    cmpq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
-        if op == ir_eq() {
-            lp_add(lp, "    sete %al") lp_flush_sb(lp, sb, nl)
-        }
-        if op == ir_ne() {
-            lp_add(lp, "    setne %al") lp_flush_sb(lp, sb, nl)
-        }
-        if op == ir_lt() {
-            lp_add(lp, "    setl %al") lp_flush_sb(lp, sb, nl)
-        }
-        if op == ir_le() {
-            lp_add(lp, "    setle %al") lp_flush_sb(lp, sb, nl)
-        }
-        if op == ir_gt() {
-            lp_add(lp, "    setg %al") lp_flush_sb(lp, sb, nl)
-        }
-        if op == ir_ge() {
-            lp_add(lp, "    setge %al") lp_flush_sb(lp, sb, nl)
-        }
+        if op == ir_eq() { lp_add(lp, "    sete %al") lp_flush_sb(lp, sb, nl) }
+        if op == ir_ne() { lp_add(lp, "    setne %al") lp_flush_sb(lp, sb, nl) }
+        if op == ir_lt() { lp_add(lp, "    setl %al") lp_flush_sb(lp, sb, nl) }
+        if op == ir_le() { lp_add(lp, "    setle %al") lp_flush_sb(lp, sb, nl) }
+        if op == ir_gt() { lp_add(lp, "    setg %al") lp_flush_sb(lp, sb, nl) }
+        if op == ir_ge() { lp_add(lp, "    setge %al") lp_flush_sb(lp, sb, nl) }
         lp_add(lp, "    movzbq %al, %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 0
@@ -332,24 +244,12 @@ func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, 
     }
 
     if op == ir_param() {
-        if a == 0 {
-            lp_add(lp, "    movq %rdi, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        }
-        if a == 1 {
-            lp_add(lp, "    movq %rsi, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        }
-        if a == 2 {
-            lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        }
-        if a == 3 {
-            lp_add(lp, "    movq %rcx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        }
-        if a == 4 {
-            lp_add(lp, "    movq %r8, ")  lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        }
-        if a == 5 {
-            lp_add(lp, "    movq %r9, ")  lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        }
+        if a == 0 { lp_add(lp, "    movq %rdi, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 1 { lp_add(lp, "    movq %rsi, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 2 { lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 3 { lp_add(lp, "    movq %rcx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 4 { lp_add(lp, "    movq %r8, ")  lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 5 { lp_add(lp, "    movq %r9, ")  lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
         return 0
     }
 
@@ -357,7 +257,7 @@ func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, 
         var argc = inst_b(inst)
         var args = inst_extra(inst)
         var ci = 0
-        while ci < argc {
+        while (ci < argc) {
             var vr = int_vec_get(args, ci)
             lp_add(lp, "    movq ")
             lp_add(lp, stack_offset(vr))
@@ -426,15 +326,15 @@ func cg_func(lp: int, sb: int, nl: str, m: int, src: str, toks: int, f: int, fi:
 
     var bc = func_block_count(f)
     var bi = 0
-    while bi < bc {
+    while (bi < bc) {
         var blk = func_get_block(f, bi)
-        if bi > 0 {
+        if (bi > 0) {
             lp_add(lp, bb_label(fi, block_label(blk))) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
         }
         var insts = block_insts(blk)
         var ic = int_vec_len(insts)
         var ii = 0
-        while ii < ic {
+        while (ii < ic) {
             cg_inst(lp, sb, nl, m, src, toks, int_vec_get(insts, ii), fi)
             ii = ii + 1
         }
@@ -454,17 +354,17 @@ func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str 
 
     var fc = mod_func_count(m)
     var fi = 0
-    while fi < fc {
+    while (fi < fc) {
         cg_func(lp, sb, nl, m, src, toks, mod_get_func(m, fi), fi)
         fi = fi + 1
     }
 
     var gc = mod_global_count(m)
-    if gc > 0 {
+    if (gc > 0) {
         lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    .data") lp_flush_sb(lp, sb, nl)
         var gi = 0
-        while gi < gc {
+        while (gi < gc) {
             var g = mod_get_global(m, gi)
             var gname = tok_text(src, toks, global_name_tok(g))
             lp_add(lp, "    .globl ") lp_add(lp, gname) lp_flush_sb(lp, sb, nl)
@@ -477,16 +377,16 @@ func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str 
         }
     }
 
-    if int_vec_len(str_toks) > 0 {
+    if (int_vec_len(str_toks) > 0) {
         lp_add(lp, "    .section .rodata") lp_flush_sb(lp, sb, nl)
         var si = 0
-        while si < int_vec_len(str_toks) {
+        while (si < int_vec_len(str_toks)) {
             lp_add(lp, ".Lstr") lp_add_int(lp, si) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
             var tok_idx = int_vec_get(str_toks, si)
             var s = tok_str_value(src, toks, tok_idx)
             var bi = 0
             var bn = str_len(s)
-            while bi < bn {
+            while (bi < bn) {
                 lp_add(lp, "    .byte ")
                 lp_add_int(lp, str_byte(s, bi))
                 lp_flush_sb(lp, sb, nl)
@@ -512,9 +412,7 @@ func emit_i32(out: int, val: int): void {
 
 func cg_module_to_bin(m: int, str_toks: int, out: int): int {
     var fc = mod_func_count(m)
-    if fc == 0 {
-        return 0
-    }
+    if fc == 0 { return 0 }
     
     // Pass 1: Label resolution
     var block_offsets = int_vec_new()
@@ -522,58 +420,32 @@ func cg_module_to_bin(m: int, str_toks: int, out: int): int {
     current_offset = current_offset + 12 // Standard prologue: push rbp; mov rbp, rsp; sub rsp, 2048
 
     var fi = 0
-    while fi < fc {
+    while (fi < fc) {
         var f = mod_get_func(m, fi)
         var bc = func_block_count(f)
         var bi = 0
-        while bi < bc {
+        while (bi < bc) {
             var blk = func_get_block(f, bi)
             int_vec_push(block_offsets, current_offset)
             var insts = block_insts(blk)
             var ic = int_vec_len(insts)
             var ii = 0
-            while ii < ic {
+            while (ii < ic) {
                 var inst = int_vec_get(insts, ii)
                 var op = inst_op(inst)
-                if op == ir_const() {
-                    current_offset = current_offset + 8
-                }
-                if op == ir_add() | op == ir_sub() | op == ir_mul() {
-                    current_offset = current_offset + 15
-                }
-                if op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() | op == ir_gt() | op == ir_ge() {
-                    current_offset = current_offset + 18
-                }
-                if op == ir_and() | op == ir_or() {
-                    current_offset = current_offset + 15
-                }
-                if op == ir_not() | op == ir_neg() {
-                    current_offset = current_offset + 11
-                }
-                if op == ir_shl() | op == ir_shr() {
-                    current_offset = current_offset + 15
-                }
-                if op == ir_load() | op == ir_store() | op == ir_copy() {
-                    current_offset = current_offset + 8
-                }
-                if op == ir_alloca() {
-                    current_offset = current_offset + 8
-                }
-                if op == ir_param() {
-                    current_offset = current_offset + 4
-                }
-                if op == ir_ret() {
-                    current_offset = current_offset + 6
-                }
-                if op == ir_ret_void() {
-                    current_offset = current_offset + 2
-                }
-                if op == ir_br() {
-                    current_offset = current_offset + 5
-                }
-                if op == ir_br_cond() {
-                    current_offset = current_offset + 12
-                }
+                if op == ir_const() { current_offset = current_offset + 8 }
+                if op == ir_add() | op == ir_sub() | op == ir_mul() { current_offset = current_offset + 15 }
+                if op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() | op == ir_gt() | op == ir_ge() { current_offset = current_offset + 18 }
+                if op == ir_and() | op == ir_or() { current_offset = current_offset + 15 }
+                if op == ir_not() | op == ir_neg() { current_offset = current_offset + 11 }
+                if op == ir_shl() | op == ir_shr() { current_offset = current_offset + 15 }
+                if op == ir_load() | op == ir_store() | op == ir_copy() { current_offset = current_offset + 8 }
+                if op == ir_alloca() { current_offset = current_offset + 8 }
+                if op == ir_param() { current_offset = current_offset + 4 }
+                if op == ir_ret() { current_offset = current_offset + 6 }
+                if op == ir_ret_void() { current_offset = current_offset + 2 }
+                if op == ir_br() { current_offset = current_offset + 5 }
+                if op == ir_br_cond() { current_offset = current_offset + 12 }
                 ii = ii + 1
             }
             bi = bi + 1
@@ -589,16 +461,16 @@ func cg_module_to_bin(m: int, str_toks: int, out: int): int {
 
     fi = 0
     var code_ptr = 12
-    while fi < fc {
+    while (fi < fc) {
         var f = mod_get_func(m, fi)
         var bc = func_block_count(f)
         var bi = 0
-        while bi < bc {
+        while (bi < bc) {
             var blk = func_get_block(f, bi)
             var insts = block_insts(blk)
             var ic = int_vec_len(insts)
             var ii = 0
-            while ii < ic {
+            while (ii < ic) {
                 var inst = int_vec_get(insts, ii)
                 var op = inst_op(inst)
                 var res = inst_result(inst)
@@ -616,15 +488,9 @@ func cg_module_to_bin(m: int, str_toks: int, out: int): int {
                     var off_b = 256 - (bv + 1) * 8
                     var off_res = 256 - (res + 1) * 8
                     int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, off_a & 255)
-                    if op == ir_add() {
-                        int_vec_push(out, 72) int_vec_push(out, 3) int_vec_push(out, 69) int_vec_push(out, off_b & 255)
-                    }
-                    if op == ir_sub() {
-                        int_vec_push(out, 72) int_vec_push(out, 43) int_vec_push(out, 69) int_vec_push(out, off_b & 255)
-                    }
-                    if op == ir_mul() {
-                        int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 175) int_vec_push(out, 69) int_vec_push(out, off_b & 255)
-                    }
+                    if op == ir_add() { int_vec_push(out, 72) int_vec_push(out, 3) int_vec_push(out, 69) int_vec_push(out, off_b & 255) }
+                    if op == ir_sub() { int_vec_push(out, 72) int_vec_push(out, 43) int_vec_push(out, 69) int_vec_push(out, off_b & 255) }
+                    if op == ir_mul() { int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 175) int_vec_push(out, 69) int_vec_push(out, off_b & 255) }
                     int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
                     code_ptr = code_ptr + 15
                 }
@@ -634,24 +500,12 @@ func cg_module_to_bin(m: int, str_toks: int, out: int): int {
                     var off_res = 256 - (res + 1) * 8
                     int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, off_a & 255)
                     int_vec_push(out, 72) int_vec_push(out, 59) int_vec_push(out, 69) int_vec_push(out, off_b & 255)
-                    if op == ir_eq() {
-                        int_vec_push(out, 15) int_vec_push(out, 148) int_vec_push(out, 192)
-                    }
-                    if op == ir_ne() {
-                        int_vec_push(out, 15) int_vec_push(out, 149) int_vec_push(out, 192)
-                    }
-                    if op == ir_lt() {
-                        int_vec_push(out, 15) int_vec_push(out, 156) int_vec_push(out, 192)
-                    }
-                    if op == ir_le() {
-                        int_vec_push(out, 15) int_vec_push(out, 158) int_vec_push(out, 192)
-                    }
-                    if op == ir_gt() {
-                        int_vec_push(out, 15) int_vec_push(out, 159) int_vec_push(out, 192)
-                    }
-                    if op == ir_ge() {
-                        int_vec_push(out, 15) int_vec_push(out, 157) int_vec_push(out, 192)
-                    }
+                    if op == ir_eq() { int_vec_push(out, 15) int_vec_push(out, 148) int_vec_push(out, 192) }
+                    if op == ir_ne() { int_vec_push(out, 15) int_vec_push(out, 149) int_vec_push(out, 192) }
+                    if op == ir_lt() { int_vec_push(out, 15) int_vec_push(out, 156) int_vec_push(out, 192) }
+                    if op == ir_le() { int_vec_push(out, 15) int_vec_push(out, 158) int_vec_push(out, 192) }
+                    if op == ir_gt() { int_vec_push(out, 15) int_vec_push(out, 159) int_vec_push(out, 192) }
+                    if op == ir_ge() { int_vec_push(out, 15) int_vec_push(out, 157) int_vec_push(out, 192) }
                     int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 182) int_vec_push(out, 192)
                     int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
                     code_ptr = code_ptr + 18
@@ -661,12 +515,8 @@ func cg_module_to_bin(m: int, str_toks: int, out: int): int {
                     var off_b = 256 - (bv + 1) * 8
                     var off_res = 256 - (res + 1) * 8
                     int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, off_a & 255)
-                    if op == ir_and() {
-                        int_vec_push(out, 72) int_vec_push(out, 35) int_vec_push(out, 69) int_vec_push(out, off_b & 255)
-                    }
-                    if op == ir_or() {
-                        int_vec_push(out, 72) int_vec_push(out, 11) int_vec_push(out, 69) int_vec_push(out, off_b & 255)
-                    }
+                    if op == ir_and() { int_vec_push(out, 72) int_vec_push(out, 35) int_vec_push(out, 69) int_vec_push(out, off_b & 255) }
+                    if op == ir_or() { int_vec_push(out, 72) int_vec_push(out, 11) int_vec_push(out, 69) int_vec_push(out, off_b & 255) }
                     int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
                     code_ptr = code_ptr + 15
                 }
@@ -674,12 +524,8 @@ func cg_module_to_bin(m: int, str_toks: int, out: int): int {
                     var off_a = 256 - (a + 1) * 8
                     var off_res = 256 - (res + 1) * 8
                     int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, off_a & 255)
-                    if op == ir_neg() {
-                        int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 216)
-                    }
-                    if op == ir_not() {
-                        int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 192) int_vec_push(out, 15) int_vec_push(out, 148) int_vec_push(out, 192) int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 182) int_vec_push(out, 192)
-                    }
+                    if op == ir_neg() { int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 216) }
+                    if op == ir_not() { int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 192) int_vec_push(out, 15) int_vec_push(out, 148) int_vec_push(out, 192) int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 182) int_vec_push(out, 192) }
                     int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
                     code_ptr = code_ptr + 11
                 }
@@ -698,9 +544,7 @@ func cg_module_to_bin(m: int, str_toks: int, out: int): int {
                 }
                 if op == ir_param() {
                     var off_res = 256 - (res + 1) * 8
-                    if a == 0 {
-                        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 125) int_vec_push(out, off_res & 255)
-                    }
+                    if a == 0 { int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 125) int_vec_push(out, off_res & 255) }
                     code_ptr = code_ptr + 4
                 }
                 if op == ir_br() {

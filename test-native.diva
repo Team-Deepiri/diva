@@ -14,7 +14,7 @@ func main(): int {
     hex = hex + "00100000000000000010400000000000"
     hex = hex + "0010000000000000"
     var i = 0
-    while i < 4081 {
+    while (i < 4081) {
         hex = hex + "00"
         i = i + 1
     }
@@ -22,7 +22,7 @@ func main(): int {
     hex = hex + "bf2a000000"
     hex = hex + "0f05"
     i = 0
-    while i < 165 {
+    while (i < 165) {
         hex = hex + "00"
         i = i + 1
     }

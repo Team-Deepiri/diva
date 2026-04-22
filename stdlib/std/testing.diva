@@ -36,7 +36,7 @@ func test_summary(): int {
     stdout(" passed, ")
     stdout(int_to_str(test_fail_count))
     stdout(" failed\n")
-    if test_fail_count > 0 {
+    if (test_fail_count > 0) {
         return 1
     }
     return 0
@@ -115,7 +115,7 @@ func assert_ne_str(left: str, right: str, msg: str): int {
 }
 
 func assert_gt(left: int, right: int, msg: str): int {
-    if left <= right {
+    if (left <= right) {
         stderr("assertion failed: ")
         stderr(msg)
         stderr(" (")
@@ -129,7 +129,7 @@ func assert_gt(left: int, right: int, msg: str): int {
 }
 
 func assert_lt(left: int, right: int, msg: str): int {
-    if left >= right {
+    if (right <= left) {
         stderr("assertion failed: ")
         stderr(msg)
         stderr(" (")
@@ -143,7 +143,7 @@ func assert_lt(left: int, right: int, msg: str): int {
 }
 
 func assert_ge(left: int, right: int, msg: str): int {
-    if left < right {
+    if (left < right) {
         stderr("assertion failed: ")
         stderr(msg)
         stderr(" (")
@@ -157,7 +157,7 @@ func assert_ge(left: int, right: int, msg: str): int {
 }
 
 func assert_le(left: int, right: int, msg: str): int {
-    if left > right {
+    if (left > right) {
         stderr("assertion failed: ")
         stderr(msg)
         stderr(" (")
@@ -171,7 +171,7 @@ func assert_le(left: int, right: int, msg: str): int {
 }
 
 func assert_in_range(val: int, lo: int, hi: int, msg: str): int {
-    if val < lo {
+    if (val < lo) {
         stderr("assertion failed: ")
         stderr(msg)
         stderr(" (")
@@ -181,7 +181,7 @@ func assert_in_range(val: int, lo: int, hi: int, msg: str): int {
         stderr(")\n")
         abort()
     }
-    if val > hi {
+    if (val > hi) {
         stderr("assertion failed: ")
         stderr(msg)
         stderr(" (")
@@ -200,7 +200,7 @@ func assert_str_contains(haystack: str, needle: str, msg: str): int {
     if nlen == 0 {
         return 0
     }
-    if hlen < nlen {
+    if (hlen < nlen) {
         stderr("assertion failed: ")
         stderr(msg)
         stderr(" (string does not contain \"")
@@ -209,10 +209,10 @@ func assert_str_contains(haystack: str, needle: str, msg: str): int {
         abort()
     }
     var i = 0
-    while i <= hlen - nlen {
+    while (i <= hlen - nlen) {
         var match = 1
         var j = 0
-        while j < nlen {
+        while (j < nlen) {
             if str_byte(haystack, i + j) != str_byte(needle, j) {
                 match = 0
                 j = nlen

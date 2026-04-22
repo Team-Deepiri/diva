@@ -1,5 +1,5 @@
-package imports_demo
-
+// Companion to main.diva: same `twice` in a separate file for manual `diva run` once
+// the driver merges imports into one native image (or use a merged bootstrap build).
 func twice(x: int): int {
     return x * 2
 }

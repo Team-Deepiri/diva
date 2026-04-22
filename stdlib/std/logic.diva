@@ -1,6 +1,6 @@
 func all(left: bool, right: bool): bool {
-    if left {
-        if right {
+    if (left) {
+        if (right) {
             return true
         }
     }
@@ -8,17 +8,17 @@ func all(left: bool, right: bool): bool {
 }
 
 func any(left: bool, right: bool): bool {
-    if left {
+    if (left) {
         return true
     }
-    if right {
+    if (right) {
         return true
     }
     return false
 }
 
 func bool_to_int(value: bool): int {
-    if value {
+    if (value) {
         return 1
     }
     return 0

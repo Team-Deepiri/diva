@@ -12,7 +12,7 @@ func main(): int {
     var code = []
     code = code + [1]
     var i = 0
-    while i < int_vec_len(code) {
+    while (i < int_vec_len(code)) {
         i = i + 1
     }
     var result = 0

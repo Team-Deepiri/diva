@@ -9,7 +9,7 @@ import "ast.diva"
 import "std/host.diva"
 
 func sema_err(msg: str): int {
-    stderr("[diva] sema: ")
+    stderr("sema: ")
     stderr(msg)
     stderr(char_to_str(10))
     return 1
@@ -20,14 +20,14 @@ func sema_top_level_func_hashes(file_node: int): int {
     var n = int_vec_len(children)
     var seen = int_vec_new()
     var i = 0
-    while i < n {
+    while (i < n) {
         var ch = int_vec_get(children, i)
         if ast_kind(ch) == nd_func() {
             var ht = ast_child(ch, 0)
             var j = 0
             var nc = int_vec_len(seen)
-            while j < nc {
-                if int_vec_get(seen, j) == ht {
+            while (j < nc) {
+                if (int_vec_get(seen, j) == ht) {
                     return sema_err("duplicate top-level function name")
                 }
                 j = j + 1
@@ -40,9 +40,9 @@ func sema_top_level_func_hashes(file_node: int): int {
     return 0
 }
 
-// Same-block 'let' duplicates (flat list of stmts in one nd_block); matches seed wording for tests.
+// Same-block `let` duplicates (flat list of stmts in one nd_block); matches seed wording for tests.
 func sema_dup_let_flat_block(block: int, src: str, toks: int): int {
-    if block < 0 {
+    if (block < 0) {
         return 0
     }
     if ast_kind(block) != nd_block() {
@@ -52,18 +52,18 @@ func sema_dup_let_flat_block(block: int, src: str, toks: int): int {
     var ns = int_vec_len(stmts)
     var names = int_vec_new()
     var si = 0
-    while si < ns {
+    while (si < ns) {
         var st = int_vec_get(stmts, si)
         if ast_kind(st) == nd_var_decl() {
             var nt = ast_child(st, 0)
             var nm = tok_text(src, toks, nt)
             var j = 0
             var nn = int_vec_len(names)
-            while j < nn {
+            while (j < nn) {
                 var pt = int_vec_get(names, j)
                 if str_eq(tok_text(src, toks, pt), nm) == 1 {
                     int_vec_free(names)
-                    stderr("[diva] sema: duplicate declaration of '")
+                    stderr("sema: duplicate declaration of '")
                     stderr(nm)
                     stderr("' in the same scope")
                     stderr(char_to_str(10))
@@ -83,7 +83,7 @@ func sema_check_func_body_dup_lets(file_node: int, src: str, toks: int): int {
     var children = ast_child(file_node, 0)
     var n = int_vec_len(children)
     var i = 0
-    while i < n {
+    while (i < n) {
         var ch = int_vec_get(children, i)
         if ast_kind(ch) == nd_func() {
             var body = ast_child(ch, 3)
@@ -107,16 +107,13 @@ func sema_check_file(src: str, toks: int, file_node: int): int {
     return 0
 }
 
-// 1 = native build may lower this file (imports allowed for merged packages; no packages).
+// 1 = native build may lower this file (imports + package name decl; no class/trait/impl).
 func sema_file_only_native_subset(file_node: int): int {
     var children = ast_child(file_node, 0)
     var n = int_vec_len(children)
     var i = 0
-    while i < n {
+    while (i < n) {
         var k = ast_kind(int_vec_get(children, i))
-        if k == nd_package_decl() {
-            return 0
-        }
         if k == nd_class() | k == nd_trait() | k == nd_impl() {
             return 0
         }

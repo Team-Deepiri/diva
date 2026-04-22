@@ -3,9 +3,7 @@ import "std/vec.diva"
 
 func json_str(key: str, value: str): str {
     var b = str_builder_new()
-    if b == 0 {
-        return ""
-    }
+    if b == 0 { return "" }
     str_builder_append(b, "\"")
     str_builder_append(b, key)
     str_builder_append(b, "\": \"")
@@ -18,9 +16,7 @@ func json_str(key: str, value: str): str {
 
 func json_int(key: str, value: int): str {
     var b = str_builder_new()
-    if b == 0 {
-        return ""
-    }
+    if b == 0 { return "" }
     str_builder_append(b, "\"")
     str_builder_append(b, key)
     str_builder_append(b, "\": ")
@@ -32,9 +28,7 @@ func json_int(key: str, value: int): str {
 
 func json_bool(key: str, value: int): str {
     var b = str_builder_new()
-    if b == 0 {
-        return ""
-    }
+    if b == 0 { return "" }
     str_builder_append(b, "\"")
     str_builder_append(b, key)
     str_builder_append(b, "\": ")
@@ -50,9 +44,7 @@ func json_bool(key: str, value: int): str {
 
 func json_null(key: str): str {
     var b = str_builder_new()
-    if b == 0 {
-        return ""
-    }
+    if b == 0 { return "" }
     str_builder_append(b, "\"")
     str_builder_append(b, key)
     str_builder_append(b, "\": null")
@@ -141,11 +133,9 @@ func json_builder_finish(handle: int): str {
 func json_escape(s: str): str {
     var n = str_len(s)
     var b = str_builder_new()
-    if b == 0 {
-        return s
-    }
+    if b == 0 { return s }
     var i = 0
-    while i < n {
+    while (i < n) {
         var c = str_byte(s, i)
         if c == 34 {
             str_builder_append(b, "\\\"")
@@ -178,13 +168,11 @@ func json_escape(s: str): str {
 func json_int_array(handle: int): str {
     var n = int_vec_len(handle)
     var b = str_builder_new()
-    if b == 0 {
-        return "[]"
-    }
+    if b == 0 { return "[]" }
     str_builder_append(b, "[")
     var i = 0
-    while i < n {
-        if i > 0 {
+    while (i < n) {
+        if (i > 0) {
             str_builder_append(b, ", ")
         }
         str_builder_append(b, int_to_str(int_vec_get(handle, i)))

@@ -5,12 +5,12 @@
 import "std/vec.diva"
 
 class MirBlock {
-    var id :: int
+    id: int
 }
 
 class MirFn {
-    var name :: str
-    var entry_block :: int
+    name: str
+    entry_block: int
 }
 
 func mir_layer_version(): int {

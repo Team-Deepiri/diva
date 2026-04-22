@@ -8,7 +8,7 @@ func main(): int {
 
     stdout("5 random numbers [0,100): ")
     var i = 0
-    while i < 5 {
+    while (i < 5) {
         stdout(int_to_str(rng_range(0, 100)))
         stdout(" ")
         i = i + 1
@@ -21,7 +21,7 @@ func main(): int {
     var pool = rng_vec(8, 1, 50)
     stdout("random pool: ")
     i = 0
-    while i < int_vec_len(pool) {
+    while (i < int_vec_len(pool)) {
         stdout(int_to_str(int_vec_get(pool, i)))
         stdout(" ")
         i = i + 1

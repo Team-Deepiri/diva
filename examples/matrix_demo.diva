@@ -5,10 +5,10 @@ import "std/matrix.diva"
 func print_matrix(label: str, m: int): int {
     println(label)
     var r = 0
-    while r < matrix_rows(m) {
+    while (r < matrix_rows(m)) {
         var c = 0
         stdout("  ")
-        while c < matrix_cols(m) {
+        while (c < matrix_cols(m)) {
             stdout(int_to_str(matrix_get(m, r, c)))
             stdout(" ")
             c = c + 1

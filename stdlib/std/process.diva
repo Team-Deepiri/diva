@@ -29,7 +29,7 @@ func getenv(name: str): str {
 
 func getenv_or(name: str, fallback: str): str {
     var val = host_getenv(name)
-    if str_len(val) > 0 {
+    if (str_len(val) > 0) {
         return val
     }
     return fallback
@@ -47,10 +47,10 @@ func require_env(name: str): str {
 }
 
 func argv(index: int): str {
-    if index < 0 {
+    if (index < 0) {
         return ""
     }
-    if index >= host_argc() {
+    if (index >= host_argc()) {
         return ""
     }
     return host_argv(index)
@@ -61,7 +61,7 @@ func argc(): int {
 }
 
 func program_name(): str {
-    if host_argc() > 0 {
+    if (host_argc() > 0) {
         return host_argv(0)
     }
     return ""
@@ -84,9 +84,7 @@ func exit_with(code: int): int {
 
 func cmd_join(a: str, b: str): str {
     var sb = str_builder_new()
-    if sb == 0 {
-        return ""
-    }
+    if sb == 0 { return "" }
     str_builder_append(sb, a)
     str_builder_append(sb, " ")
     str_builder_append(sb, b)
@@ -105,9 +103,7 @@ func cmd_join4(a: str, b: str, c: str, d: str): str {
 
 func cmd_pipe(left: str, right: str): str {
     var sb = str_builder_new()
-    if sb == 0 {
-        return ""
-    }
+    if sb == 0 { return "" }
     str_builder_append(sb, left)
     str_builder_append(sb, " | ")
     str_builder_append(sb, right)
@@ -118,9 +114,7 @@ func cmd_pipe(left: str, right: str): str {
 
 func cmd_and(left: str, right: str): str {
     var sb = str_builder_new()
-    if sb == 0 {
-        return ""
-    }
+    if sb == 0 { return "" }
     str_builder_append(sb, left)
     str_builder_append(sb, " && ")
     str_builder_append(sb, right)
@@ -131,9 +125,7 @@ func cmd_and(left: str, right: str): str {
 
 func cmd_redirect(cmd: str, file: str): str {
     var sb = str_builder_new()
-    if sb == 0 {
-        return ""
-    }
+    if sb == 0 { return "" }
     str_builder_append(sb, cmd)
     str_builder_append(sb, " > ")
     str_builder_append(sb, file)

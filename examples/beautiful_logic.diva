@@ -2,7 +2,7 @@ extern func print_int(x: int): void
 extern func print_str(x: str): void
 
 func abs(x: int): int {
-    if x < 0 {
+    if (x < 0) {
         return 0 - x
     } else {
         return x
@@ -10,7 +10,7 @@ func abs(x: int): int {
 }
 
 func max(a: int, b: int): int {
-    if a >= b {
+    if (b <= a) {
         return a
     } else {
         return b
@@ -18,7 +18,7 @@ func max(a: int, b: int): int {
 }
 
 func min(a: int, b: int): int {
-    if a <= b {
+    if (a <= b) {
         return a
     } else {
         return b
@@ -56,10 +56,10 @@ func twist(seed: int, value: int, step: int): int {
 func fold_pair(left: int, right: int, bias: int): int {
     var gap = abs(left - right) + bias
 
-    if left > right {
+    if (left > right) {
         return gap + left * 2 + bias
     } else {
-        if right > left {
+        if (right > left) {
             return gap + right * 2 - bias
         } else {
             return gap + bias * 3
@@ -71,7 +71,7 @@ func orbit(base: int, echo: int): int {
     var turn = 0
     var value = base + echo
 
-    while turn < 6 {
+    while (turn < 6) {
         value = twist(value, echo + turn * 5, turn)
 
         if turn == 2 {
@@ -98,13 +98,13 @@ func main(): int {
     var pulse = 17
     var i = 0
 
-    while i < 8 {
+    while (i < 8) {
         var left = skyline[i]
         var right = river[7 - i]
         var wave = twist(pulse, left + right, i)
         var folded = fold_pair(left, right, i + 2)
 
-        if wave > folded {
+        if (wave > folded) {
             score = score + wave + left * (i + 1)
         } else {
             score = score + folded + right * (8 - i)

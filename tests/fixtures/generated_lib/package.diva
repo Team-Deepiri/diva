@@ -1,0 +1,3 @@
+name = "generated_lib_fixture"
+kind = "lib"
+entry = "src/lib.diva"
