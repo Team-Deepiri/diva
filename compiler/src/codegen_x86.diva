@@ -410,18 +410,62 @@ func emit_i32(out: int, val: int): void {
     int_vec_push(out, (val / 16777216) & 255)
 }
 
-func cg_module_to_bin(m: int, str_toks: int, out: int): int {
+func find_func_index_by_tok(m: int, src: str, toks: int, call_tok: int): int {
+    var cname = tok_text(src, toks, call_tok)
+    var fc = mod_func_count(m)
+    var i = 0
+    while (i < fc) {
+        var ftok = func_name_tok(mod_get_func(m, i))
+        if str_eq(tok_text(src, toks, ftok), cname) == 1 {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func emit_arg_move_to_abi_reg(out: int, arg_idx: int, src_slot: int): int {
+    if arg_idx == 0 {
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 125) int_vec_push(out, src_slot & 255) // rdi
+        return 4
+    }
+    if arg_idx == 1 {
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 117) int_vec_push(out, src_slot & 255) // rsi
+        return 4
+    }
+    if arg_idx == 2 {
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 85) int_vec_push(out, src_slot & 255) // rdx
+        return 4
+    }
+    if arg_idx == 3 {
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 77) int_vec_push(out, src_slot & 255) // rcx
+        return 4
+    }
+    if arg_idx == 4 {
+        int_vec_push(out, 76) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, src_slot & 255) // r8
+        return 4
+    }
+    if arg_idx == 5 {
+        int_vec_push(out, 76) int_vec_push(out, 139) int_vec_push(out, 77) int_vec_push(out, src_slot & 255) // r9
+        return 4
+    }
+    return 0
+}
+
+func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int {
     var fc = mod_func_count(m)
     if fc == 0 { return 0 }
     
     // Pass 1: Label resolution
     var block_offsets = int_vec_new()
+    var func_offsets = int_vec_new()
     var current_offset = 0
-    current_offset = current_offset + 12 // Standard prologue: push rbp; mov rbp, rsp; sub rsp, 2048
 
     var fi = 0
     while (fi < fc) {
         var f = mod_get_func(m, fi)
+        int_vec_push(func_offsets, current_offset)
+        current_offset = current_offset + 12 // function prologue
         var bc = func_block_count(f)
         var bi = 0
         while (bi < bc) {
@@ -446,6 +490,12 @@ func cg_module_to_bin(m: int, str_toks: int, out: int): int {
                 if op == ir_ret_void() { current_offset = current_offset + 2 }
                 if op == ir_br() { current_offset = current_offset + 5 }
                 if op == ir_br_cond() { current_offset = current_offset + 12 }
+                if op == ir_call() {
+                    var argc = inst_b(inst)
+                    var usec = argc
+                    if usec > 6 { usec = 6 }
+                    current_offset = current_offset + usec * 4 + 5 + 4
+                }
                 ii = ii + 1
             }
             bi = bi + 1
@@ -454,14 +504,15 @@ func cg_module_to_bin(m: int, str_toks: int, out: int): int {
     }
 
     // Pass 2: Code emission
-    int_vec_push(out, 85) // push rbp
-    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 229) // mov rbp, rsp
-    int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236) // sub rsp, 2048
-    int_vec_push(out, 0) int_vec_push(out, 8) int_vec_push(out, 0) int_vec_push(out, 0)
-
     fi = 0
-    var code_ptr = 12
+    var code_ptr = 0
     while (fi < fc) {
+        int_vec_push(out, 85) // push rbp
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 229) // mov rbp, rsp
+        int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236) // sub rsp, 2048
+        int_vec_push(out, 0) int_vec_push(out, 8) int_vec_push(out, 0) int_vec_push(out, 0)
+        code_ptr = code_ptr + 12
+
         var f = mod_get_func(m, fi)
         var bc = func_block_count(f)
         var bi = 0
@@ -568,6 +619,36 @@ func cg_module_to_bin(m: int, str_toks: int, out: int): int {
                     emit_i32(out, rel_else)
                     code_ptr = code_ptr + 12
                 }
+                if op == ir_call() {
+                    var argc = inst_b(inst)
+                    var args_h = inst_extra(inst)
+                    var usec = argc
+                    if usec > 6 { usec = 6 }
+                    var ai = 0
+                    while (ai < usec) {
+                        var vr = int_vec_get(args_h, ai)
+                        var off = 256 - (vr + 1) * 8
+                        code_ptr = code_ptr + emit_arg_move_to_abi_reg(out, ai, off)
+                        ai = ai + 1
+                    }
+
+                    var target_fi = find_func_index_by_tok(m, src, toks, a)
+                    if (target_fi < 0) == 0 {
+                        var target_off = int_vec_get(func_offsets, target_fi)
+                        var rel = target_off - (code_ptr + 5)
+                        int_vec_push(out, 232)
+                        emit_i32(out, rel)
+                    } else {
+                        // Native bin path currently supports only intra-module direct calls.
+                        int_vec_push(out, 49) int_vec_push(out, 192) // xor eax,eax
+                        int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) // nop,nop,nop
+                    }
+                    code_ptr = code_ptr + 5
+
+                    var off_res = 256 - (res + 1) * 8
+                    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
+                    code_ptr = code_ptr + 4
+                }
                 if op == ir_ret() {
                     var offset = 256 - (a + 1) * 8
                     int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, offset & 255)
@@ -585,6 +666,7 @@ func cg_module_to_bin(m: int, str_toks: int, out: int): int {
         fi = fi + 1
     }
     int_vec_free(block_offsets)
+    int_vec_free(func_offsets)
     return 0
 }
 

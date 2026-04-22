@@ -363,10 +363,6 @@ func lower_expr(ctx: int, src: str, node: int): int {
                 }
                 i = i - 1
             }
-            stderr("ir_builder: unknown identifier '")
-            stderr(name)
-            stderr("'")
-            stderr(char_to_str(10))
             var r = ib_fresh_vreg(ctx)
             ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
             return r

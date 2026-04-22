@@ -395,7 +395,7 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     
     // Binary emission + ELF wrapper - no cc/as/ld!
     var code = int_vec_new()
-    cg_module_to_bin(m, strv, code)
+    cg_module_to_bin(m, merged_src, stream, strv, code)
 
     var code_len = int_vec_len(code)
     var align = 4096
@@ -476,6 +476,13 @@ func path_is_diva_file(p: str): int {
     }
     var suf = str_slice(p, n - 5, 5)
     return str_eq(suf, ".diva")
+}
+
+func build_path_is_package_dir(path: str): int {
+    if path_is_diva_file(path) == 1 {
+        return 0
+    }
+    return path_is_package_dir(path)
 }
 
 // Real LF byte from file — Diva `"\n"` in source is two chars (backslash + n), not ASCII 10.
@@ -668,13 +675,13 @@ func cmd_build(): int {
         }
         return cmd_build_ast(path)
     }
-    if path_is_package_dir(path) == 1 {
+    if build_path_is_package_dir(path) == 1 {
         if package_is_kernel_dir(path) == 1 {
             return forward_bootstrap_argv()
         }
     }
     var merged = ""
-    if path_is_package_dir(path) == 1 {
+    if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
         if str_len(merged) == 0 {
             if (str_len(bootstrap_path()) > 0) {
@@ -714,7 +721,7 @@ func cmd_build(): int {
 
 func cmd_run_file(path: str): int {
     var merged = ""
-    if path_is_package_dir(path) == 1 {
+    if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
         if str_len(merged) == 0 {
             if (str_len(bootstrap_path()) > 0) {
