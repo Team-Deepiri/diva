@@ -42,6 +42,8 @@ The repository only updates `bootstrap/diva-linux-amd64` when someone **commits*
 
 Set `DI_STDLIB_DIR` and `DI_RUNTIME_O` after install, or rely on defaults under `~/.local/share/diva/` (see `scripts/install.sh`).
 
+For **`diva build` / `diva run` on a single `.diva` file**: the driver prefers a hosted link whenever **`DI_RUNTIME_O`** points at a readable `runtime-linux-amd64.o`, **or** (if unset) **`ROOT_DIR/bootstrap/runtime-linux-amd64.o`** exists. It then emits AT&T assembly and links with **`cc`**, **`compiler/res/native_crt.s`**, and that object (`_start` → `di_runtime_set_argv` → `main` → `di_runtime_exit`) so **`extern` / `di_runtime_*` / `host_*` / `int_vec_*` behave like a normal hosted binary**. Set **`ROOT_DIR`** to the repo root (or `.` when cwd is the repo) so both paths resolve. If no runtime `.o` is found, the driver falls back to a minimal in-process ELF (extern calls stubbed).
+
 ## Source extension
 
 Canonical sources use **`.diva`**. The CLI may still accept **`.di`** where the seed implements it.

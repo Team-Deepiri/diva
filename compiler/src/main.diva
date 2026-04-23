@@ -1,5 +1,6 @@
-// Diva compiler driver — native pipeline only (lexer → parser → sema → IR → x86 → native ELF).
-// No LLVM IR, no cc, no as, no ld: pure native binary generation.
+// Diva compiler driver — native pipeline (lexer → parser → sema → IR → x86).
+// Default: pure in-process ELF (no external toolchain). If DI_RUNTIME_O points at
+// runtime-linux-amd64.o, we emit gas and link with cc + that object (hosted di_runtime_*).
 
 import "std/host.diva"
 import "std/io.diva"
@@ -25,7 +26,7 @@ func cmd_print_usage(): int {
     stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast] | run <...>\n")
     stderr("  check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline\n")
-    stderr("Environment: DI_STDLIB_DIR; DIVA_BOOTSTRAP / DI_BOOTSTRAP for check/new/ (kernel paths may use DI_RUNTIME_O)\n")
+    stderr("Environment: DI_STDLIB_DIR; DI_RUNTIME_O overrides auto path; else ROOT_DIR/bootstrap/runtime-linux-amd64.o is used for native build+link (cc); DIVA_BOOTSTRAP / DI_BOOTSTRAP for check/new/\n")
     stderr("  package emit-ir and kernel package build (delegates to seed when set)\n")
     return 1
 }
@@ -276,7 +277,8 @@ func native_write_exe(data: int, path: str): int {
     var n = int_vec_len(data)
     var pos = 0
     while (pos < n) {
-        var take = 2048
+        // Larger chunks cut down fork/exec storms on big ELFs (merged compiler).
+        var take = 32768
         if (pos + take > n) {
             take = n - pos
         }
@@ -313,52 +315,227 @@ func native_write_exe(data: int, path: str): int {
     return host_system(cmd2)
 }
 
-func make_phdr(out: int, ptype: int, flags: int, offset: int, vaddr: int, filesz: int, memsz: int, align: int): int {
-    int_vec_push(out, ptype) // p_type
+// Write UTF-8-ish ASCII (one byte per str_byte) via chunked hex + python append.
+func native_write_text_bytes(path: str, data: str): int {
+    var b0 = str_builder_new()
+    str_builder_append(b0, "rm -f ")
+    str_builder_append(b0, path)
+    var cmd0 = str_builder_to_str(b0)
+    str_builder_free(b0)
+    if host_system(cmd0) != 0 {
+        return 1
+    }
+    var n = str_len(data)
+    var pos = 0
+    while (pos < n) {
+        var take = 32768
+        if (pos + take > n) {
+            take = n - pos
+        }
+        var sb = str_builder_new()
+        var j = 0
+        while (j < take) {
+            var b = str_byte(data, pos + j)
+            var hi = (b / 16) & 15
+            var lo = b & 15
+            str_builder_append(sb, char_to_str(hex_char(hi)))
+            str_builder_append(sb, char_to_str(hex_char(lo)))
+            j = j + 1
+        }
+        var chunk = str_builder_to_str(sb)
+        str_builder_free(sb)
+        var sbp = str_builder_new()
+        str_builder_append(sbp, "python3 -c 'open(\"")
+        str_builder_append(sbp, path)
+        str_builder_append(sbp, "\",\"ab\").write(bytes.fromhex(\"")
+        str_builder_append(sbp, chunk)
+        str_builder_append(sbp, "\"))'")
+        var pyc = str_builder_to_str(sbp)
+        str_builder_free(sbp)
+        if host_system(pyc) != 0 {
+            return 1
+        }
+        pos = pos + take
+    }
+    return 0
+}
+
+// Emit gas from IR and link with prebuilt runtime (.o) + small crt (requires cc on PATH).
+func native_build_linked_with_runtime(m: int, merged_src: str, stream: int, strv: int, exe_out: str, runtime_o: str, quiet: int): int {
+    var root = host_getenv("ROOT_DIR")
+    if str_len(root) == 0 {
+        root = "."
+    }
+    var nl = newline_str()
+    var asm = cg_module_to_str(m, merged_src, stream, strv, nl)
+    var user_s = "/tmp/diva-user.s"
+    var user_o = "/tmp/diva-user.o"
+    var crt_o = "/tmp/diva-native-crt.o"
+    var crt_src = str_concat(root, "/compiler/res/native_crt.s")
+    if native_write_text_bytes(user_s, asm) != 0 {
+        if quiet == 0 {
+            err_line("native link: writing /tmp/diva-user.s failed")
+        }
+        return 1
+    }
+    var b1 = str_builder_new()
+    str_builder_append(b1, "cc -c -o ")
+    str_builder_append(b1, user_o)
+    str_builder_append(b1, " ")
+    str_builder_append(b1, user_s)
+    str_builder_append(b1, " -no-pie -fno-stack-protector")
+    var c1 = str_builder_to_str(b1)
+    str_builder_free(b1)
+    if host_system(c1) != 0 {
+        if quiet == 0 {
+            err_line("native link: cc -c user.s failed (need cc on PATH)")
+        }
+        return 1
+    }
+    var b2 = str_builder_new()
+    str_builder_append(b2, "cc -c -fPIC -o ")
+    str_builder_append(b2, crt_o)
+    str_builder_append(b2, " ")
+    str_builder_append(b2, crt_src)
+    str_builder_append(b2, " -no-pie")
+    var c2 = str_builder_to_str(b2)
+    str_builder_free(b2)
+    if host_system(c2) != 0 {
+        if quiet == 0 {
+            err_line("native link: cc -c native_crt.s failed (check ROOT_DIR and compiler/res/native_crt.s)")
+        }
+        return 1
+    }
+    var b3 = str_builder_new()
+    str_builder_append(b3, "cc -no-pie -nostartfiles ")
+    str_builder_append(b3, crt_o)
+    str_builder_append(b3, " ")
+    str_builder_append(b3, user_o)
+    str_builder_append(b3, " ")
+    str_builder_append(b3, runtime_o)
+    str_builder_append(b3, " -o ")
+    str_builder_append(b3, exe_out)
+    str_builder_append(b3, " -lc -Wl,-z,noexecstack")
+    var c3 = str_builder_to_str(b3)
+    str_builder_free(b3)
+    if host_system(c3) != 0 {
+        if quiet == 0 {
+            err_line("native link: final cc link failed (runtime .o + -lc)")
+        }
+        return 1
+    }
+    var b4 = str_builder_new()
+    str_builder_append(b4, "chmod +x ")
+    str_builder_append(b4, exe_out)
+    var c4 = str_builder_to_str(b4)
+    str_builder_free(b4)
+    if host_system(c4) != 0 {
+        return 1
+    }
+    return 0
+}
+
+// Split ELF phdr helpers: native codegen cannot pass >6 ints to one callee (rdi gets clobbered).
+func make_phdr_ro_load(out: int, file_size: int, align: int): int {
+    int_vec_push(out, 1)
     int_vec_push(out, 0)
     int_vec_push(out, 0)
     int_vec_push(out, 0)
-    int_vec_push(out, flags) // p_flags
+    int_vec_push(out, 4)
     int_vec_push(out, 0)
     int_vec_push(out, 0)
     int_vec_push(out, 0)
-    
-    int_vec_push(out, offset & 255)
-    int_vec_push(out, (offset / 256) & 255)
-    int_vec_push(out, (offset / 65536) & 255)
-    int_vec_push(out, (offset / 16777216) & 255)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    
-    int_vec_push(out, vaddr & 255)
-    int_vec_push(out, (vaddr / 256) & 255)
-    int_vec_push(out, (vaddr / 65536) & 255)
-    int_vec_push(out, (vaddr / 16777216) & 255)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    
-    int_vec_push(out, vaddr & 255) // p_paddr
-    int_vec_push(out, (vaddr / 256) & 255)
-    int_vec_push(out, (vaddr / 65536) & 255)
-    int_vec_push(out, (vaddr / 16777216) & 255)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    
-    int_vec_push(out, filesz & 255)
-    int_vec_push(out, (filesz / 256) & 255)
-    int_vec_push(out, (filesz / 65536) & 255)
-    int_vec_push(out, (filesz / 16777216) & 255)
+    int_vec_push(out, file_size & 255)
+    int_vec_push(out, (file_size / 256) & 255)
+    int_vec_push(out, (file_size / 65536) & 255)
+    int_vec_push(out, (file_size / 16777216) & 255)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    
-    int_vec_push(out, memsz & 255)
-    int_vec_push(out, (memsz / 256) & 255)
-    int_vec_push(out, (memsz / 65536) & 255)
-    int_vec_push(out, (memsz / 16777216) & 255)
+    int_vec_push(out, file_size & 255)
+    int_vec_push(out, (file_size / 256) & 255)
+    int_vec_push(out, (file_size / 65536) & 255)
+    int_vec_push(out, (file_size / 16777216) & 255)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    
     int_vec_push(out, align & 255)
     int_vec_push(out, (align / 256) & 255)
     int_vec_push(out, (align / 65536) & 255)
     int_vec_push(out, (align / 16777216) & 255)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
     return 0
+}
+
+func make_phdr_rx_load(out: int, code_len: int, code_size: int, align: int): int {
+    int_vec_push(out, 1)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 5)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, align & 255)
+    int_vec_push(out, (align / 256) & 255)
+    int_vec_push(out, (align / 65536) & 255)
+    int_vec_push(out, (align / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, align & 255)
+    int_vec_push(out, (align / 256) & 255)
+    int_vec_push(out, (align / 65536) & 255)
+    int_vec_push(out, (align / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, align & 255)
+    int_vec_push(out, (align / 256) & 255)
+    int_vec_push(out, (align / 65536) & 255)
+    int_vec_push(out, (align / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, code_len & 255)
+    int_vec_push(out, (code_len / 256) & 255)
+    int_vec_push(out, (code_len / 65536) & 255)
+    int_vec_push(out, (code_len / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, code_size & 255)
+    int_vec_push(out, (code_size / 256) & 255)
+    int_vec_push(out, (code_size / 65536) & 255)
+    int_vec_push(out, (code_size / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, align & 255)
+    int_vec_push(out, (align / 256) & 255)
+    int_vec_push(out, (align / 65536) & 255)
+    int_vec_push(out, (align / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    return 0
+}
+
+// Prefer DI_RUNTIME_O; otherwise bootstrap/runtime-linux-amd64.o under ROOT_DIR (or ".").
+func di_runtime_object_path(): str {
+    var v = host_getenv("DI_RUNTIME_O")
+    if str_len(v) != 0 {
+        return v
+    }
+    var root = host_getenv("ROOT_DIR")
+    if str_len(root) == 0 {
+        root = "."
+    }
+    var guess = str_concat(root, "/bootstrap/runtime-linux-amd64.o")
+    if (file_size(guess) < 0) {
+        var empty = ""
+        return empty
+    }
+    return guess
 }
 
 // quiet: when 1, omit stderr on failure (caller may fall back to bootstrap).
@@ -390,12 +567,28 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     var ir_result = build_ir(merged_src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     var strv = int_vec_get(ir_result, 1)
-    
+    // Paired locals: reload so a bad spill cannot leave `m` wrong (empty asm) after `strv` is set.
+    m = int_vec_get(ir_result, 0)
+    strv = int_vec_get(ir_result, 1)
+
     var exe_out = native_tmp_exe()
+    var rt_o = di_runtime_object_path()
+    if str_len(rt_o) != 0 {
+        if (file_size(rt_o) < 0) {
+            if quiet == 0 {
+                err_line("native build: runtime object not readable (DI_RUNTIME_O or ROOT_DIR/bootstrap/runtime-linux-amd64.o)")
+            }
+            return 1
+        }
+        if native_build_linked_with_runtime(m, merged_src, stream, strv, exe_out, rt_o, quiet) == 0 {
+            return 0
+        }
+        return 1
+    }
     
-    // Binary emission + ELF wrapper - no cc/as/ld!
+    // No runtime .o on disk: in-process ELF only (extern stubs; no libc).
     var code = int_vec_new()
-    cg_module_to_bin(m, merged_src, stream, strv, code)
+    var main_ent = cg_module_to_bin(m, merged_src, stream, strv, code)
 
     var code_len = int_vec_len(code)
     var align = 4096
@@ -405,6 +598,7 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     
     var file_size = align + code_size
     var elf = int_vec_new()
+    var entry = 4096 + main_ent
     
     // ELF Header (DYN/PIE)
     int_vec_push(elf, 127) int_vec_push(elf, 69) int_vec_push(elf, 76) int_vec_push(elf, 70)
@@ -413,7 +607,13 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     int_vec_push(elf, 3) int_vec_push(elf, 0) // ET_DYN
     int_vec_push(elf, 62) int_vec_push(elf, 0) // EM_X86_64
     int_vec_push(elf, 1) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
-    int_vec_push(elf, 0) int_vec_push(elf, 16) i = 2 while (i < 8) { int_vec_push(elf, 0) i = i + 1 } // e_entry = 0x1000
+    i = 0
+    var et = entry
+    while (i < 8) {
+        int_vec_push(elf, get_low_byte(et))
+        et = et / 256
+        i = i + 1
+    }
     int_vec_push(elf, 64) i = 1 while (i < 8) { int_vec_push(elf, 0) i = i + 1 } // e_phoff = 64
     i = 0 while (i < 8) { int_vec_push(elf, 0) i = i + 1 } // e_shoff = 0
     int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
@@ -425,8 +625,8 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     int_vec_push(elf, 0) int_vec_push(elf, 0) // e_shstrndx
     
     // Program Headers
-    make_phdr(elf, 1, 4, 0, 0, file_size, file_size, align) // PT_LOAD (R)
-    make_phdr(elf, 1, 5, align, align, code_len, code_size, align) // PT_LOAD (R X)
+    make_phdr_ro_load(elf, file_size, align)
+    make_phdr_rx_load(elf, code_len, code_size, align)
     
     // Padding
     i = int_vec_len(elf) while (i < align) { int_vec_push(elf, 0) i = i + 1 }
@@ -550,6 +750,8 @@ func cmd_asm(path: str): int {
     var ir_result = build_ir(src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     var strvec = int_vec_get(ir_result, 1)
+    m = int_vec_get(ir_result, 0)
+    strvec = int_vec_get(ir_result, 1)
     cg_module_print(m, src, stream, strvec, newline_str())
     return 0
 }
