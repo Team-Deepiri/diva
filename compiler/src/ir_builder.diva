@@ -414,14 +414,19 @@ func lower_expr(ctx: int, src: str, node: int): int {
         var args_h = ast_child(node, 1)
         var argc = int_vec_len(args_h)
         var ckind = ast_kind(callee)
-        var fname_idx = ast_child(callee, 0)
+        var fname_idx = 0 - 1
         if ckind == nd_ident() {
             fname_idx = ast_child(callee, 0)
         } else {
-            // Fallback for self-host mis-lowering where callee kind is wrong but token child is intact.
             if ckind == nd_field() {
                 fname_idx = ast_child(callee, 1)
             }
+        }
+        if (fname_idx < 0) {
+            // Unsupported dynamic callee shape in native IR path; keep lowering total and deterministic.
+            var r_bad = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_const(), r_bad, 0, 0, 0))
+            return r_bad
         }
         var r = ib_fresh_vreg(ctx)
         if argc == 1 {
