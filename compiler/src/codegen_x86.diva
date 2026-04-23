@@ -130,7 +130,30 @@ func bb_label(func_idx: int, lbl: int): str {
     return r
 }
 
-func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, fi: int): int {
+// Pack int-only codegen context to avoid >6 arg call sites in self-hosted codegen.
+// [0]=lp [1]=sb [2]=m [3]=toks [4]=fi
+func cg_ctx_new(lp: int, sb: int, m: int, toks: int, fi: int): int {
+    var c = int_vec_new()
+    int_vec_push(c, lp)
+    int_vec_push(c, sb)
+    int_vec_push(c, m)
+    int_vec_push(c, toks)
+    int_vec_push(c, fi)
+    return c
+}
+
+func cg_ctx_lp(c: int): int { return int_vec_get(c, 0) }
+func cg_ctx_sb(c: int): int { return int_vec_get(c, 1) }
+func cg_ctx_m(c: int): int { return int_vec_get(c, 2) }
+func cg_ctx_toks(c: int): int { return int_vec_get(c, 3) }
+func cg_ctx_fi(c: int): int { return int_vec_get(c, 4) }
+
+func cg_inst(ctx: int, src: str, nl: str, inst: int): int {
+    var lp = cg_ctx_lp(ctx)
+    var sb = cg_ctx_sb(ctx)
+    var m = cg_ctx_m(ctx)
+    var toks = cg_ctx_toks(ctx)
+    var fi = cg_ctx_fi(ctx)
     var op = inst_op(inst)
     var res = inst_result(inst)
     var a = inst_a(inst)
@@ -255,16 +278,24 @@ func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, 
 
     if op == ir_call() {
         var argc = inst_b(inst)
-        var args = inst_extra(inst)
-        var ci = 0
-        while (ci < argc) {
-            var vr = int_vec_get(args, ci)
+        if argc == 1 {
+            var only_vr = inst_extra(inst)
             lp_add(lp, "    movq ")
-            lp_add(lp, stack_offset(vr))
-            lp_add(lp, ", ")
-            lp_add(lp, abi_reg_name(ci))
+            lp_add(lp, stack_offset(only_vr))
+            lp_add(lp, ", %rdi")
             lp_flush_sb(lp, sb, nl)
-            ci = ci + 1
+        } else {
+            var args = inst_extra(inst)
+            var ci = 0
+            while (ci < argc) {
+                var vr = int_vec_get(args, ci)
+                lp_add(lp, "    movq ")
+                lp_add(lp, stack_offset(vr))
+                lp_add(lp, ", ")
+                lp_add(lp, abi_reg_name(ci))
+                lp_flush_sb(lp, sb, nl)
+                ci = ci + 1
+            }
         }
         var ctok = inst_a(inst)
         var lab = ""
@@ -311,7 +342,12 @@ func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, 
     return 0
 }
 
-func cg_func(lp: int, sb: int, nl: str, m: int, src: str, toks: int, f: int, fi: int): int {
+func cg_func(ctx: int, src: str, nl: str, f: int, fi: int): int {
+    var lp = cg_ctx_lp(ctx)
+    var sb = cg_ctx_sb(ctx)
+    var m = cg_ctx_m(ctx)
+    var toks = cg_ctx_toks(ctx)
+    var fctx = cg_ctx_new(lp, sb, m, toks, fi)
     var flabel = asm_user_label(src, toks, func_name_tok(f))
     lp_add(lp, "    .globl ") lp_add(lp, flabel) lp_flush_sb(lp, sb, nl)
     lp_add(lp, flabel) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
@@ -335,11 +371,12 @@ func cg_func(lp: int, sb: int, nl: str, m: int, src: str, toks: int, f: int, fi:
         var ic = int_vec_len(insts)
         var ii = 0
         while (ii < ic) {
-            cg_inst(lp, sb, nl, m, src, toks, int_vec_get(insts, ii), fi)
+            cg_inst(fctx, src, nl, int_vec_get(insts, ii))
             ii = ii + 1
         }
         bi = bi + 1
     }
+    int_vec_free(fctx)
     lp_flush_sb(lp, sb, nl)
     return 0
 }
@@ -355,7 +392,10 @@ func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str 
     var fc = mod_func_count(m)
     var fi = 0
     while (fi < fc) {
-        cg_func(lp, sb, nl, m, src, toks, mod_get_func(m, fi), fi)
+        // Build per-function ctx so helpers never use >6 args.
+        var ctx = cg_ctx_new(lp, sb, m, toks, fi)
+        cg_func(ctx, src, nl, mod_get_func(m, fi), fi)
+        int_vec_free(ctx)
         fi = fi + 1
     }
 
@@ -530,7 +570,11 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     var argc = inst_b(inst)
                     var usec = argc
                     if usec > 6 { usec = 6 }
-                    current_offset = current_offset + usec * 4 + 5 + 4
+                    if argc == 1 {
+                        current_offset = current_offset + 4 + 5 + 4
+                    } else {
+                        current_offset = current_offset + usec * 4 + 5 + 4
+                    }
                 }
                 ii = ii + 1
             }
@@ -701,15 +745,21 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                 }
                 if op == ir_call() {
                     var argc = inst_b(inst)
-                    var args_h = inst_extra(inst)
-                    var usec = argc
-                    if usec > 6 { usec = 6 }
-                    var ai = 0
-                    while (ai < usec) {
-                        var vr = int_vec_get(args_h, ai)
-                        var off = 256 - (vr + 1) * 8
-                        code_ptr = code_ptr + emit_arg_move_to_abi_reg(out, ai, off)
-                        ai = ai + 1
+                    if argc == 1 {
+                        var only_vr = inst_extra(inst)
+                        var only_off = 256 - (only_vr + 1) * 8
+                        code_ptr = code_ptr + emit_arg_move_to_abi_reg(out, 0, only_off)
+                    } else {
+                        var args_h = inst_extra(inst)
+                        var usec = argc
+                        if usec > 6 { usec = 6 }
+                        var ai = 0
+                        while (ai < usec) {
+                            var vr = int_vec_get(args_h, ai)
+                            var off = 256 - (vr + 1) * 8
+                            code_ptr = code_ptr + emit_arg_move_to_abi_reg(out, ai, off)
+                            ai = ai + 1
+                        }
                     }
 
                     var target_fi = find_func_index_by_tok(m, src, toks, a)

@@ -211,10 +211,12 @@ func parse_args(ps: int, src: str): int {
     var args = int_vec_new()
     p_expect(ps, src, tk_lparen())
     if p_cur(ps) != tk_rparen() {
-        int_vec_push(args, parse_expr(ps, src))
+        var a0 = parse_expr(ps, src)
+        int_vec_push(args, a0)
         while p_cur(ps) == tk_comma() {
             p_advance(ps)
-            int_vec_push(args, parse_expr(ps, src))
+            var ai = parse_expr(ps, src)
+            int_vec_push(args, ai)
         }
     }
     p_expect(ps, src, tk_rparen())
@@ -227,16 +229,19 @@ func parse_postfix(ps: int, src: str, left: int): int {
     while more == 1 {
         if p_cur(ps) == tk_lparen() {
             var args = parse_args(ps, src)
-            node = ast_call(node, args)
+            var cnode = ast_call(node, args)
+            node = cnode
         } else {
         if p_cur(ps) == tk_dot() {
             p_advance(ps)
             var ftok = p_expect(ps, src, tk_ident())
             if p_cur(ps) == tk_lparen() {
                 var args = parse_args(ps, src)
-                node = ast_method_call(node, ftok, args)
+                var mnode = ast_method_call(node, ftok, args)
+                node = mnode
             } else {
-                node = ast_field(node, ftok)
+                var fnode = ast_field(node, ftok)
+                node = fnode
             }
         } else {
         if p_cur(ps) == tk_lbrack() {
@@ -248,29 +253,34 @@ func parse_postfix(ps: int, src: str, left: int): int {
                     p_advance(ps)
                     if p_cur(ps) == tk_lparen() {
                         var args = parse_args(ps, src)
-                        node = ast_call(node, args)
+                        var gnode = ast_call(node, args)
+                        node = gnode
                     } else {
                         ps_set_pos(ps, save)
                         var idx = parse_expr(ps, src)
                         p_expect(ps, src, tk_rbrack())
-                        node = ast_index(node, idx)
+                        var inode = ast_index(node, idx)
+                        node = inode
                     }
                 } else {
                     ps_set_pos(ps, save)
                     var idx = parse_expr(ps, src)
                     p_expect(ps, src, tk_rbrack())
-                    node = ast_index(node, idx)
+                    var inode2 = ast_index(node, idx)
+                    node = inode2
                 }
             } else {
                 var idx = parse_expr(ps, src)
                 p_expect(ps, src, tk_rbrack())
-                node = ast_index(node, idx)
+                var inode3 = ast_index(node, idx)
+                node = inode3
             }
         } else {
         if p_cur(ps) == tk_dotdot() {
             p_advance(ps)
             var rhs = parse_expr(ps, src)
-            node = ast_range(node, rhs)
+            var rnode = ast_range(node, rhs)
+            node = rnode
             more = 0
         } else {
             more = 0

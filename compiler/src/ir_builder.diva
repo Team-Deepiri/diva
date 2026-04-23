@@ -413,18 +413,46 @@ func lower_expr(ctx: int, src: str, node: int): int {
         var callee = ast_child(node, 0)
         var args_h = ast_child(node, 1)
         var argc = int_vec_len(args_h)
+        var ckind = ast_kind(callee)
+        var fname_idx = ast_child(callee, 0)
+        if ckind == nd_ident() {
+            fname_idx = ast_child(callee, 0)
+        } else {
+            // Fallback for self-host mis-lowering where callee kind is wrong but token child is intact.
+            if ckind == nd_field() {
+                fname_idx = ast_child(callee, 1)
+            }
+        }
+        var r = ib_fresh_vreg(ctx)
+        if argc == 1 {
+            // Single-arg calls are encoded directly in extra to avoid arg-vector corruption
+            // in self-hosted stage2 for simple extern calls like print_int(x).
+            var only_node = int_vec_get(args_h, 0)
+            var only_av = lower_expr(ctx, src, only_node)
+            var c1 = int_vec_new()
+            int_vec_push(c1, ir_call())
+            int_vec_push(c1, r)
+            int_vec_push(c1, fname_idx)
+            int_vec_push(c1, 1)
+            int_vec_push(c1, only_av)
+            ib_emit(ctx, c1)
+            return r
+        }
         var arg_regs = int_vec_new()
         var i = 0
         while (i < argc) {
-            int_vec_push(arg_regs, lower_expr(ctx, src, int_vec_get(args_h, i)))
+            var arg_node = int_vec_get(args_h, i)
+            var av = lower_expr(ctx, src, arg_node)
+            int_vec_push(arg_regs, av)
             i = i + 1
         }
-        var fname_idx = 0
-        if ast_kind(callee) == nd_ident() {
-            fname_idx = ast_child(callee, 0)
-        }
-        var r = ib_fresh_vreg(ctx)
-        ib_emit(ctx, ir_inst(ir_call(), r, fname_idx, argc, arg_regs))
+        var cinst = int_vec_new()
+        int_vec_push(cinst, ir_call())
+        int_vec_push(cinst, r)
+        int_vec_push(cinst, fname_idx)
+        int_vec_push(cinst, argc)
+        int_vec_push(cinst, arg_regs)
+        ib_emit(ctx, cinst)
         // arg_regs is stored on the instruction; do not free (would corrupt call operands).
         return r
     }
@@ -435,7 +463,13 @@ func lower_expr(ctx: int, src: str, node: int): int {
         var args_h = ast_child(node, 2)
         var argc = int_vec_len(args_h)
         var r = ib_fresh_vreg(ctx)
-        ib_emit(ctx, ir_inst(ir_call(), r, method_tok, argc + 1, obj_reg))
+        var minst = int_vec_new()
+        int_vec_push(minst, ir_call())
+        int_vec_push(minst, r)
+        int_vec_push(minst, method_tok)
+        int_vec_push(minst, argc + 1)
+        int_vec_push(minst, obj_reg)
+        ib_emit(ctx, minst)
         return r
     }
 

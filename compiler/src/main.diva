@@ -53,7 +53,19 @@ func bootstrap_path(): str {
     if (str_len(p) > 0) {
         return p
     }
-    return host_getenv("DI_BOOTSTRAP")
+    p = host_getenv("DI_BOOTSTRAP")
+    if (str_len(p) > 0) {
+        return p
+    }
+    var root = host_getenv("ROOT_DIR")
+    if str_len(root) == 0 {
+        root = "."
+    }
+    var auto = str_concat(root, "/bootstrap/diva-linux-amd64")
+    if (file_size(auto) < 0) {
+        return ""
+    }
+    return auto
 }
 
 // ASCII 32..126 as contiguous bytes (see stdlib/std/char_to_str_table.bin).
@@ -566,10 +578,6 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     }
     var ir_result = build_ir(merged_src, stream, ast)
     var m = int_vec_get(ir_result, 0)
-    var strv = int_vec_get(ir_result, 1)
-    // Paired locals: reload so a bad spill cannot leave `m` wrong (empty asm) after `strv` is set.
-    m = int_vec_get(ir_result, 0)
-    strv = int_vec_get(ir_result, 1)
 
     var exe_out = native_tmp_exe()
     var rt_o = di_runtime_object_path()
@@ -580,7 +588,7 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
             }
             return 1
         }
-        if native_build_linked_with_runtime(m, merged_src, stream, strv, exe_out, rt_o, quiet) == 0 {
+        if native_build_linked_with_runtime(m, merged_src, stream, int_vec_get(ir_result, 1), exe_out, rt_o, quiet) == 0 {
             return 0
         }
         return 1
@@ -588,7 +596,7 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     
     // No runtime .o on disk: in-process ELF only (extern stubs; no libc).
     var code = int_vec_new()
-    var main_ent = cg_module_to_bin(m, merged_src, stream, strv, code)
+    var main_ent = cg_module_to_bin(m, merged_src, stream, int_vec_get(ir_result, 1), code)
 
     var code_len = int_vec_len(code)
     var align = 4096
@@ -749,10 +757,7 @@ func cmd_asm(path: str): int {
     if sema_check_file(src, stream, ast) != 0 { return 1 }
     var ir_result = build_ir(src, stream, ast)
     var m = int_vec_get(ir_result, 0)
-    var strvec = int_vec_get(ir_result, 1)
-    m = int_vec_get(ir_result, 0)
-    strvec = int_vec_get(ir_result, 1)
-    cg_module_print(m, src, stream, strvec, newline_str())
+    cg_module_print(m, src, stream, int_vec_get(ir_result, 1), newline_str())
     return 0
 }
 
