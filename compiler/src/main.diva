@@ -548,6 +548,32 @@ func di_runtime_object_path(): str {
     return guess
 }
 
+func native_force_no_external(): int {
+    var v = host_getenv("DIVA_NO_EXTERNAL")
+    if str_eq(v, "1") == 1 { return 1 }
+    if str_eq(v, "true") == 1 { return 1 }
+    if str_eq(v, "yes") == 1 { return 1 }
+    return 0
+}
+
+func native_require_no_externs(m: int, src: str, toks: int): int {
+    var ec = mod_extern_count(m)
+    if ec == 0 {
+        return 0
+    }
+    err_line("native pure mode: unresolved extern runtime dependencies remain:")
+    var i = 0
+    while (i < ec) {
+        var etok = int_vec_get(mod_externs(m), i)
+        stderr("  - ")
+        stderr(tok_text(src, toks, etok))
+        stderr(char_to_str(10))
+        i = i + 1
+    }
+    err_line("native pure mode: disable DIVA_NO_EXTERNAL or implement these builtins in pure ELF path")
+    return 1
+}
+
 // quiet: when 1, omit stderr on failure (caller may fall back to bootstrap).
 func native_compile_and_link(merged_src: str, quiet: int): int {
     var stream = lex_source(merged_src)
@@ -583,6 +609,9 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
 
     var exe_out = native_tmp_exe()
     var rt_o = di_runtime_object_path()
+    if native_force_no_external() == 1 {
+        rt_o = ""
+    }
     if str_len(rt_o) != 0 {
         if (file_size(rt_o) < 0) {
             if quiet == 0 {
@@ -597,6 +626,9 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     }
     
     // No runtime .o on disk: in-process ELF only (extern stubs; no libc).
+    if native_require_no_externs(m, merged_src, stream) != 0 {
+        return 1
+    }
     var code = int_vec_new()
     var main_ent = cg_module_to_bin(m, merged_src, stream, strv, code)
 
