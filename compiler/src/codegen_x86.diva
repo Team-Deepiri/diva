@@ -5,6 +5,7 @@
 import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
+import "pure_elf_builtins.diva"
 import "ir.diva"
 import "tokens.diva"
 import "cell.diva"
@@ -464,6 +465,174 @@ func find_func_index_by_tok(m: int, src: str, toks: int, call_tok: int): int {
     return 0 - 1
 }
 
+func pure_builtin_extern_id(src: str, toks: int, call_tok: int): int {
+    var nm = tok_text(src, toks, call_tok)
+    if str_eq(nm, "write") == 1 { return 1 }
+    if str_eq(nm, "exit") == 1 { return 2 }
+    if str_eq(nm, "abort") == 1 { return 3 }
+    if str_eq(nm, "print_str") == 1 { return 4 }
+    if str_eq(nm, "print_int") == 1 { return 5 }
+    if str_eq(nm, "str_len") == 1 { return 6 }
+    if str_eq(nm, "str_byte") == 1 { return 7 }
+    if str_eq(nm, "str_eq") == 1 { return 8 }
+    return pure_builtin_extern_id_hi(nm)
+}
+
+func pure_builtin_call_size_lo(id: int): int {
+    if id == 1 { return 7 }
+    if id == 2 { return 7 }
+    if id == 3 { return 12 }
+    if id == 4 { return 28 }
+    if id == 5 { return 64 }
+    if id == 6 { return 22 }
+    if id == 7 { return 9 }
+    if id == 8 { return 30 }
+    return 5
+}
+
+func pure_builtin_call_size_hi_vec(id: int): int {
+    if id == 9 { return 96 }
+    if id == 10 { return 64 }
+    if id == 11 { return 16 }
+    if id == 12 { return 16 }
+    if id == 13 { return 16 }
+    if id == 14 { return 96 }
+    if id == 15 { return 128 }
+    if id == 16 { return 16 }
+    if id == 17 { return 128 }
+    if id == 18 { return 16 }
+    return 5
+}
+
+func pure_builtin_call_size_hi_misc(id: int): int {
+    if id == 19 { return 96 }
+    if id == 20 { return 192 }
+    if id == 21 { return 128 }
+    if id == 22 { return 32 }
+    if id == 23 { return 64 }
+    if id == 24 { return 16 }
+    if id == 25 { return 64 }
+    if id == 26 { return 64 }
+    if id == 27 { return 16 }
+    return 5
+}
+
+func pure_builtin_call_size(id: int): int {
+    if id < 9 {
+        return pure_builtin_call_size_lo(id)
+    }
+    if id < 19 {
+        return pure_builtin_call_size_hi_vec(id)
+    }
+    return pure_builtin_call_size_hi_misc(id)
+}
+
+// Builtin ids 1..8 only — see docs/seed-codegen-workarounds.md §2.
+func emit_pure_builtin_call_lo(out: int, id: int): int {
+    if id == 1 {
+        int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+        int_vec_push(out, 15) int_vec_push(out, 5)
+        return 7
+    }
+    if id == 2 {
+        int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+        int_vec_push(out, 15) int_vec_push(out, 5)
+        return 7
+    }
+    if id == 3 {
+        int_vec_push(out, 191) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+        int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+        int_vec_push(out, 15) int_vec_push(out, 5)
+        return 12
+    }
+    if id == 4 {
+        // rdi=input str; computes length in rdx and writes to stdout.
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 254) // mov rsi,rdi
+        int_vec_push(out, 49) int_vec_push(out, 210) // xor edx,edx
+        int_vec_push(out, 128) int_vec_push(out, 60) int_vec_push(out, 22) int_vec_push(out, 0) // cmpb $0,(rsi,rdx,1)
+        int_vec_push(out, 116) int_vec_push(out, 5) // je done
+        int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 194) // inc rdx
+        int_vec_push(out, 235) int_vec_push(out, 245) // jmp loop
+        int_vec_push(out, 191) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) // mov edi,1
+        int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) // mov eax,1
+        int_vec_push(out, 15) int_vec_push(out, 5) // syscall
+        return 28
+    }
+    if id == 5 {
+        // print_int(n): supports non-negative int values.
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 248) // mov rax,rdi
+        int_vec_push(out, 76) int_vec_push(out, 141) int_vec_push(out, 69) int_vec_push(out, 255) // lea r8,[rbp-1]
+        int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 201) // xor rcx,rcx
+        int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 210) // xor rdx,rdx
+        int_vec_push(out, 72) int_vec_push(out, 187) int_vec_push(out, 10) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) // mov rbx,10
+        int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 243) // div rbx
+        int_vec_push(out, 128) int_vec_push(out, 194) int_vec_push(out, 48) // add dl,'0'
+        int_vec_push(out, 65) int_vec_push(out, 136) int_vec_push(out, 16) // mov [r8],dl
+        int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 200) // dec r8
+        int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 193) // inc rcx
+        int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 192) // test rax,rax
+        int_vec_push(out, 117) int_vec_push(out, 223) // jne loop
+        int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 192) // inc r8
+        int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 198) // mov rsi,r8
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 202) // mov rdx,rcx
+        int_vec_push(out, 191) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) // mov edi,1
+        int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) // mov eax,1
+        int_vec_push(out, 15) int_vec_push(out, 5) // syscall
+        return 64
+    }
+    if id == 6 {
+        // str_len(s): rdi=str ptr -> rax=len
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 248) // mov rax,rdi
+        int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 201) // xor rcx,rcx
+        int_vec_push(out, 128) int_vec_push(out, 60) int_vec_push(out, 8) int_vec_push(out, 0) // cmpb $0,(rax,rcx,1)
+        int_vec_push(out, 116) int_vec_push(out, 5) // je done
+        int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 193) // inc rcx
+        int_vec_push(out, 235) int_vec_push(out, 247) // jmp loop
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 200) // mov rax,rcx
+        return 22
+    }
+    if id == 7 {
+        // str_byte(s, idx): rdi=str ptr, rsi=index -> rax=byte (0..255)
+        int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 192) // xor rax,rax
+        int_vec_push(out, 138) int_vec_push(out, 4) int_vec_push(out, 55) // mov al,(rdi,rsi,1)
+        int_vec_push(out, 15) int_vec_push(out, 182) int_vec_push(out, 192) // movzx eax,al
+        return 9
+    }
+    if id == 8 {
+        // str_eq(a,b): rdi=a, rsi=b -> rax=(a==b ? 1 : 0)
+        int_vec_push(out, 49) int_vec_push(out, 201) // xor ecx,ecx
+        int_vec_push(out, 138) int_vec_push(out, 4) int_vec_push(out, 15) // mov al,(rdi,rcx,1)
+        int_vec_push(out, 138) int_vec_push(out, 20) int_vec_push(out, 14) // mov dl,(rsi,rcx,1)
+        int_vec_push(out, 56) int_vec_push(out, 208) // cmp al,dl
+        int_vec_push(out, 117) int_vec_push(out, 9) // jne not_eq
+        int_vec_push(out, 132) int_vec_push(out, 192) // test al,al
+        int_vec_push(out, 116) int_vec_push(out, 9) // je eq
+        int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 193) // inc rcx
+        int_vec_push(out, 235) int_vec_push(out, 237) // jmp loop
+        int_vec_push(out, 49) int_vec_push(out, 192) // not_eq: xor eax,eax
+        int_vec_push(out, 235) int_vec_push(out, 5) // jmp end
+        int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) // eq: mov eax,1
+        return 30
+    }
+    return 0
+}
+
+func emit_pure_builtin_call(out: int, id: int): int {
+    if id >= 1 {
+        if id <= 8 {
+            return emit_pure_builtin_call_lo(out, id)
+        }
+    }
+    if id >= 9 {
+        if id <= 27 {
+            return emit_pure_builtin_high(out, id)
+        }
+    }
+    int_vec_push(out, 49) int_vec_push(out, 192)
+    int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144)
+    return 5
+}
+
 func emit_arg_move_to_abi_reg(out: int, arg_idx: int, src_slot: int): int {
     if arg_idx == 0 {
         int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 125) int_vec_push(out, src_slot & 255) // rdi
@@ -570,10 +739,17 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     var argc = inst_b(inst)
                     var usec = argc
                     if usec > 6 { usec = 6 }
+                    var call_sz = 5
+                    var ctok = inst_a(inst)
+                    var tfi = find_func_index_by_tok(m, src, toks, ctok)
+                    if tfi < 0 {
+                        var bid = pure_builtin_extern_id(src, toks, ctok)
+                        call_sz = pure_builtin_call_size(bid)
+                    }
                     if argc == 1 {
-                        current_offset = current_offset + 4 + 5 + 4
+                        current_offset = current_offset + 4 + call_sz + 4
                     } else {
-                        current_offset = current_offset + usec * 4 + 5 + 4
+                        current_offset = current_offset + usec * 4 + call_sz + 4
                     }
                 }
                 ii = ii + 1
@@ -763,17 +939,23 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     }
 
                     var target_fi = find_func_index_by_tok(m, src, toks, a)
+                    var call_size = 5
                     if (target_fi < 0) == 0 {
                         var target_off = int_vec_get(func_offsets, target_fi)
                         var rel = target_off - (code_ptr + 5)
                         int_vec_push(out, 232)
                         emit_i32(out, rel)
                     } else {
-                        // Native bin path currently supports only intra-module direct calls.
-                        int_vec_push(out, 49) int_vec_push(out, 192) // xor eax,eax
-                        int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) // nop,nop,nop
+                        var bid2 = pure_builtin_extern_id(src, toks, a)
+                        var want_sz = pure_builtin_call_size(bid2)
+                        var got_sz = emit_pure_builtin_call(out, bid2)
+                        while (got_sz < want_sz) {
+                            int_vec_push(out, 144)
+                            got_sz = got_sz + 1
+                        }
+                        call_size = want_sz
                     }
-                    code_ptr = code_ptr + 5
+                    code_ptr = code_ptr + call_size
 
                     var off_res = 256 - (res + 1) * 8
                     int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
