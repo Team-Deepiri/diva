@@ -518,10 +518,10 @@ func pure_builtin_call_size_hi_misc(id: int): int {
 }
 
 func pure_builtin_call_size(id: int): int {
-    if id < 9 {
+    if (id < 9) {
         return pure_builtin_call_size_lo(id)
     }
-    if id < 19 {
+    if (id < 19) {
         return pure_builtin_call_size_hi_vec(id)
     }
     return pure_builtin_call_size_hi_misc(id)
@@ -618,13 +618,13 @@ func emit_pure_builtin_call_lo(out: int, id: int): int {
 }
 
 func emit_pure_builtin_call(out: int, id: int): int {
-    if id >= 1 {
-        if id <= 8 {
+    if (!(id < 1)) {
+        if (!(id > 8)) {
             return emit_pure_builtin_call_lo(out, id)
         }
     }
-    if id >= 9 {
-        if id <= 27 {
+    if (!(id < 9)) {
+        if (!(id > 27)) {
             return emit_pure_builtin_high(out, id)
         }
     }

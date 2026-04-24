@@ -247,11 +247,11 @@ func pure_builtin_extern_id_hi_host(nm: str): int {
 
 func pure_builtin_extern_id_hi(nm: str): int {
     var v = pure_builtin_extern_id_hi_vec(nm)
-    if v != 0 {
+    if (v != 0) {
         return v
     }
     v = pure_builtin_extern_id_hi_io(nm)
-    if v != 0 {
+    if (v != 0) {
         return v
     }
     return pure_builtin_extern_id_hi_host(nm)
@@ -286,7 +286,7 @@ func emit_pure_builtin_high_misc(out: int, id: int): int {
 }
 
 func emit_pure_builtin_high(out: int, id: int): int {
-    if id < 19 {
+    if (id < 19) {
         return emit_pure_builtin_high_vec(out, id)
     }
     return emit_pure_builtin_high_misc(out, id)

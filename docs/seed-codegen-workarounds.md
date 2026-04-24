@@ -1,8 +1,11 @@
 # Seed / stage2 codegen workarounds (Diva → asm → GCC)
 
-The pinned **seed** (`bootstrap/diva-linux-amd64`) turns merged Diva into GNU as syntax; **GCC** then builds `build/diva-stage2`. Under some shapes of generated C/asm, the resulting **native** `diva-stage2` misbehaves at **runtime** (busy loop or apparent hang) even though the Diva source is logically correct.
+There are **two** ways you end up with a native compiler binary:
 
-These issues are **not** fixed inside the closed seed binary; the **mitigation is entirely in Diva** by keeping certain functions small and shallow.
+1. **`scripts/build-compiler-cc-link.sh`** — seed emits **gas**, **GCC** links `merged.o` + CRT + `runtime-linux-amd64.o` → `build/diva-stage2`. That binary is what exposed the **runaway / hang** on certain giant functions (GCC’s codegen of the emitted asm/C-like output), so we **reshape Diva** (§1–§2) so GCC emits sane code.
+2. **Pure ELF path** in `native_compile_and_link` — no `runtime.o`, no `cc`/`ld` for **your** program: only `cg_module_to_bin` + the in-Diva ELF writer (`native_write_exe` still uses `sh` / `python3` / `chmod` to stream bytes to disk). The pinned **seed** and `scripts/build-bootstrap-driver-merged.sh` / `scripts/promote-bootstrap-seed.sh` are written to use this path for **`diva build compiler/`** when the hosted link is not used.
+
+You **cannot** patch the opaque seed ELF in git to “fix GCC.” You **can** (a) keep Diva in shapes GCC tolerates, and/or (b) **stop using GCC for the compiler artifact** by building and promoting the pure-ELF driver (below).
 
 ## 1. Long `str_eq` chains in one function
 
@@ -22,7 +25,36 @@ These issues are **not** fixed inside the closed seed binary; the **mitigation i
 
 **Mitigation:** Emit gas text only when linking `runtime.o`; skip `cg_module_to_str` on the pure-ELF path (`compiler/src/main.diva`).
 
+## 4. End state you want: compiler binary without C / link (**Diva-emitted ELF only**)
+
+**Goal:** The trust-root / stage2 executable’s **`.text` is only what Diva’s backend wrote** (`cg_module_to_bin` + ELF headers), not a GCC-linked `merged.o`.
+
+**Do this (C toolchain only optional for one-off experiments elsewhere):**
+
+1. Ensure `native_compile_and_link` takes the **pure ELF** branch for the build you care about: e.g. do **not** point `DI_RUNTIME_O` at a readable `runtime-linux-amd64.o`, or set `DIVA_NO_EXTERNAL=1` so the driver clears `rt_o` (see `compiler/src/main.diva`).
+2. Build the merged driver with the **seed** only:  
+   `sh scripts/build-bootstrap-driver-merged.sh build/diva-driver-merged`  
+   or promote: `sh scripts/promote-bootstrap-seed.sh` (see comments in that script — it prefers the seed’s `diva build compiler/` output).
+3. Install the result as `bootstrap/diva-linux-amd64` and use **that** binary day-to-day. Your **language + compiler logic** stays `.diva`; the **blob on disk** is Diva-generated machine code + static ELF layout, not “a C program.”
+
+You still need a **normal host** for `native_write_exe` (shell + Python to append hex to the file) until that step is rewritten in Diva too.
+
+## 5. “Fix it for real” in the GCC pipeline (optional, if you keep `build-compiler-cc-link.sh`)
+
+If you insist on **gas + GCC** for `diva-stage2`:
+
+- **Minimize** `build/.compiler-cc-link/merged.s` from a hanging build with `diva asm`, bisect which **function** triggers the spin, file a **GCC** bug with that `.s` (or the C if your pipeline lowers to C), **or**
+- **Clang** instead of GCC for the same asm link step — often enough to dodge a single-backend bug without changing Diva.
+
+That path does **not** make the final artifact “all Diva”; it only fixes the broken toolchain step.
+
+## 6. Parser surface: avoid `>=` / `<=` in conditions
+
+The pinned seed / native subset parser rejects **`>=` and `<=` in `if` conditions** (you get `unexpected token … EQ`). Use **`!(id < n)`** / **`!(id > n)`** instead (see `emit_pure_builtin_call` in `codegen_x86.diva`).
+
 ## Related
 
 - Strict pure CI list: `tests/strict-pure.list` (single-file examples that fit the native subset and pure extern set).
 - `tests/run-strict-pure.sh` reads that list.
+- Bootstrap / promotion: `bootstrap/README.md`, `scripts/promote-bootstrap-seed.sh`, `scripts/build-bootstrap-driver-merged.sh`.
+- One-shot pure compiler ELF (no `cc` on the build path): `scripts/build-compiler-pure-elf.sh` (uses `DIVA_NO_EXTERNAL=1`; full `compiler/` can take a long time).
