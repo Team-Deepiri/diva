@@ -665,15 +665,27 @@ func lower_stmt(ctx: int, src: str, node: int): int {
     if kind == nd_if() {
         var cond_reg = lower_expr(ctx, src, ast_child(node, 0))
         var then_lbl = ib_fresh_label(ctx)
-        var else_lbl = ib_fresh_label(ctx)
-        var end_lbl  = ib_fresh_label(ctx)
+        var end_lbl = ib_fresh_label(ctx)
         var has_else = ast_child(node, 2)
-
-        if (has_else < 0) {
-            ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, then_lbl, end_lbl, 0))
-        } else {
-            ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, then_lbl, else_lbl, 0))
+        // False target must be a real basic block. If there is no else, use merge (end_lbl) — never
+        // point br.cond at a fresh else label with no block (br_tab_lookup → 0 → crash).
+        var else_lbl = end_lbl
+        // Missing else is ast -1; 0 is also absent. Flat updates only (no `!`, no nested if).
+        var ast_no_else = 0 - 1
+        var need_else = 0
+        if (has_else != ast_no_else) {
+            need_else = 1
         }
+        if (has_else == ast_no_else) {
+            need_else = 0
+        }
+        if (has_else == 0) {
+            need_else = 0
+        }
+        if (need_else == 1) {
+            else_lbl = ib_fresh_label(ctx)
+        }
+        ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, then_lbl, else_lbl, 0))
 
         var then_blk = ir_block_new(then_lbl)
         func_add_block(bctx_func(ctx), then_blk)
@@ -681,7 +693,7 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         lower_block(ctx, src, ast_child(node, 1))
         ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
 
-        if (has_else < 0) == 0 {
+        if (need_else == 1) {
             var else_blk = ir_block_new(else_lbl)
             func_add_block(bctx_func(ctx), else_blk)
             bctx_set_blk(ctx, else_blk)

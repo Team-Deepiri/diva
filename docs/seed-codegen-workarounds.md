@@ -37,7 +37,9 @@ You **cannot** patch the opaque seed ELF in git to “fix GCC.” You **can** (a
    or promote: `sh scripts/promote-bootstrap-seed.sh` (see comments in that script — it prefers the seed’s `diva build compiler/` output).
 3. Install the result as `bootstrap/diva-linux-amd64` and use **that** binary day-to-day. Your **language + compiler logic** stays `.diva`; the **blob on disk** is Diva-generated machine code + static ELF layout, not “a C program.”
 
-You still need a **normal host** for `native_write_exe` (shell + Python to append hex to the file) until that step is rewritten in Diva too.
+You still need a **normal host** for `native_write_exe` (shell + Python to append hex to the file) until that step is rewritten in Diva too. Chunk size is tuned for Linux’s **per‑argv‑string** limit (~128KiB): each chunk is hex‑encoded in one `python3 -c` argument, so multi‑MiB ELFs still use far fewer subprocesses than tiny chunks.
+
+**Prove the full pure compiler build:** `sh scripts/verify-pure-compiler-build.sh` (writes `build/.pure-elf-compiler/verify-build.log`; can take many CPU‑minutes — that is expected, not a hang).
 
 ## 5. “Fix it for real” in the GCC pipeline (optional, if you keep `build-compiler-cc-link.sh`)
 
@@ -58,3 +60,4 @@ The pinned seed / native subset parser rejects **`>=` and `<=` in `if` condition
 - `tests/run-strict-pure.sh` reads that list.
 - Bootstrap / promotion: `bootstrap/README.md`, `scripts/promote-bootstrap-seed.sh`, `scripts/build-bootstrap-driver-merged.sh`.
 - One-shot pure compiler ELF (no `cc` on the build path): `scripts/build-compiler-pure-elf.sh` (uses `DIVA_NO_EXTERNAL=1`; full `compiler/` can take a long time).
+- Full pure `compiler/` build check (log + exit status): `scripts/verify-pure-compiler-build.sh`.

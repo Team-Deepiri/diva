@@ -290,7 +290,9 @@ func native_write_exe(data: int, path: str): int {
     var pos = 0
     while (pos < n) {
         // Larger chunks cut down fork/exec storms on big ELFs (merged compiler).
-        var take = 32768
+        // Each byte is two hex chars in the python argv; Linux caps each argv string (~128KiB),
+        // well below total ARG_MAX. 64000 bytes -> 128000 hex chars + wrapper stays safe.
+        var take = 64000
         if (pos + take > n) {
             take = n - pos
         }
@@ -340,7 +342,7 @@ func native_write_text_bytes(path: str, data: str): int {
     var n = str_len(data)
     var pos = 0
     while (pos < n) {
-        var take = 32768
+        var take = 64000
         if (pos + take > n) {
             take = n - pos
         }
@@ -683,13 +685,16 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     int_vec_push(elf, 3) int_vec_push(elf, 0) // ET_DYN
     int_vec_push(elf, 62) int_vec_push(elf, 0) // EM_X86_64
     int_vec_push(elf, 1) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
-    i = 0
-    var et = entry
-    while (i < 8) {
-        int_vec_push(elf, get_low_byte(et))
-        et = et / 256
-        i = i + 1
-    }
+    // e_entry: 64-bit little-endian. Use explicit low-4 encoding (same shape as emit_i32);
+    // high 4 bytes zero — sufficient for PIE entry VAs below 4GiB (all current native outputs).
+    int_vec_push(elf, entry & 255)
+    int_vec_push(elf, (entry / 256) & 255)
+    int_vec_push(elf, (entry / 65536) & 255)
+    int_vec_push(elf, (entry / 16777216) & 255)
+    int_vec_push(elf, 0)
+    int_vec_push(elf, 0)
+    int_vec_push(elf, 0)
+    int_vec_push(elf, 0)
     int_vec_push(elf, 64) i = 1 while (i < 8) { int_vec_push(elf, 0) i = i + 1 } // e_phoff = 64
     i = 0 while (i < 8) { int_vec_push(elf, 0) i = i + 1 } // e_shoff = 0
     int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
