@@ -394,3 +394,4 @@ func lex_file_to_stdout(path: str): int {
     int_vec_free(stream)
     return 0
 }
+

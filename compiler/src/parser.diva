@@ -441,7 +441,8 @@ func parse_if_stmt(ps: int, src: str): int {
     p_advance(ps)
     var cond = parse_expr(ps, src)
     var then_body = parse_block(ps, src, 0)
-    var else_body = 0 - 1
+    // Use large positive sentinel for no-else; avoids negative-comparison quirks and handle collisions.
+    var else_body = 2147483647
     if p_cur(ps) == tk_else() {
         p_advance(ps)
         if p_cur(ps) == tk_if() {
@@ -456,7 +457,8 @@ func parse_if_stmt(ps: int, src: str): int {
 func parse_while_stmt(ps: int, src: str): int {
     p_advance(ps)
     var cond = parse_expr(ps, src)
-    var update = 0 - 1
+    // Use a positive sentinel for missing update to avoid signed/unsigned pitfalls in seed comparisons.
+    var update = 2147483647
     if p_cur(ps) == tk_fatarrow() {
         p_advance(ps)
         update = parse_expr(ps, src)

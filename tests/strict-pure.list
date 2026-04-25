@@ -4,6 +4,7 @@ examples/array_mutation.diva
 examples/arrays.diva
 examples/beautiful_logic.diva
 examples/branching.diva
+examples/branch_stress.diva
 examples/color_demo.diva
 examples/csv_demo.diva
 examples/generics_traits.diva

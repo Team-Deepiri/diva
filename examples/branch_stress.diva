@@ -1,0 +1,38 @@
+extern func print_int(x: int): void
+
+func main(): int {
+    var a0 = 0
+    var a1 = 1
+    var a2 = 2
+    var a3 = 3
+    var a4 = 4
+    var a5 = 5
+    var a6 = 6
+    var a7 = 7
+    var a8 = 8
+    var a9 = 9
+    var a10 = 10
+    var a11 = 11
+    var a12 = 12
+    var a13 = 13
+    var a14 = 14
+    var a15 = 15
+    var a16 = 16
+    var a17 = 17
+    var i = 0
+    var s = 0
+    while i < 12 {
+        if (i % 2) == 0 {
+            s = s + a16 + a17 + a14
+        } else {
+            if i < 5 {
+                s = s + a10 + a11
+            } else {
+                s = s + a0 + a1 + a2 + a3
+            }
+        }
+        i = i + 1
+    }
+    print_int(s)
+    return 0
+}

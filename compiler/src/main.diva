@@ -667,6 +667,13 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     }
     var code = int_vec_new()
     var main_ent = cg_module_to_bin(m, merged_src, stream, strv, code)
+    if main_ent < 0 {
+        if quiet == 0 {
+            err_line("native codegen failed: unresolved branch/call target or offset-size mismatch")
+        }
+        int_vec_free(code)
+        return 1
+    }
 
     var code_len = int_vec_len(code)
     var align = 4096

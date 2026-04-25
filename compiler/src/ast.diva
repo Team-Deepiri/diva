@@ -131,7 +131,7 @@ func ast_var_decl(name_tok: int, type_node: int, init: int): int {
     return n
 }
 
-// If: [kind, cond, then_body, else_body (-1 if none)]
+// If: [kind, cond, then_body, else_body (2147483647 if none)]
 func ast_if(cond: int, then_body: int, else_body: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_if())
@@ -141,7 +141,7 @@ func ast_if(cond: int, then_body: int, else_body: int): int {
     return n
 }
 
-// While: [kind, cond, body, update (-1 if none)]
+// While: [kind, cond, body, update (2147483647 if none)]
 func ast_while(cond: int, body: int, update: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_while())

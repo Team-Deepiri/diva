@@ -18,7 +18,8 @@ fi
 tmp_log="/tmp/diva-strict-pure.log"
 tmp_sym="/tmp/diva-strict-pure.symbols"
 tmp_fail="/tmp/diva-strict-pure.failures"
-rm -f "${tmp_log}" "${tmp_sym}" "${tmp_fail}"
+tmp_run="/tmp/diva-strict-pure.run.log"
+rm -f "${tmp_log}" "${tmp_sym}" "${tmp_fail}" "${tmp_run}"
 
 echo "[strict-pure] checking listed examples (tests/strict-pure.list) with DIVA_NO_EXTERNAL=1"
 
@@ -40,7 +41,29 @@ while IFS= read -r rel || [ -n "${rel}" ]; do
   DIVA_NO_EXTERNAL=1 timeout 30 ./build/diva-stage2 build "${f}" >"${tmp_log}" 2>&1 || rc=$?
   rc=${rc:-0}
   if [ "${rc}" -eq 0 ]; then
-    echo "[strict-pure] OK   ${rel}"
+    run_mode=0
+    case "${rel}" in
+      examples/branching.diva|examples/loop.diva|examples/beautiful_logic.diva|examples/json_demo.diva|examples/branch_stress.diva)
+        run_mode=1
+        ;;
+    esac
+    if [ "${run_mode}" -eq 1 ]; then
+      timeout 10 /tmp/diva-native-exe >"${tmp_run}" 2>&1 || rrun=$?
+      rrun=${rrun:-0}
+      if [ "${rrun}" -eq 0 ]; then
+        echo "[strict-pure] OK   ${rel} (ran)"
+      else
+        failed=$((failed + 1))
+        if [ "${rrun}" -eq 124 ]; then
+          timed_out=$((timed_out + 1))
+        fi
+        echo "[strict-pure] FAIL ${rel} runtime (rc=${rrun})"
+        echo "${rel} runtime (rc=${rrun})" >> "${tmp_fail}"
+      fi
+      rrun=0
+    else
+      echo "[strict-pure] OK   ${rel}"
+    fi
   else
     failed=$((failed + 1))
     if [ "${rc}" -eq 124 ]; then

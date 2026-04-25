@@ -655,6 +655,42 @@ func br_tab_lookup(tab_fi: int, tab_lb: int, tab_off: int, fi: int, lb: int): in
         }
         j = j + 1
     }
+    return 0 - 1
+}
+
+func func_has_block_label(f: int, lb: int): int {
+    var bc = func_block_count(f)
+    var bi = 0
+    while (bi < bc) {
+        if (block_label(func_get_block(f, bi)) == lb) {
+            return 1
+        }
+        bi = bi + 1
+    }
+    return 0
+}
+
+func report_bad_branch_label(src: str, toks: int, m: int, fi: int, op_name: str, lb: int): int {
+    stderr("codegen error: malformed branch label in func ")
+    stderr(tok_text(src, toks, func_name_tok(mod_get_func(m, fi))))
+    stderr(" fi=")
+    stderr(int_to_str(fi))
+    stderr(" op=")
+    stderr(op_name)
+    stderr(" target=")
+    stderr(int_to_str(lb))
+    stderr(" blocks=")
+    var f = mod_get_func(m, fi)
+    var bc = func_block_count(f)
+    var bi = 0
+    while (bi < bc) {
+        if (bi > 0) {
+            stderr(",")
+        }
+        stderr(int_to_str(block_label(func_get_block(f, bi))))
+        bi = bi + 1
+    }
+    stderr(char_to_str(10))
     return 0
 }
 
@@ -733,6 +769,21 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
             int_vec_push(br_off, current_offset)
             var insts = block_insts(blk)
             var ic = int_vec_len(insts)
+            if ic > 200000 {
+                stderr("codegen error: suspiciously large block instruction count fi=")
+                stderr(int_to_str(fi))
+                stderr(" block=")
+                stderr(int_to_str(block_label(blk)))
+                stderr(" ic=")
+                stderr(int_to_str(ic))
+                stderr(char_to_str(10))
+                int_vec_free(br_fi)
+                int_vec_free(br_lb)
+                int_vec_free(br_off)
+                int_vec_free(func_offsets)
+                int_vec_free(str_cum)
+                return 0 - 1
+            }
             var ii = 0
             while (ii < ic) {
                 var inst = int_vec_get(insts, ii)
@@ -765,6 +816,37 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                 if op == ir_br() { current_offset = current_offset + 5 }
                 // mov(4)+test(3)+jcc rel32(6)+jmp rel32(5) — was wrongly 12, desynced pass-2 vs int_vec_len
                 if op == ir_br_cond() { current_offset = current_offset + 18 }
+                if op == ir_br() {
+                    if func_has_block_label(f, a) == 0 {
+                        report_bad_branch_label(src, toks, m, fi, "br", a)
+                        int_vec_free(br_fi)
+                        int_vec_free(br_lb)
+                        int_vec_free(br_off)
+                        int_vec_free(func_offsets)
+                        int_vec_free(str_cum)
+                        return 0 - 1
+                    }
+                }
+                if op == ir_br_cond() {
+                    if func_has_block_label(f, a) == 0 {
+                        report_bad_branch_label(src, toks, m, fi, "br_cond_then", a)
+                        int_vec_free(br_fi)
+                        int_vec_free(br_lb)
+                        int_vec_free(br_off)
+                        int_vec_free(func_offsets)
+                        int_vec_free(str_cum)
+                        return 0 - 1
+                    }
+                    if func_has_block_label(f, bv) == 0 {
+                        report_bad_branch_label(src, toks, m, fi, "br_cond_else", bv)
+                        int_vec_free(br_fi)
+                        int_vec_free(br_lb)
+                        int_vec_free(br_off)
+                        int_vec_free(func_offsets)
+                        int_vec_free(str_cum)
+                        return 0 - 1
+                    }
+                }
                 if op == ir_call() {
                     var argc = inst_b(inst)
                     var usec = argc
@@ -814,6 +896,21 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
             var blk = func_get_block(f, bi)
             var insts = block_insts(blk)
             var ic = int_vec_len(insts)
+            if ic > 200000 {
+                stderr("codegen error: suspicious pass2 block instruction count fi=")
+                stderr(int_to_str(fi))
+                stderr(" block=")
+                stderr(int_to_str(block_label(blk)))
+                stderr(" ic=")
+                stderr(int_to_str(ic))
+                stderr(char_to_str(10))
+                int_vec_free(br_fi)
+                int_vec_free(br_lb)
+                int_vec_free(br_off)
+                int_vec_free(func_offsets)
+                int_vec_free(str_cum)
+                return 0 - 1
+            }
             var ii = 0
             while (ii < ic) {
                 var inst = int_vec_get(insts, ii)
@@ -923,17 +1020,62 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     if a == 5 { int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 77) int_vec_push(out, off_res & 255) }
                 }
                 if op == ir_br() {
+                    var br_start = int_vec_len(out)
                     var target_off = br_tab_lookup(br_fi, br_lb, br_off, fi, a)
+                    if (target_off < 0) {
+                        stderr("codegen error: unresolved br target fi=")
+                        stderr(int_to_str(fi))
+                        stderr(" label=")
+                        stderr(int_to_str(a))
+                        stderr(char_to_str(10))
+                        int_vec_free(br_fi)
+                        int_vec_free(br_lb)
+                        int_vec_free(br_off)
+                        int_vec_free(func_offsets)
+                        int_vec_free(str_cum)
+                        return 0 - 1
+                    }
                     var rel = target_off - (code_ptr + 5)
                     int_vec_push(out, 233)
                     emit_i32(out, rel)
+                    var br_size = int_vec_len(out) - br_start
+                    if (br_size != 5) {
+                        stderr("codegen error: ir_br size mismatch expected=5 got=")
+                        stderr(int_to_str(br_size))
+                        stderr(char_to_str(10))
+                        int_vec_free(br_fi)
+                        int_vec_free(br_lb)
+                        int_vec_free(br_off)
+                        int_vec_free(func_offsets)
+                        int_vec_free(str_cum)
+                        return 0 - 1
+                    }
                 }
                 if op == ir_br_cond() {
+                    var brc_start = int_vec_len(out)
                     var off_cond = 256 - (res + 1) * 8
                     int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, off_cond & 255)
                     int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 192)
                     var then_off = br_tab_lookup(br_fi, br_lb, br_off, fi, a)
                     var else_off = br_tab_lookup(br_fi, br_lb, br_off, fi, bv)
+                    var brc_bad = 0
+                    if (then_off < 0) { brc_bad = 1 }
+                    if (else_off < 0) { brc_bad = 1 }
+                    if (brc_bad == 1) {
+                        stderr("codegen error: unresolved br_cond target fi=")
+                        stderr(int_to_str(fi))
+                        stderr(" then=")
+                        stderr(int_to_str(a))
+                        stderr(" else=")
+                        stderr(int_to_str(bv))
+                        stderr(char_to_str(10))
+                        int_vec_free(br_fi)
+                        int_vec_free(br_lb)
+                        int_vec_free(br_off)
+                        int_vec_free(func_offsets)
+                        int_vec_free(str_cum)
+                        return 0 - 1
+                    }
                     var l_after_test = int_vec_len(out)
                     var rel_then = then_off - (l_after_test + 6)
                     int_vec_push(out, 15) int_vec_push(out, 133)
@@ -942,8 +1084,21 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     var rel_else = else_off - (l_after_jcc + 5)
                     int_vec_push(out, 233)
                     emit_i32(out, rel_else)
+                    var brc_size = int_vec_len(out) - brc_start
+                    if (brc_size != 18) {
+                        stderr("codegen error: ir_br_cond size mismatch expected=18 got=")
+                        stderr(int_to_str(brc_size))
+                        stderr(char_to_str(10))
+                        int_vec_free(br_fi)
+                        int_vec_free(br_lb)
+                        int_vec_free(br_off)
+                        int_vec_free(func_offsets)
+                        int_vec_free(str_cum)
+                        return 0 - 1
+                    }
                 }
                 if op == ir_call() {
+                    var call_start = int_vec_len(out)
                     var argc = inst_b(inst)
                     if argc == 1 {
                         var only_vr = inst_extra(inst)
@@ -983,6 +1138,27 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
 
                     var off_res = 256 - (res + 1) * 8
                     int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
+                    var usec_check = argc
+                    if usec_check > 6 { usec_check = 6 }
+                    var move_sz = usec_check * 4
+                    if argc == 1 { move_sz = 4 }
+                    var call_expected = move_sz + call_size + 4
+                    var call_actual = int_vec_len(out) - call_start
+                    if (call_actual != call_expected) {
+                        stderr("codegen error: ir_call size mismatch expected=")
+                        stderr(int_to_str(call_expected))
+                        stderr(" got=")
+                        stderr(int_to_str(call_actual))
+                        stderr(" fi=")
+                        stderr(int_to_str(fi))
+                        stderr(char_to_str(10))
+                        int_vec_free(br_fi)
+                        int_vec_free(br_lb)
+                        int_vec_free(br_off)
+                        int_vec_free(func_offsets)
+                        int_vec_free(str_cum)
+                        return 0 - 1
+                    }
                 }
                 if op == ir_ret() {
                     var offset = 256 - (a + 1) * 8

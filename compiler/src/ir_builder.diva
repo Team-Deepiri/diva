@@ -11,6 +11,75 @@ import "ast.diva"
 import "ir.diva"
 import "cell.diva"
 
+func ib_trace_on(): int {
+    var v = host_getenv("DIVA_IR_TRACE")
+    if str_eq(v, "1") == 1 { return 1 }
+    return 0
+}
+
+func ib_trace(ctx: int, msg: str): int {
+    if ib_trace_on() == 0 { return 0 }
+    var b = str_builder_new()
+    str_builder_append(b, "[ir-trace] ")
+    str_builder_append(b, msg)
+    str_builder_append(b, " blk=")
+    str_builder_append(b, int_to_str(bctx_blk(ctx)))
+    str_builder_append(b, " lbl_next=")
+    str_builder_append(b, int_to_str(bctx_label(ctx)))
+    stderr(str_builder_to_str(b))
+    stderr(char_to_str(10))
+    str_builder_free(b)
+    return 0
+}
+
+func ib_set_blk(ctx: int, blk: int, reason: str): int {
+    if ib_trace_on() == 1 {
+        var b = str_builder_new()
+        str_builder_append(b, "[ir-trace] set-blk ")
+        str_builder_append(b, reason)
+        str_builder_append(b, " -> ")
+        str_builder_append(b, int_to_str(blk))
+        stderr(str_builder_to_str(b))
+        stderr(char_to_str(10))
+        str_builder_free(b)
+    }
+    if blk < 0 {
+        stderr("ir-builder error: invalid block handle in set-blk ")
+        stderr(reason)
+        stderr(" blk=")
+        stderr(int_to_str(blk))
+        stderr(char_to_str(10))
+    }
+    return bctx_set_blk(ctx, blk)
+}
+
+func ib_add_blk(ctx: int, blk: int, reason: str): int {
+    if ib_trace_on() == 1 {
+        var b = str_builder_new()
+        str_builder_append(b, "[ir-trace] add-blk ")
+        str_builder_append(b, reason)
+        str_builder_append(b, " handle=")
+        str_builder_append(b, int_to_str(blk))
+        str_builder_append(b, " label=")
+        if blk < 0 {
+            str_builder_append(b, "-1")
+        } else {
+            str_builder_append(b, int_to_str(block_label(blk)))
+        }
+        stderr(str_builder_to_str(b))
+        stderr(char_to_str(10))
+        str_builder_free(b)
+    }
+    if blk < 0 {
+        stderr("ir-builder error: invalid block handle in add-blk ")
+        stderr(reason)
+        stderr(char_to_str(10))
+        return 1
+    }
+    func_add_block(bctx_func(ctx), blk)
+    return 0
+}
+
 // --- Builder context ---
 // ctx = int_vec:
 //   [0] = mod handle (direct)
@@ -99,6 +168,10 @@ func ib_fresh_label(ctx: int): int {
 }
 
 func ib_emit(ctx: int, inst: int): int {
+    if bctx_blk(ctx) < 0 {
+        stderr("ir-builder error: emit into invalid current block\n")
+        return 1
+    }
     block_append(bctx_blk(ctx), inst)
     return 0
 }
@@ -106,8 +179,8 @@ func ib_emit(ctx: int, inst: int): int {
 func ib_new_block(ctx: int): int {
     var l = ib_fresh_label(ctx)
     var blk = ir_block_new(l)
-    func_add_block(bctx_func(ctx), blk)
-    bctx_set_blk(ctx, blk)
+    ib_add_blk(ctx, blk, "ib_new_block")
+    ib_set_blk(ctx, blk, "ib_new_block")
     return blk
 }
 
@@ -208,42 +281,47 @@ func ib_lookup_local(ctx: int, name: str): int {
     var h = ib_name_hash(name)
     var names = bctx_names(ctx)
     var n = int_vec_len(names)
-    var i = n - 1
-    while ((i < 0) == 0) {
+    var found = 0 - 1
+    var i = 0
+    while (i < n) {
         if (int_vec_get(names, i) == h) {
-            return int_vec_get(bctx_slots(ctx), i)
+            found = int_vec_get(bctx_slots(ctx), i)
         }
-        i = i - 1
+        i = i + 1
     }
-    return 0 - 1
+    return found
 }
 
 func ib_lookup_array_len(ctx: int, name: str): int {
     var h = ib_name_hash(name)
     var names = bctx_names(ctx)
     var lens = bctx_array_lens(ctx)
-    var i = int_vec_len(names) - 1
-    while ((i < 0) == 0) {
+    var n = int_vec_len(names)
+    var found = 1
+    var i = 0
+    while (i < n) {
         if (int_vec_get(names, i) == h) {
-            return int_vec_get(lens, i)
+            found = int_vec_get(lens, i)
         }
-        i = i - 1
+        i = i + 1
     }
-    return 1
+    return found
 }
 
 func ib_lookup_struct_ty(ctx: int, name: str): int {
     var h = ib_name_hash(name)
     var names = bctx_names(ctx)
     var sty = bctx_struct_ty(ctx)
-    var i = int_vec_len(names) - 1
-    while ((i < 0) == 0) {
+    var n = int_vec_len(names)
+    var found = ib_struct_ty_none()
+    var i = 0
+    while (i < n) {
         if (int_vec_get(names, i) == h) {
-            return int_vec_get(sty, i)
+            found = int_vec_get(sty, i)
         }
-        i = i - 1
+        i = i + 1
     }
-    return ib_struct_ty_none()
+    return found
 }
 
 func ib_type_struct_width(ctx: int, src: str, typename_tok: int): int {
@@ -353,15 +431,21 @@ func lower_expr(ctx: int, src: str, node: int): int {
             var h = ib_name_hash(name)
             var gnames = bctx_global_names(ctx)
             var gvals = bctx_global_vals(ctx)
-            var found = 0
-            var i = int_vec_len(gnames) - 1
-            while ((i < 0) == 0) {
+            var gcount = int_vec_len(gnames)
+            var gfound = 0
+            var gval = 0
+            var i = 0
+            while (i < gcount) {
                 if (int_vec_get(gnames, i) == h) {
-                    var r = ib_fresh_vreg(ctx)
-                    ib_emit(ctx, ir_inst(ir_const(), r, int_vec_get(gvals, i), 0, 0))
-                    return r
+                    gfound = 1
+                    gval = int_vec_get(gvals, i)
                 }
-                i = i - 1
+                i = i + 1
+            }
+            if gfound == 1 {
+                var r = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_const(), r, gval, 0, 0))
+                return r
             }
             var r = ib_fresh_vreg(ctx)
             ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
@@ -670,40 +754,47 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         // False target must be a real basic block. If there is no else, use merge (end_lbl) — never
         // point br.cond at a fresh else label with no block (br_tab_lookup → 0 → crash).
         var else_lbl = end_lbl
-        // Missing else is ast -1; 0 is also absent. Flat updates only (no `!`, no nested if).
-        var ast_no_else = 0 - 1
+        // Parser encodes no-else as large positive sentinel.
+        var no_else = 2147483647
         var need_else = 0
-        if (has_else != ast_no_else) {
+        if (has_else != no_else) {
             need_else = 1
-        }
-        if (has_else == ast_no_else) {
-            need_else = 0
-        }
-        if (has_else == 0) {
-            need_else = 0
         }
         if (need_else == 1) {
             else_lbl = ib_fresh_label(ctx)
         }
+        if ib_trace_on() == 1 {
+            var tb = str_builder_new()
+            str_builder_append(tb, "if-branch cond=")
+            str_builder_append(tb, int_to_str(cond_reg))
+            str_builder_append(tb, " then=")
+            str_builder_append(tb, int_to_str(then_lbl))
+            str_builder_append(tb, " else=")
+            str_builder_append(tb, int_to_str(else_lbl))
+            str_builder_append(tb, " end=")
+            str_builder_append(tb, int_to_str(end_lbl))
+            ib_trace(ctx, str_builder_to_str(tb))
+            str_builder_free(tb)
+        }
         ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, then_lbl, else_lbl, 0))
 
         var then_blk = ir_block_new(then_lbl)
-        func_add_block(bctx_func(ctx), then_blk)
-        bctx_set_blk(ctx, then_blk)
+        ib_add_blk(ctx, then_blk, "if-then")
+        ib_set_blk(ctx, then_blk, "if-then")
         lower_block(ctx, src, ast_child(node, 1))
         ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
 
         if (need_else == 1) {
             var else_blk = ir_block_new(else_lbl)
-            func_add_block(bctx_func(ctx), else_blk)
-            bctx_set_blk(ctx, else_blk)
+            ib_add_blk(ctx, else_blk, "if-else")
+            ib_set_blk(ctx, else_blk, "if-else")
             lower_block(ctx, src, has_else)
             ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
         }
 
         var end_blk = ir_block_new(end_lbl)
-        func_add_block(bctx_func(ctx), end_blk)
-        bctx_set_blk(ctx, end_blk)
+        ib_add_blk(ctx, end_blk, "if-end")
+        ib_set_blk(ctx, end_blk, "if-end")
         return 0
     }
 
@@ -711,28 +802,40 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         var cond_lbl = ib_fresh_label(ctx)
         var body_lbl = ib_fresh_label(ctx)
         var end_lbl  = ib_fresh_label(ctx)
+        var no_update = 2147483647
 
+        if ib_trace_on() == 1 {
+            var wb = str_builder_new()
+            str_builder_append(wb, "while-labels cond=")
+            str_builder_append(wb, int_to_str(cond_lbl))
+            str_builder_append(wb, " body=")
+            str_builder_append(wb, int_to_str(body_lbl))
+            str_builder_append(wb, " end=")
+            str_builder_append(wb, int_to_str(end_lbl))
+            ib_trace(ctx, str_builder_to_str(wb))
+            str_builder_free(wb)
+        }
         ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
 
         var cond_blk = ir_block_new(cond_lbl)
-        func_add_block(bctx_func(ctx), cond_blk)
-        bctx_set_blk(ctx, cond_blk)
+        ib_add_blk(ctx, cond_blk, "while-cond")
+        ib_set_blk(ctx, cond_blk, "while-cond")
         var cond_reg = lower_expr(ctx, src, ast_child(node, 0))
         ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, body_lbl, end_lbl, 0))
 
         var body_blk = ir_block_new(body_lbl)
-        func_add_block(bctx_func(ctx), body_blk)
-        bctx_set_blk(ctx, body_blk)
+        ib_add_blk(ctx, body_blk, "while-body")
+        ib_set_blk(ctx, body_blk, "while-body")
         lower_block(ctx, src, ast_child(node, 1))
         var update = ast_child(node, 2)
-        if (update < 0) == 0 {
+        if (update != no_update) {
             lower_expr(ctx, src, update)
         }
         ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
 
         var end_blk = ir_block_new(end_lbl)
-        func_add_block(bctx_func(ctx), end_blk)
-        bctx_set_blk(ctx, end_blk)
+        ib_add_blk(ctx, end_blk, "while-end")
+        ib_set_blk(ctx, end_blk, "while-end")
         return 0
     }
 
@@ -796,8 +899,8 @@ func lower_func(ctx: int, src: str, node: int): int {
     var scope = ib_scope_push(ctx)
 
     var entry = ir_block_new(ib_fresh_label(ctx))
-    func_add_block(f, entry)
-    bctx_set_blk(ctx, entry)
+    ib_add_blk(ctx, entry, "func-entry")
+    ib_set_blk(ctx, entry, "func-entry")
 
     var i = 0
     while (i < pcount) {
