@@ -622,6 +622,65 @@ func lower_expr(ctx: int, src: str, node: int): int {
     return r
 }
 
+func lower_while_stmt(ctx: int, src: str, node: int): int {
+    var cond_lbl = ib_fresh_label(ctx)
+    var body_lbl = ib_fresh_label(ctx)
+    var end_lbl  = ib_fresh_label(ctx)
+    var no_update = 2147483647
+    var cond_blk = ir_block_new(cond_lbl)
+    var body_blk = ir_block_new(body_lbl)
+    var end_blk = ir_block_new(end_lbl)
+    if (block_label(cond_blk) != cond_lbl) | (block_label(body_blk) != body_lbl) | (block_label(end_blk) != end_lbl) {
+        stderr("ir-builder error: while block label corruption cond=")
+        stderr(int_to_str(cond_lbl))
+        stderr("/")
+        stderr(int_to_str(block_label(cond_blk)))
+        stderr(" body=")
+        stderr(int_to_str(body_lbl))
+        stderr("/")
+        stderr(int_to_str(block_label(body_blk)))
+        stderr(" end=")
+        stderr(int_to_str(end_lbl))
+        stderr("/")
+        stderr(int_to_str(block_label(end_blk)))
+        stderr(char_to_str(10))
+        return 1
+    }
+    var cond_target = block_label(cond_blk)
+    var body_target = block_label(body_blk)
+    var end_target = block_label(end_blk)
+
+    if ib_trace_on() == 1 {
+        var wb = str_builder_new()
+        str_builder_append(wb, "while-labels cond=")
+        str_builder_append(wb, int_to_str(cond_target))
+        str_builder_append(wb, " body=")
+        str_builder_append(wb, int_to_str(body_target))
+        str_builder_append(wb, " end=")
+        str_builder_append(wb, int_to_str(end_target))
+        ib_trace(ctx, str_builder_to_str(wb))
+        str_builder_free(wb)
+    }
+    ib_add_blk(ctx, cond_blk, "while-cond")
+    ib_add_blk(ctx, body_blk, "while-body")
+    ib_add_blk(ctx, end_blk, "while-end")
+    ib_emit(ctx, ir_inst(ir_br(), 0, cond_target, 0, 0))
+    ib_set_blk(ctx, cond_blk, "while-cond")
+    var cond_reg = lower_expr(ctx, src, ast_child(node, 0))
+    ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, body_target, end_target, 0))
+
+    ib_set_blk(ctx, body_blk, "while-body")
+    lower_block(ctx, src, ast_child(node, 1))
+    var update = ast_child(node, 2)
+    if (update != no_update) {
+        lower_expr(ctx, src, update)
+    }
+    ib_emit(ctx, ir_inst(ir_br(), 0, cond_target, 0, 0))
+
+    ib_set_blk(ctx, end_blk, "while-end")
+    return 0
+}
+
 // --- Statement lowering ---
 // lower_stmt calls lower_block (defined later); seed supports forward refs.
 
@@ -779,6 +838,10 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, then_lbl, else_lbl, 0))
 
         var then_blk = ir_block_new(then_lbl)
+        if block_label(then_blk) != then_lbl {
+            stderr("ir-builder error: if-then label corruption\n")
+            return 1
+        }
         ib_add_blk(ctx, then_blk, "if-then")
         ib_set_blk(ctx, then_blk, "if-then")
         lower_block(ctx, src, ast_child(node, 1))
@@ -786,6 +849,10 @@ func lower_stmt(ctx: int, src: str, node: int): int {
 
         if (need_else == 1) {
             var else_blk = ir_block_new(else_lbl)
+            if block_label(else_blk) != else_lbl {
+                stderr("ir-builder error: if-else label corruption\n")
+                return 1
+            }
             ib_add_blk(ctx, else_blk, "if-else")
             ib_set_blk(ctx, else_blk, "if-else")
             lower_block(ctx, src, has_else)
@@ -793,51 +860,16 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         }
 
         var end_blk = ir_block_new(end_lbl)
+        if block_label(end_blk) != end_lbl {
+            stderr("ir-builder error: if-end label corruption\n")
+            return 1
+        }
         ib_add_blk(ctx, end_blk, "if-end")
         ib_set_blk(ctx, end_blk, "if-end")
         return 0
     }
 
-    if kind == nd_while() {
-        var cond_lbl = ib_fresh_label(ctx)
-        var body_lbl = ib_fresh_label(ctx)
-        var end_lbl  = ib_fresh_label(ctx)
-        var no_update = 2147483647
-
-        if ib_trace_on() == 1 {
-            var wb = str_builder_new()
-            str_builder_append(wb, "while-labels cond=")
-            str_builder_append(wb, int_to_str(cond_lbl))
-            str_builder_append(wb, " body=")
-            str_builder_append(wb, int_to_str(body_lbl))
-            str_builder_append(wb, " end=")
-            str_builder_append(wb, int_to_str(end_lbl))
-            ib_trace(ctx, str_builder_to_str(wb))
-            str_builder_free(wb)
-        }
-        ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
-
-        var cond_blk = ir_block_new(cond_lbl)
-        ib_add_blk(ctx, cond_blk, "while-cond")
-        ib_set_blk(ctx, cond_blk, "while-cond")
-        var cond_reg = lower_expr(ctx, src, ast_child(node, 0))
-        ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, body_lbl, end_lbl, 0))
-
-        var body_blk = ir_block_new(body_lbl)
-        ib_add_blk(ctx, body_blk, "while-body")
-        ib_set_blk(ctx, body_blk, "while-body")
-        lower_block(ctx, src, ast_child(node, 1))
-        var update = ast_child(node, 2)
-        if (update != no_update) {
-            lower_expr(ctx, src, update)
-        }
-        ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
-
-        var end_blk = ir_block_new(end_lbl)
-        ib_add_blk(ctx, end_blk, "while-end")
-        ib_set_blk(ctx, end_blk, "while-end")
-        return 0
-    }
+    if kind == nd_while() { return lower_while_stmt(ctx, src, node) }
 
     if kind == nd_expr_stmt() {
         lower_expr(ctx, src, ast_child(node, 0))
