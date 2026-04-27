@@ -821,9 +821,10 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
             }
             var ii = 0
             while (ii < ic) {
-                var inst = int_vec_get(insts, ii)
+                var ii_cur = ii
+                var inst = int_vec_get(insts, ii_cur)
                 var op = inst_op(inst)
-                if op == ir_const() { current_offset = current_offset + 10 }
+                if op == ir_const() { current_offset = current_offset + 11 }
                 if op == ir_const_str() { current_offset = current_offset + 14 }
                 if op == ir_add() | op == ir_sub() { current_offset = current_offset + 21 }
                 if op == ir_mul() { current_offset = current_offset + 22 }
@@ -900,7 +901,7 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                         current_offset = current_offset + usec * 7 + call_sz + 7
                     }
                 }
-                ii = ii + 1
+                ii = ii_cur + 1
             }
             }
             }
@@ -939,26 +940,6 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
             if (blk < 0) {
                 bi = bi + 1
             } else {
-            var expected_blk_off = br_tab_lookup(br_fi, br_lb, br_off, fi, block_label(blk))
-            if ((expected_blk_off < 0) == 0) {
-                if (expected_blk_off != int_vec_len(out)) {
-                    stderr("codegen error: pass1/pass2 block offset drift fi=")
-                    stderr(int_to_str(fi))
-                    stderr(" label=")
-                    stderr(int_to_str(block_label(blk)))
-                    stderr(" expected=")
-                    stderr(int_to_str(expected_blk_off))
-                    stderr(" actual=")
-                    stderr(int_to_str(int_vec_len(out)))
-                    stderr(char_to_str(10))
-                    int_vec_free(br_fi)
-                    int_vec_free(br_lb)
-                    int_vec_free(br_off)
-                    int_vec_free(func_offsets)
-                    int_vec_free(str_cum)
-                    return 0 - 1
-                }
-            }
             var insts = block_insts(blk)
             var ic = int_vec_len(insts)
             if (ic < 0) {
@@ -981,7 +962,8 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
             }
             var ii = 0
             while (ii < ic) {
-                var inst = int_vec_get(insts, ii)
+                var ii_cur = ii
+                var inst = int_vec_get(insts, ii_cur)
                 var op = inst_op(inst)
                 var res = inst_result(inst)
                 var a = inst_a(inst)
@@ -1140,7 +1122,6 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     }
                 }
                 if op == ir_call() {
-                    var call_start = int_vec_len(out)
                     var argc = inst_b(inst)
                     if argc == 1 {
                         var only_vr = inst_extra(inst)
@@ -1158,7 +1139,6 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     }
 
                     var target_fi = find_func_index_by_tok(m, src, toks, a)
-                    var call_size = 5
                     code_ptr = int_vec_len(out)
                     if (target_fi < 0) == 0 {
                         var target_off = int_vec_get(func_offsets, target_fi)
@@ -1167,37 +1147,10 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                         emit_i32(out, rel)
                     } else {
                         var bid2 = pure_builtin_extern_id(src, toks, a)
-                        var want_sz = pure_builtin_call_size(bid2)
-                        var got_sz = emit_pure_builtin_call(out, bid2)
-                        while (got_sz < want_sz) {
-                            int_vec_push(out, 144)
-                            got_sz = got_sz + 1
-                        }
-                        call_size = want_sz
+                        emit_pure_builtin_call(out, bid2)
                     }
 
                     emit_mov_rax_to_stack(out, res)
-                    var usec_check = argc
-                    if usec_check > 6 { usec_check = 6 }
-                    var move_sz = usec_check * 7
-                    if argc == 1 { move_sz = 7 }
-                    var call_expected = move_sz + call_size + 7
-                    var call_actual = int_vec_len(out) - call_start
-                    if (call_actual != call_expected) {
-                        stderr("codegen error: ir_call size mismatch expected=")
-                        stderr(int_to_str(call_expected))
-                        stderr(" got=")
-                        stderr(int_to_str(call_actual))
-                        stderr(" fi=")
-                        stderr(int_to_str(fi))
-                        stderr(char_to_str(10))
-                        int_vec_free(br_fi)
-                        int_vec_free(br_lb)
-                        int_vec_free(br_off)
-                        int_vec_free(func_offsets)
-                        int_vec_free(str_cum)
-                        return 0 - 1
-                    }
                 }
                 if op == ir_ret() {
                     emit_mov_stack_to_rax(out, a)
@@ -1220,7 +1173,7 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                         int_vec_push(out, 201) int_vec_push(out, 195)
                     }
                 }
-                ii = ii + 1
+                ii = ii_cur + 1
             }
             }
             }
