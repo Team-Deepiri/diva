@@ -18,7 +18,7 @@ func ib_trace_on(): int {
 }
 
 func ib_trace(ctx: int, msg: str): int {
-    if ib_trace_on() == 0 { return 0 }
+    if (ib_trace_on() == 0) { return 0 }
     var b = str_builder_new()
     str_builder_append(b, "[ir-trace] ")
     str_builder_append(b, msg)
@@ -32,20 +32,14 @@ func ib_trace(ctx: int, msg: str): int {
     return 0
 }
 
-func ib_set_blk(ctx: int, blk: int, reason: str): int {
-    if ib_trace_on() == 1 {
-        var b = str_builder_new()
-        str_builder_append(b, "[ir-trace] set-blk ")
-        str_builder_append(b, reason)
-        str_builder_append(b, " -> ")
-        str_builder_append(b, int_to_str(blk))
-        stderr(str_builder_to_str(b))
+func ib_set_blk(ctx: int, blk: int): int {
+    if (ib_trace_on() == 1) {
+        stderr("[ir-trace] set-blk -> ")
+        stderr(int_to_str(blk))
         stderr(char_to_str(10))
-        str_builder_free(b)
     }
-    if blk < 0 {
-        stderr("ir-builder error: invalid block handle in set-blk ")
-        stderr(reason)
+    if (blk < 0) {
+        stderr("ir-builder error: invalid block handle in set-blk")
         stderr(" blk=")
         stderr(int_to_str(blk))
         stderr(char_to_str(10))
@@ -53,31 +47,39 @@ func ib_set_blk(ctx: int, blk: int, reason: str): int {
     return bctx_set_blk(ctx, blk)
 }
 
-func ib_add_blk(ctx: int, blk: int, reason: str): int {
-    if ib_trace_on() == 1 {
-        var b = str_builder_new()
-        str_builder_append(b, "[ir-trace] add-blk ")
-        str_builder_append(b, reason)
-        str_builder_append(b, " handle=")
-        str_builder_append(b, int_to_str(blk))
-        str_builder_append(b, " label=")
+func ib_add_blk(ctx: int, blk: int): int {
+    if (ib_trace_on() == 1) {
+        stderr("[ir-trace] add-blk handle=")
+        stderr(int_to_str(blk))
+        stderr(" label=")
         if blk < 0 {
-            str_builder_append(b, "-1")
+            stderr("-1")
         } else {
-            str_builder_append(b, int_to_str(block_label(blk)))
+            stderr(int_to_str(block_label(blk)))
         }
-        stderr(str_builder_to_str(b))
         stderr(char_to_str(10))
-        str_builder_free(b)
     }
-    if blk < 0 {
-        stderr("ir-builder error: invalid block handle in add-blk ")
-        stderr(reason)
+    if (blk < 0) {
+        stderr("ir-builder error: invalid block handle in add-blk")
         stderr(char_to_str(10))
         return 1
     }
     func_add_block(bctx_func(ctx), blk)
     return 0
+}
+
+func ib_find_blk_by_label(ctx: int, label: int): int {
+    var f = bctx_func(ctx)
+    var bc = func_block_count(f)
+    var bi = 0
+    while (bi < bc) {
+        var blk = func_get_block(f, bi)
+        if (block_label(blk) == label) {
+            return blk
+        }
+        bi = bi + 1
+    }
+    return 0 - 1
 }
 
 // --- Builder context ---
@@ -168,7 +170,7 @@ func ib_fresh_label(ctx: int): int {
 }
 
 func ib_emit(ctx: int, inst: int): int {
-    if bctx_blk(ctx) < 0 {
+    if (bctx_blk(ctx) < 0) {
         stderr("ir-builder error: emit into invalid current block\n")
         return 1
     }
@@ -179,8 +181,8 @@ func ib_emit(ctx: int, inst: int): int {
 func ib_new_block(ctx: int): int {
     var l = ib_fresh_label(ctx)
     var blk = ir_block_new(l)
-    ib_add_blk(ctx, blk, "ib_new_block")
-    ib_set_blk(ctx, blk, "ib_new_block")
+    ib_add_blk(ctx, blk)
+    ib_set_blk(ctx, blk)
     return blk
 }
 
@@ -630,7 +632,11 @@ func lower_while_stmt(ctx: int, src: str, node: int): int {
     var cond_blk = ir_block_new(cond_lbl)
     var body_blk = ir_block_new(body_lbl)
     var end_blk = ir_block_new(end_lbl)
-    if (block_label(cond_blk) != cond_lbl) | (block_label(body_blk) != body_lbl) | (block_label(end_blk) != end_lbl) {
+    var blk_bad = 0
+    if (block_label(cond_blk) != cond_lbl) { blk_bad = 1 }
+    if (block_label(body_blk) != body_lbl) { blk_bad = 1 }
+    if (block_label(end_blk) != end_lbl) { blk_bad = 1 }
+    if (blk_bad == 1) {
         stderr("ir-builder error: while block label corruption cond=")
         stderr(int_to_str(cond_lbl))
         stderr("/")
@@ -650,26 +656,34 @@ func lower_while_stmt(ctx: int, src: str, node: int): int {
     var body_target = block_label(body_blk)
     var end_target = block_label(end_blk)
 
-    if ib_trace_on() == 1 {
-        var wb = str_builder_new()
-        str_builder_append(wb, "while-labels cond=")
-        str_builder_append(wb, int_to_str(cond_target))
-        str_builder_append(wb, " body=")
-        str_builder_append(wb, int_to_str(body_target))
-        str_builder_append(wb, " end=")
-        str_builder_append(wb, int_to_str(end_target))
-        ib_trace(ctx, str_builder_to_str(wb))
-        str_builder_free(wb)
+    if (ib_trace_on() == 1) {
+        stderr("[ir-trace] while-labels cond=")
+        stderr(int_to_str(cond_target))
+        stderr(" body=")
+        stderr(int_to_str(body_target))
+        stderr(" end=")
+        stderr(int_to_str(end_target))
+        stderr(char_to_str(10))
     }
-    ib_add_blk(ctx, cond_blk, "while-cond")
-    ib_add_blk(ctx, body_blk, "while-body")
-    ib_add_blk(ctx, end_blk, "while-end")
+    ib_add_blk(ctx, cond_blk)
+    ib_add_blk(ctx, body_blk)
+    ib_add_blk(ctx, end_blk)
     ib_emit(ctx, ir_inst(ir_br(), 0, cond_target, 0, 0))
-    ib_set_blk(ctx, cond_blk, "while-cond")
+    var cond_handle = ib_find_blk_by_label(ctx, cond_target)
+    if (cond_handle < 0) {
+        stderr("ir-builder error: missing while-cond block handle\n")
+        return 1
+    }
+    ib_set_blk(ctx, cond_handle)
     var cond_reg = lower_expr(ctx, src, ast_child(node, 0))
     ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, body_target, end_target, 0))
 
-    ib_set_blk(ctx, body_blk, "while-body")
+    var body_handle = ib_find_blk_by_label(ctx, body_target)
+    if (body_handle < 0) {
+        stderr("ir-builder error: missing while-body block handle\n")
+        return 1
+    }
+    ib_set_blk(ctx, body_handle)
     lower_block(ctx, src, ast_child(node, 1))
     var update = ast_child(node, 2)
     if (update != no_update) {
@@ -677,7 +691,12 @@ func lower_while_stmt(ctx: int, src: str, node: int): int {
     }
     ib_emit(ctx, ir_inst(ir_br(), 0, cond_target, 0, 0))
 
-    ib_set_blk(ctx, end_blk, "while-end")
+    var end_handle = ib_find_blk_by_label(ctx, end_target)
+    if (end_handle < 0) {
+        stderr("ir-builder error: missing while-end block handle\n")
+        return 1
+    }
+    ib_set_blk(ctx, end_handle)
     return 0
 }
 
@@ -822,50 +841,63 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         if (need_else == 1) {
             else_lbl = ib_fresh_label(ctx)
         }
-        if ib_trace_on() == 1 {
-            var tb = str_builder_new()
-            str_builder_append(tb, "if-branch cond=")
-            str_builder_append(tb, int_to_str(cond_reg))
-            str_builder_append(tb, " then=")
-            str_builder_append(tb, int_to_str(then_lbl))
-            str_builder_append(tb, " else=")
-            str_builder_append(tb, int_to_str(else_lbl))
-            str_builder_append(tb, " end=")
-            str_builder_append(tb, int_to_str(end_lbl))
-            ib_trace(ctx, str_builder_to_str(tb))
-            str_builder_free(tb)
+        if (ib_trace_on() == 1) {
+            stderr("[ir-trace] if-branch cond=")
+            stderr(int_to_str(cond_reg))
+            stderr(" then=")
+            stderr(int_to_str(then_lbl))
+            stderr(" else=")
+            stderr(int_to_str(else_lbl))
+            stderr(" end=")
+            stderr(int_to_str(end_lbl))
+            stderr(char_to_str(10))
         }
         ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, then_lbl, else_lbl, 0))
 
         var then_blk = ir_block_new(then_lbl)
-        if block_label(then_blk) != then_lbl {
+        if (block_label(then_blk) != then_lbl) {
             stderr("ir-builder error: if-then label corruption\n")
             return 1
         }
-        ib_add_blk(ctx, then_blk, "if-then")
-        ib_set_blk(ctx, then_blk, "if-then")
+        ib_add_blk(ctx, then_blk)
+        var then_handle = ib_find_blk_by_label(ctx, then_lbl)
+        if (then_handle < 0) {
+            stderr("ir-builder error: missing if-then block handle\n")
+            return 1
+        }
+        ib_set_blk(ctx, then_handle)
         lower_block(ctx, src, ast_child(node, 1))
         ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
 
         if (need_else == 1) {
             var else_blk = ir_block_new(else_lbl)
-            if block_label(else_blk) != else_lbl {
+            if (block_label(else_blk) != else_lbl) {
                 stderr("ir-builder error: if-else label corruption\n")
                 return 1
             }
-            ib_add_blk(ctx, else_blk, "if-else")
-            ib_set_blk(ctx, else_blk, "if-else")
+            ib_add_blk(ctx, else_blk)
+            var else_handle = ib_find_blk_by_label(ctx, else_lbl)
+            if (else_handle < 0) {
+                stderr("ir-builder error: missing if-else block handle\n")
+                return 1
+            }
+            ib_set_blk(ctx, else_handle)
             lower_block(ctx, src, has_else)
             ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
         }
 
         var end_blk = ir_block_new(end_lbl)
-        if block_label(end_blk) != end_lbl {
+        if (block_label(end_blk) != end_lbl) {
             stderr("ir-builder error: if-end label corruption\n")
             return 1
         }
-        ib_add_blk(ctx, end_blk, "if-end")
-        ib_set_blk(ctx, end_blk, "if-end")
+        ib_add_blk(ctx, end_blk)
+        var end_handle2 = ib_find_blk_by_label(ctx, end_lbl)
+        if (end_handle2 < 0) {
+            stderr("ir-builder error: missing if-end block handle\n")
+            return 1
+        }
+        ib_set_blk(ctx, end_handle2)
         return 0
     }
 
@@ -931,8 +963,8 @@ func lower_func(ctx: int, src: str, node: int): int {
     var scope = ib_scope_push(ctx)
 
     var entry = ir_block_new(ib_fresh_label(ctx))
-    ib_add_blk(ctx, entry, "func-entry")
-    ib_set_blk(ctx, entry, "func-entry")
+    ib_add_blk(ctx, entry)
+    ib_set_blk(ctx, entry)
 
     var i = 0
     while (i < pcount) {

@@ -764,12 +764,18 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
         var bi = 0
         while (bi < bc) {
             var blk = func_get_block(f, bi)
+            if (blk < 0) {
+                bi = bi + 1
+            } else {
             int_vec_push(br_fi, fi)
             int_vec_push(br_lb, block_label(blk))
             int_vec_push(br_off, current_offset)
             var insts = block_insts(blk)
             var ic = int_vec_len(insts)
-            if ic > 200000 {
+            if (ic < 0) {
+                bi = bi + 1
+            } else {
+            if (ic > 200000) {
                 stderr("codegen error: suspiciously large block instruction count fi=")
                 stderr(int_to_str(fi))
                 stderr(" block=")
@@ -866,6 +872,8 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                 }
                 ii = ii + 1
             }
+            }
+            }
             bi = bi + 1
         }
         fi = fi + 1
@@ -884,6 +892,10 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
     fi = 0
     var code_ptr = 0
     while (fi < fc) {
+        if (fi == main_fi) == 1 {
+            // Ground-truth entry from emitted bytes (pass-2), not pass-1 estimate.
+            main_off = int_vec_len(out)
+        }
         int_vec_push(out, 85) // push rbp
         int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 229) // mov rbp, rsp
         int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236) // sub rsp, 2048
@@ -894,9 +906,15 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
         var bi = 0
         while (bi < bc) {
             var blk = func_get_block(f, bi)
+            if (blk < 0) {
+                bi = bi + 1
+            } else {
             var insts = block_insts(blk)
             var ic = int_vec_len(insts)
-            if ic > 200000 {
+            if (ic < 0) {
+                bi = bi + 1
+            } else {
+            if (ic > 200000) {
                 stderr("codegen error: suspicious pass2 block instruction count fi=")
                 stderr(int_to_str(fi))
                 stderr(" block=")
@@ -1183,6 +1201,8 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     }
                 }
                 ii = ii + 1
+            }
+            }
             }
             bi = bi + 1
         }
