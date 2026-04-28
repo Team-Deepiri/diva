@@ -89,7 +89,7 @@ func ib_find_blk_by_label(ctx: int, label: int): int {
 //   [2] = blk_cell  (current basic block)
 //   [3] = vreg_cell (virtual register counter)
 //   [4] = label_cell (label counter)
-//   [5] = names_cell (local name hashes vec handle)
+//   [5] = names_cell (local name hash vec, parallel to slots)
 //   [6] = slots_cell (local slot ids vec handle)
 //   [7] = array_lens_cell (parallel: 1 = scalar, N = int[] length)
 //   [8] = str_vec (int_vec of string literal token indices)
@@ -294,6 +294,11 @@ func ib_lookup_local(ctx: int, name: str): int {
     return found
 }
 
+// Resolve use-site token: one tok_text + hash, then match stored def hashes (avoids keeping a |str| across subexprs).
+func ib_lookup_by_name_tok(ctx: int, src: str, name_tok: int): int {
+    return ib_lookup_local(ctx, ib_tok_text(ctx, src, name_tok))
+}
+
 func ib_lookup_array_len(ctx: int, name: str): int {
     var h = ib_name_hash(name)
     var names = bctx_names(ctx)
@@ -427,10 +432,9 @@ func lower_expr(ctx: int, src: str, node: int): int {
 
     if kind == nd_ident() {
         var tok_idx = ast_child(node, 0)
-        var name = ib_tok_text(ctx, src, tok_idx)
-        var slot = ib_lookup_local(ctx, name)
+        var slot = ib_lookup_by_name_tok(ctx, src, tok_idx)
         if (slot < 0) {
-            var h = ib_name_hash(name)
+            var h = ib_name_hash(ib_tok_text(ctx, src, tok_idx))
             var gnames = bctx_global_names(ctx)
             var gvals = bctx_global_vals(ctx)
             var gcount = int_vec_len(gnames)
@@ -724,8 +728,9 @@ func lower_stmt(ctx: int, src: str, node: int): int {
                             while (j < ne) {
                                 var slot = base + j
                                 ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
+                                var dest = slot
                                 var ev = lower_expr(ctx, src, int_vec_get(elems, j))
-                                ib_emit(ctx, ir_inst(ir_store(), slot, ev, 0, 0))
+                                ib_emit(ctx, ir_inst(ir_store(), dest, ev, 0, 0))
                                 j = j + 1
                             }
                             return 0
@@ -759,8 +764,9 @@ func lower_stmt(ctx: int, src: str, node: int): int {
                                 var idx2 = ib_struct_field_index(ctx, src, type_name_tok, fname_tok)
                                 if ((idx2 < 0) == 0 & idx2 < sw) {
                                     var slot_f = base2 + idx2
+                                    var dest = slot_f
                                     var ev2 = lower_expr(ctx, src, fexpr)
-                                    ib_emit(ctx, ir_inst(ir_store(), slot_f, ev2, 0, 0))
+                                    ib_emit(ctx, ir_inst(ir_store(), dest, ev2, 0, 0))
                                 }
                                 kf = kf + 1
                             }
@@ -774,8 +780,9 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         var slot = ib_define_local(ctx, name)
         ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
         if (init < 0) == 0 {
+            var dest = slot
             var val = lower_expr(ctx, src, init)
-            ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+            ib_emit(ctx, ir_inst(ir_store(), dest, val, 0, 0))
         }
         return 0
     }
@@ -783,10 +790,10 @@ func lower_stmt(ctx: int, src: str, node: int): int {
     if kind == nd_assign() {
         var target = ast_child(node, 0)
         var value = ast_child(node, 1)
-        var val = lower_expr(ctx, src, value)
         if ast_kind(target) == nd_ident() {
-            var name = ib_tok_text(ctx, src, ast_child(target, 0))
-            var slot = ib_lookup_local(ctx, name)
+            var name_tok = ast_child(target, 0)
+            var val = lower_expr(ctx, src, value)
+            var slot = ib_lookup_by_name_tok(ctx, src, name_tok)
             if (slot < 0) == 0 {
                 ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
             }
@@ -803,7 +810,9 @@ func lower_stmt(ctx: int, src: str, node: int): int {
                             var off = ast_child(idx_node, 0)
                             if ((off < 0) == 0 & off < alen) {
                                 var slot = base + off
-                                ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+                                var dest = slot
+                                var val = lower_expr(ctx, src, value)
+                                ib_emit(ctx, ir_inst(ir_store(), dest, val, 0, 0))
                             }
                         }
                     }
