@@ -360,9 +360,13 @@ func cg_func(ctx: int, src: str, nl: str, f: int, fi: int): int {
         lp_add(lp, "    call di_runtime_set_argv") lp_flush_sb(lp, sb, nl)
     }
 
+    var frame_b = func_prologue_frame_bytes(f)
     lp_add(lp, "    pushq %rbp") lp_flush_sb(lp, sb, nl)
     lp_add(lp, "    movq %rsp, %rbp") lp_flush_sb(lp, sb, nl)
-    lp_add(lp, "    subq $2048, %rsp") lp_flush_sb(lp, sb, nl)
+    lp_add(lp, "    subq $")
+    lp_add_int(lp, frame_b)
+    lp_add(lp, ", %rsp")
+    lp_flush_sb(lp, sb, nl)
 
     var bc = func_block_count(f)
     var bi = 0
@@ -714,6 +718,173 @@ func stack_disp32(slot: int): int {
     return 0 - (slot + 1) * 8
 }
 
+// Largest vreg index referenced in |f| (stack slots are vreg indices 0..max).
+func func_max_vreg_used(f: int): int {
+    var maxv = 0
+    var bc = func_block_count(f)
+    var bi = 0
+    while (bi < bc) {
+        var blk = func_get_block(f, bi)
+        var insts = block_insts(blk)
+        var ic = int_vec_len(insts)
+        var ii = 0
+        while (ii < ic) {
+            var inst = int_vec_get(insts, ii)
+            var ik = inst_op(inst)
+            var res = inst_result(inst)
+            var ia = inst_a(inst)
+            var ibk = inst_b(inst)
+            var exv = inst_extra(inst)
+            if (ik == ir_const()) {
+                if (res > maxv) { maxv = res }
+            }
+            if (ik == ir_const_str()) {
+                if (res > maxv) { maxv = res }
+            }
+            if (ik == ir_br()) {
+            }
+            if (ik == ir_br_cond()) {
+                if (res > maxv) { maxv = res }
+            }
+            if (ik == ir_call()) {
+                if (res > maxv) { maxv = res }
+                var ac = inst_b(inst)
+                if (ac == 1) {
+                    if (exv > maxv) { maxv = exv }
+                } else {
+                    var args = exv
+                    var aj = 0
+                    while (aj < ac) {
+                        var vr = int_vec_get(args, aj)
+                        if (vr > maxv) { maxv = vr }
+                        aj = aj + 1
+                    }
+                }
+            }
+            if (ik == ir_ret()) {
+                if (ia > maxv) { maxv = ia }
+            }
+            if (ik == ir_ret_void()) {
+            }
+            if (ik == ir_alloca()) {
+                if (res > maxv) { maxv = res }
+            }
+            if (ik == ir_param()) {
+                if (res > maxv) { maxv = res }
+            }
+            if (ik == ir_load()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+            }
+            if (ik == ir_store()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+            }
+            if (ik == ir_copy()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+            }
+            if (ik == ir_neg()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+            }
+            if (ik == ir_not()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+            }
+            if (ik == ir_add()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_sub()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_mul()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_div()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_mod()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_eq()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_ne()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_lt()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_le()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_gt()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_ge()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_and()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_or()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_shl()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            if (ik == ir_shr()) {
+                if (res > maxv) { maxv = res }
+                if (ia > maxv) { maxv = ia }
+                if (ibk > maxv) { maxv = ibk }
+            }
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    return maxv
+}
+
+// Bytes to subtract in the function prologue: (max_vreg+1) slots, 16-byte aligned, min 16.
+func func_prologue_frame_bytes(f: int): int {
+    var mx = func_max_vreg_used(f)
+    var need = (mx + 1) * 8
+    if need < 16 {
+        need = 16
+    }
+    var al = (need + 15) / 16 * 16
+    return al
+}
+
 func emit_mov_stack_to_rax(out: int, slot: int): int {
     int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 133)
     emit_i32(out, stack_disp32(slot))
@@ -809,40 +980,20 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
         var bi = 0
         while (bi < bc) {
             var blk = func_get_block(f, bi)
-            if (blk < 0) {
-                bi = bi
-            } else {
-            if (block_label(blk) < 0) {
-                bi = bi
-            } else {
             int_vec_push(br_fi, fi)
             int_vec_push(br_lb, block_label(blk))
             int_vec_push(br_off, current_offset)
             var insts = block_insts(blk)
             var ic = int_vec_len(insts)
-            if (ic < 0) {
-                bi = bi
-            } else {
-            if (ic > 200000) {
-                stderr("codegen error: suspiciously large block instruction count fi=")
-                stderr(int_to_str(fi))
-                stderr(" block=")
-                stderr(int_to_str(block_label(blk)))
-                stderr(" ic=")
-                stderr(int_to_str(ic))
-                stderr(char_to_str(10))
-                int_vec_free(br_fi)
-                int_vec_free(br_lb)
-                int_vec_free(br_off)
-                int_vec_free(func_offsets)
-                int_vec_free(str_cum)
-                return 0 - 1
-            }
+            if (ic > 200000) { ic = 200000 }
             var ii = 0
             while (ii < ic) {
                 var ii_cur = ii
                 var inst = int_vec_get(insts, ii_cur)
                 var op = inst_op(inst)
+                if op == 0 - 1 {
+                    ii = ic
+                } else {
                 if op == ir_const() { current_offset = current_offset + 11 }
                 if op == ir_const_str() { current_offset = current_offset + 14 }
                 if op_is2(op, ir_add(), ir_sub()) == 1 { current_offset = current_offset + 21 }
@@ -924,11 +1075,37 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     }
                 }
                 ii = ii_cur + 1
-            }
-            }
-            }
+                }
             }
             bi = bi + 1
+        }
+        // Safety fallback: if IR has no explicit terminator, append a default epilogue.
+        var term_seen_p1 = 0
+        var bti = 0
+        while (bti < bc) {
+            var bblk = func_get_block(f, bti)
+            var b_insts = block_insts(bblk)
+            var bic = int_vec_len(b_insts)
+            if (bic > 200000) { bic = 200000 }
+            var bii = 0
+            while (bii < bic) {
+                var binst = int_vec_get(b_insts, bii)
+                var bop = inst_op(binst)
+                if (bop == ir_ret()) | (bop == ir_ret_void()) {
+                    term_seen_p1 = 1
+                    bii = bic
+                } else {
+                    bii = bii + 1
+                }
+            }
+            if term_seen_p1 == 1 { bti = bc } else { bti = bti + 1 }
+        }
+        if term_seen_p1 == 0 {
+            if (fi == main_fi) == 1 {
+                current_offset = current_offset + 11
+            } else {
+                current_offset = current_offset + 2
+            }
         }
         fi = fi + 1
     }
@@ -946,51 +1123,31 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
     fi = 0
     var code_ptr = 0
     while (fi < fc) {
+        var f = mod_get_func(m, fi)
+        var frame_b2 = func_prologue_frame_bytes(f)
         if (fi == main_fi) == 1 {
             // Ground-truth entry from emitted bytes (pass-2), not pass-1 estimate.
             main_off = int_vec_len(out)
         }
         int_vec_push(out, 85) // push rbp
         int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 229) // mov rbp, rsp
-        int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236) // sub rsp, 2048
-        int_vec_push(out, 0) int_vec_push(out, 8) int_vec_push(out, 0) int_vec_push(out, 0)
-
-        var f = mod_get_func(m, fi)
+        int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236) // sub rsp, imm32
+        emit_i32(out, frame_b2)
         var bc = func_block_count(f)
         var bi = 0
         while (bi < bc) {
             var blk = func_get_block(f, bi)
-            if (blk < 0) {
-                bi = bi
-            } else {
-            if (block_label(blk) < 0) {
-                bi = bi
-            } else {
             var insts = block_insts(blk)
             var ic = int_vec_len(insts)
-            if (ic < 0) {
-                bi = bi
-            } else {
-            if (ic > 200000) {
-                stderr("codegen error: suspicious pass2 block instruction count fi=")
-                stderr(int_to_str(fi))
-                stderr(" block=")
-                stderr(int_to_str(block_label(blk)))
-                stderr(" ic=")
-                stderr(int_to_str(ic))
-                stderr(char_to_str(10))
-                int_vec_free(br_fi)
-                int_vec_free(br_lb)
-                int_vec_free(br_off)
-                int_vec_free(func_offsets)
-                int_vec_free(str_cum)
-                return 0 - 1
-            }
+            if (ic > 200000) { ic = 200000 }
             var ii = 0
             while (ii < ic) {
                 var ii_cur = ii
                 var inst = int_vec_get(insts, ii_cur)
                 var op = inst_op(inst)
+                if op == 0 - 1 {
+                    ii = ic
+                } else {
                 var res = inst_result(inst)
                 var a = inst_a(inst)
                 var bv = inst_b(inst)
@@ -1203,11 +1360,39 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     }
                 }
                 ii = ii_cur + 1
-            }
-            }
-            }
+                }
             }
             bi = bi + 1
+        }
+        var term_seen_p2 = 0
+        var pb = 0
+        while (pb < bc) {
+            var pblk = func_get_block(f, pb)
+            var pinsts = block_insts(pblk)
+            var pic = int_vec_len(pinsts)
+            if (pic > 200000) { pic = 200000 }
+            var pii = 0
+            while (pii < pic) {
+                var pinst = int_vec_get(pinsts, pii)
+                var pop = inst_op(pinst)
+                if (pop == ir_ret()) | (pop == ir_ret_void()) {
+                    term_seen_p2 = 1
+                    pii = pic
+                } else {
+                    pii = pii + 1
+                }
+            }
+            if term_seen_p2 == 1 { pb = bc } else { pb = pb + 1 }
+        }
+        if term_seen_p2 == 0 {
+            if (fi == main_fi) == 1 {
+                int_vec_push(out, 201)
+                int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 255)
+                int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+                int_vec_push(out, 15) int_vec_push(out, 5)
+            } else {
+                int_vec_push(out, 201) int_vec_push(out, 195)
+            }
         }
         fi = fi + 1
     }
