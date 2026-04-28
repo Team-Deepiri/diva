@@ -171,7 +171,7 @@ func cg_inst(ctx: int, src: str, nl: str, inst: int): int {
         return 0
     }
 
-    if op == ir_add() | op == ir_sub() | op == ir_mul() {
+    if op_is3(op, ir_add(), ir_sub(), ir_mul()) == 1 {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         if op == ir_add() { lp_add(lp, "    addq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl) }
         if op == ir_sub() { lp_add(lp, "    subq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl) }
@@ -180,7 +180,7 @@ func cg_inst(ctx: int, src: str, nl: str, inst: int): int {
         return 0
     }
 
-    if op == ir_div() | op == ir_mod() {
+    if op_is2(op, ir_div(), ir_mod()) == 1 {
         lp_add(lp, "    movq $0, %rdx") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    cqto") lp_flush_sb(lp, sb, nl)
@@ -197,7 +197,10 @@ func cg_inst(ctx: int, src: str, nl: str, inst: int): int {
         return 0
     }
 
-    if op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() | op == ir_gt() | op == ir_ge() {
+    var is_cmp = 0
+    if (op_is3(op, ir_eq(), ir_ne(), ir_lt()) == 1) { is_cmp = 1 }
+    if (op_is3(op, ir_le(), ir_gt(), ir_ge()) == 1) { is_cmp = 1 }
+    if (is_cmp == 1) {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    cmpq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         if op == ir_eq() { lp_add(lp, "    sete %al") lp_flush_sb(lp, sb, nl) }
@@ -694,6 +697,19 @@ func report_bad_branch_label(src: str, toks: int, m: int, fi: int, op_name: str,
     return 0
 }
 
+func op_is2(op: int, a: int, b: int): int {
+    if (op == a) { return 1 }
+    if (op == b) { return 1 }
+    return 0
+}
+
+func op_is3(op: int, a: int, b: int, c: int): int {
+    if (op == a) { return 1 }
+    if (op == b) { return 1 }
+    if (op == c) { return 1 }
+    return 0
+}
+
 func stack_disp32(slot: int): int {
     return 0 - (slot + 1) * 8
 }
@@ -714,7 +730,7 @@ func emit_mov_imm32_to_stack(out: int, slot: int, v: int): int {
     int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 133)
     emit_i32(out, stack_disp32(slot))
     emit_i32(out, v)
-    return 10
+    return 11
 }
 
 func emit_arg_move_to_abi_reg(out: int, arg_idx: int, src_slot: int): int {
@@ -794,7 +810,10 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
         while (bi < bc) {
             var blk = func_get_block(f, bi)
             if (blk < 0) {
-                bi = bi + 1
+                bi = bi
+            } else {
+            if (block_label(blk) < 0) {
+                bi = bi
             } else {
             int_vec_push(br_fi, fi)
             int_vec_push(br_lb, block_label(blk))
@@ -802,7 +821,7 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
             var insts = block_insts(blk)
             var ic = int_vec_len(insts)
             if (ic < 0) {
-                bi = bi + 1
+                bi = bi
             } else {
             if (ic > 200000) {
                 stderr("codegen error: suspiciously large block instruction count fi=")
@@ -826,16 +845,19 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                 var op = inst_op(inst)
                 if op == ir_const() { current_offset = current_offset + 11 }
                 if op == ir_const_str() { current_offset = current_offset + 14 }
-                if op == ir_add() | op == ir_sub() { current_offset = current_offset + 21 }
+                if op_is2(op, ir_add(), ir_sub()) == 1 { current_offset = current_offset + 21 }
                 if op == ir_mul() { current_offset = current_offset + 22 }
-                if op == ir_div() | op == ir_mod() { current_offset = current_offset + 23 }
-                if op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() | op == ir_gt() | op == ir_ge() { current_offset = current_offset + 28 }
-                if op == ir_and() | op == ir_or() { current_offset = current_offset + 21 }
+                if op_is2(op, ir_div(), ir_mod()) == 1 { current_offset = current_offset + 23 }
+                var is_cmp_p1 = 0
+                if (op_is3(op, ir_eq(), ir_ne(), ir_lt()) == 1) { is_cmp_p1 = 1 }
+                if (op_is3(op, ir_le(), ir_gt(), ir_ge()) == 1) { is_cmp_p1 = 1 }
+                if (is_cmp_p1 == 1) { current_offset = current_offset + 28 }
+                if op_is2(op, ir_and(), ir_or()) == 1 { current_offset = current_offset + 21 }
                 if op == ir_not() { current_offset = current_offset + 24 }
                 if op == ir_neg() { current_offset = current_offset + 17 }
-                if op == ir_shl() | op == ir_shr() { current_offset = current_offset + 24 }
-                if op == ir_load() | op == ir_store() | op == ir_copy() { current_offset = current_offset + 14 }
-                if op == ir_alloca() { current_offset = current_offset + 10 }
+                if op_is2(op, ir_shl(), ir_shr()) == 1 { current_offset = current_offset + 24 }
+                if op_is3(op, ir_load(), ir_store(), ir_copy()) == 1 { current_offset = current_offset + 14 }
+                if op == ir_alloca() { current_offset = current_offset + 11 }
                 if op == ir_param() { current_offset = current_offset + 7 }
                 // Flat conditions (no nested if): pinned seed parse rejects `if op==ir_ret { if ... }`.
                 if (op == ir_ret()) & ((fi == main_fi) == 1) {
@@ -905,6 +927,7 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
             }
             }
             }
+            }
             bi = bi + 1
         }
         fi = fi + 1
@@ -938,12 +961,15 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
         while (bi < bc) {
             var blk = func_get_block(f, bi)
             if (blk < 0) {
-                bi = bi + 1
+                bi = bi
+            } else {
+            if (block_label(blk) < 0) {
+                bi = bi
             } else {
             var insts = block_insts(blk)
             var ic = int_vec_len(insts)
             if (ic < 0) {
-                bi = bi + 1
+                bi = bi
             } else {
             if (ic > 200000) {
                 stderr("codegen error: suspicious pass2 block instruction count fi=")
@@ -981,14 +1007,14 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     emit_i32(out, rel)
                     emit_mov_rax_to_stack(out, res)
                 }
-                if op == ir_add() | op == ir_sub() | op == ir_mul() {
+                if op_is3(op, ir_add(), ir_sub(), ir_mul()) == 1 {
                     emit_mov_stack_to_rax(out, a)
                     if op == ir_add() { int_vec_push(out, 72) int_vec_push(out, 3) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
                     if op == ir_sub() { int_vec_push(out, 72) int_vec_push(out, 43) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
                     if op == ir_mul() { int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 175) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
                     emit_mov_rax_to_stack(out, res)
                 }
-                if op == ir_div() | op == ir_mod() {
+                if op_is2(op, ir_div(), ir_mod()) == 1 {
                     emit_mov_stack_to_rax(out, a)
                     int_vec_push(out, 72) int_vec_push(out, 153)
                     int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 189) emit_i32(out, stack_disp32(bv))
@@ -998,7 +1024,10 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                         int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 149) emit_i32(out, stack_disp32(res))
                     }
                 }
-                if op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() | op == ir_gt() | op == ir_ge() {
+                var is_cmp_p2 = 0
+                if (op_is3(op, ir_eq(), ir_ne(), ir_lt()) == 1) { is_cmp_p2 = 1 }
+                if (op_is3(op, ir_le(), ir_gt(), ir_ge()) == 1) { is_cmp_p2 = 1 }
+                if (is_cmp_p2 == 1) {
                     emit_mov_stack_to_rax(out, a)
                     int_vec_push(out, 72) int_vec_push(out, 59) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv))
                     if op == ir_eq() { int_vec_push(out, 15) int_vec_push(out, 148) int_vec_push(out, 192) }
@@ -1010,26 +1039,26 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 182) int_vec_push(out, 192)
                     emit_mov_rax_to_stack(out, res)
                 }
-                if op == ir_and() | op == ir_or() {
+                if op_is2(op, ir_and(), ir_or()) == 1 {
                     emit_mov_stack_to_rax(out, a)
                     if op == ir_and() { int_vec_push(out, 72) int_vec_push(out, 35) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
                     if op == ir_or() { int_vec_push(out, 72) int_vec_push(out, 11) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
                     emit_mov_rax_to_stack(out, res)
                 }
-                if op == ir_shl() | op == ir_shr() {
+                if op_is2(op, ir_shl(), ir_shr()) == 1 {
                     int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 141) emit_i32(out, stack_disp32(bv))
                     emit_mov_stack_to_rax(out, a)
                     if op == ir_shl() { int_vec_push(out, 72) int_vec_push(out, 211) int_vec_push(out, 224) }
                     if op == ir_shr() { int_vec_push(out, 72) int_vec_push(out, 211) int_vec_push(out, 248) }
                     emit_mov_rax_to_stack(out, res)
                 }
-                if op == ir_not() | op == ir_neg() {
+                if op_is2(op, ir_not(), ir_neg()) == 1 {
                     emit_mov_stack_to_rax(out, a)
                     if op == ir_neg() { int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 216) }
                     if op == ir_not() { int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 192) int_vec_push(out, 15) int_vec_push(out, 148) int_vec_push(out, 192) int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 182) int_vec_push(out, 192) }
                     emit_mov_rax_to_stack(out, res)
                 }
-                if op == ir_load() | op == ir_store() | op == ir_copy() {
+                if op_is3(op, ir_load(), ir_store(), ir_copy()) == 1 {
                     emit_mov_stack_to_rax(out, a)
                     emit_mov_rax_to_stack(out, res)
                 }
@@ -1174,6 +1203,7 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
                     }
                 }
                 ii = ii_cur + 1
+            }
             }
             }
             }
