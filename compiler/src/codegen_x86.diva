@@ -616,8 +616,8 @@ func pure_builtin_call_size_hi_misc(id: int): int {
     if id == 21 { return 128 }
     if id == 22 { return 32 }
     if id == 23 { return 64 }
-    if id == 24 { return 16 }
-    if id == 25 { return 64 }
+    if id == 24 { return 3 }
+    if id == 25 { return 16 }
     if id == 26 { return 64 }
     if id == 27 { return 16 }
     return 5
@@ -1072,7 +1072,12 @@ func cg_p1_func(p2fctx: int, src: str, f: int, brtab: int, offset: int): int {
     var br_fi = brtab_fi(brtab)
     var br_lb = brtab_lb(brtab)
     var br_off = brtab_off(brtab)
-    var result = offset + 11
+    var prologue_sz = 11
+    if (fi == main_fi) == 1 {
+        // Entry function captures initial process stack pointer in r15 for host_argc/host_argv builtins.
+        prologue_sz = 14
+    }
+    var result = offset + prologue_sz
     var bc = func_block_count(f)
     if (bc > 50000) { bc = 0 }
     var bi = 0
@@ -1397,7 +1402,13 @@ func cg_p2_term(p2fctx: int, f: int, out: int): int {
 // Returns 0 on success, -1 on bad branch/size mismatch.
 func cg_p2_func(p2fctx: int, src: str, f: int, brtab: int, p2out_ctx: int): int {
     var out = p2out_out(p2out_ctx)
+    var fi = cg_p2fctx_fi(p2fctx)
+    var main_fi = cg_p2fctx_main_fi(p2fctx)
     var frame_b2 = func_prologue_frame_bytes(f)
+    if (fi == main_fi) == 1 {
+        // Save initial process stack pointer for host_argc/host_argv pure builtins.
+        int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 231)
+    }
     int_vec_push(out, 85)
     int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 229)
     int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236)

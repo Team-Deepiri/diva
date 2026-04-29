@@ -1,0 +1,7 @@
+extern func host_argv(i: int): str
+extern func str_len(s: str): int
+
+func main(): int {
+    var s = host_argv(1)
+    return str_len(s)
+}

@@ -1,0 +1,10 @@
+extern func print_str(x: str): void
+
+func main(): int {
+    print_str("hello\n")
+    return 0
+}
+
+func tail(): int {
+    return 7
+}
