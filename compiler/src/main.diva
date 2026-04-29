@@ -490,6 +490,26 @@ func make_phdr_ro_load(out: int, file_size: int, align: int): int {
     return 0
 }
 
+// Second half of make_phdr_rx_load: emits code_len, code_size, and final align fields.
+func make_phdr_rx_load_b(out: int, code_len: int, code_size: int, align: int): int {
+    int_vec_push(out, code_len & 255)
+    int_vec_push(out, (code_len / 256) & 255)
+    int_vec_push(out, (code_len / 65536) & 255)
+    int_vec_push(out, (code_len / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, code_size & 255)
+    int_vec_push(out, (code_size / 256) & 255)
+    int_vec_push(out, (code_size / 65536) & 255)
+    int_vec_push(out, (code_size / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, align & 255)
+    int_vec_push(out, (align / 256) & 255)
+    int_vec_push(out, (align / 65536) & 255)
+    int_vec_push(out, (align / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    return 0
+}
+
 func make_phdr_rx_load(out: int, code_len: int, code_size: int, align: int): int {
     int_vec_push(out, 1)
     int_vec_push(out, 0)
@@ -514,21 +534,7 @@ func make_phdr_rx_load(out: int, code_len: int, code_size: int, align: int): int
     int_vec_push(out, (align / 65536) & 255)
     int_vec_push(out, (align / 16777216) & 255)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, code_len & 255)
-    int_vec_push(out, (code_len / 256) & 255)
-    int_vec_push(out, (code_len / 65536) & 255)
-    int_vec_push(out, (code_len / 16777216) & 255)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, code_size & 255)
-    int_vec_push(out, (code_size / 256) & 255)
-    int_vec_push(out, (code_size / 65536) & 255)
-    int_vec_push(out, (code_size / 16777216) & 255)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, align & 255)
-    int_vec_push(out, (align / 256) & 255)
-    int_vec_push(out, (align / 65536) & 255)
-    int_vec_push(out, (align / 16777216) & 255)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    make_phdr_rx_load_b(out, code_len, code_size, align)
     return 0
 }
 
@@ -611,129 +617,97 @@ func native_require_no_externs(m: int, src: str, toks: int): int {
     return 0
 }
 
-// quiet: when 1, omit stderr on failure (caller may fall back to bootstrap).
-func native_compile_and_link(merged_src: str, quiet: int): int {
-    var stream = lex_source(merged_src)
-    if stream == 0 {
-        if quiet == 0 {
-            err_line("lexer error")
-        }
-        return 1
-    }
-    var pr = parse_source(merged_src, stream, 0)
-    if int_vec_get(pr, 1) != 0 {
-        if quiet == 0 {
-            err_line("parse error")
-        }
-        return 1
-    }
-    var ast = int_vec_get(pr, 0)
-    if sema_file_only_native_subset(ast) == 0 {
-        if quiet == 0 {
-            err_line("native build: unsupported surface (package/struct/class/trait/toplevel let)")
-        }
-        return 1
-    }
-    if sema_check_file(merged_src, stream, ast) != 0 {
-        return 1
-    }
-    var ir_result = build_ir(merged_src, stream, ast)
-    var m = int_vec_get(ir_result, 0)
-    var strv = int_vec_get(ir_result, 1)
-    var exe_out = native_tmp_exe()
-    var rt_o = di_runtime_object_path()
-    if native_force_no_external() == 1 {
-        rt_o = ""
-    }
-    // Only build gas text when linking runtime.o. Pure ELF path skips asm; see docs/seed-codegen-workarounds.md §3.
-    var asm_text = ""
-    if str_len(rt_o) != 0 {
-        asm_text = cg_module_to_str(m, merged_src, stream, strv, newline_str())
-        if (file_size(rt_o) < 0) {
-            if quiet == 0 {
-                err_line("native build: runtime object not readable (DI_RUNTIME_O or ROOT_DIR/bootstrap/runtime-linux-amd64.o)")
-            }
-            return 1
-        }
-        if native_build_linked_with_runtime(asm_text, exe_out, rt_o, quiet) == 0 {
-            return 0
-        }
-        return 1
-    }
-    
-    // No runtime .o on disk: in-process ELF only (extern stubs; no libc).
-    if native_require_no_externs(m, merged_src, stream) != 0 {
-        return 1
-    }
-    var code = int_vec_new()
-    var main_ent = cg_module_to_bin(m, merged_src, stream, strv, code)
-    if main_ent < 0 {
-        if quiet == 0 {
-            err_line("native codegen failed: unresolved branch/call target or offset-size mismatch")
-        }
-        int_vec_free(code)
-        return 1
-    }
+// Emit ELF binary from code bytes (main_ent = entry offset) and write to exe_out. Returns 0 on success.
+func native_emit_elf_hdr(elf: int, entry: int): int {
+    int_vec_push(elf, 127) int_vec_push(elf, 69) int_vec_push(elf, 76) int_vec_push(elf, 70)
+    int_vec_push(elf, 2) int_vec_push(elf, 1) int_vec_push(elf, 1) int_vec_push(elf, 0)
+    var i = 0 while (i < 8) { int_vec_push(elf, 0) i = i + 1 }
+    int_vec_push(elf, 3) int_vec_push(elf, 0)
+    int_vec_push(elf, 62) int_vec_push(elf, 0)
+    int_vec_push(elf, 1) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, entry & 255)
+    int_vec_push(elf, (entry / 256) & 255)
+    int_vec_push(elf, (entry / 65536) & 255)
+    int_vec_push(elf, (entry / 16777216) & 255)
+    int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, 64) i = 1 while (i < 8) { int_vec_push(elf, 0) i = i + 1 }
+    i = 0 while (i < 8) { int_vec_push(elf, 0) i = i + 1 }
+    int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, 64) int_vec_push(elf, 0)
+    int_vec_push(elf, 56) int_vec_push(elf, 0)
+    int_vec_push(elf, 2) int_vec_push(elf, 0)
+    int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, 0) int_vec_push(elf, 0)
+    return 0
+}
 
+func native_emit_pure_elf(code: int, main_ent: int, exe_out: str, quiet: int): int {
     var code_len = int_vec_len(code)
     var align = 4096
     var code_size = code_len
     var rem = code_size % align
     if rem != 0 { code_size = code_size + align - rem }
-    
-    var file_size = align + code_size
+    var file_sz = align + code_size
     var elf = int_vec_new()
     var entry = 4096 + main_ent
-    
-    // ELF Header (DYN/PIE)
-    int_vec_push(elf, 127) int_vec_push(elf, 69) int_vec_push(elf, 76) int_vec_push(elf, 70)
-    int_vec_push(elf, 2) int_vec_push(elf, 1) int_vec_push(elf, 1) int_vec_push(elf, 0)
-    var i = 0 while (i < 8) { int_vec_push(elf, 0) i = i + 1 }
-    int_vec_push(elf, 3) int_vec_push(elf, 0) // ET_DYN
-    int_vec_push(elf, 62) int_vec_push(elf, 0) // EM_X86_64
-    int_vec_push(elf, 1) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
-    // e_entry: 64-bit little-endian. Use explicit low-4 encoding (same shape as emit_i32);
-    // high 4 bytes zero — sufficient for PIE entry VAs below 4GiB (all current native outputs).
-    int_vec_push(elf, entry & 255)
-    int_vec_push(elf, (entry / 256) & 255)
-    int_vec_push(elf, (entry / 65536) & 255)
-    int_vec_push(elf, (entry / 16777216) & 255)
-    int_vec_push(elf, 0)
-    int_vec_push(elf, 0)
-    int_vec_push(elf, 0)
-    int_vec_push(elf, 0)
-    int_vec_push(elf, 64) i = 1 while (i < 8) { int_vec_push(elf, 0) i = i + 1 } // e_phoff = 64
-    i = 0 while (i < 8) { int_vec_push(elf, 0) i = i + 1 } // e_shoff = 0
-    int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
-    int_vec_push(elf, 64) int_vec_push(elf, 0) // e_ehsize
-    int_vec_push(elf, 56) int_vec_push(elf, 0) // e_phentsize
-    int_vec_push(elf, 2) int_vec_push(elf, 0) // e_phnum
-    int_vec_push(elf, 0) int_vec_push(elf, 0) // e_shentsize
-    int_vec_push(elf, 0) int_vec_push(elf, 0) // e_shnum
-    int_vec_push(elf, 0) int_vec_push(elf, 0) // e_shstrndx
-    
-    // Program Headers
-    make_phdr_ro_load(elf, file_size, align)
+    native_emit_elf_hdr(elf, entry)
+    make_phdr_ro_load(elf, file_sz, align)
     make_phdr_rx_load(elf, code_len, code_size, align)
-    
-    // Padding
-    i = int_vec_len(elf) while (i < align) { int_vec_push(elf, 0) i = i + 1 }
-    
-    // Code
+    var i = int_vec_len(elf) while (i < align) { int_vec_push(elf, 0) i = i + 1 }
     i = 0 while (i < code_len) { int_vec_push(elf, int_vec_get(code, i)) i = i + 1 }
     i = code_len while (i < code_size) { int_vec_push(elf, 0) i = i + 1 }
-    
     var res = native_write_exe(elf, exe_out)
     int_vec_free(elf)
-    int_vec_free(code)
-    
     if res != 0 {
-        if quiet == 0 {
-            err_line("build: writing native ELF failed (native_write_exe); need working sh, python3, and chmod on PATH")
-        }
+        if quiet == 0 { err_line("build: writing native ELF failed (native_write_exe); need working sh, python3, and chmod on PATH") }
         return 1
     }
     return 0
+}
+
+// quiet: when 1, omit stderr on failure (caller may fall back to bootstrap).
+func native_compile_and_link(merged_src: str, quiet: int): int {
+    var stream = lex_source(merged_src)
+    if stream == 0 {
+        if quiet == 0 { err_line("lexer error") }
+        return 1
+    }
+    var pr = parse_source(merged_src, stream, 0)
+    if int_vec_get(pr, 1) != 0 {
+        if quiet == 0 { err_line("parse error") }
+        return 1
+    }
+    var ast = int_vec_get(pr, 0)
+    if sema_file_only_native_subset(ast) == 0 {
+        if quiet == 0 { err_line("native build: unsupported surface (package/struct/class/trait/toplevel let)") }
+        return 1
+    }
+    if sema_check_file(merged_src, stream, ast) != 0 { return 1 }
+    var ir_result = build_ir(merged_src, stream, ast)
+    var m = int_vec_get(ir_result, 0)
+    var strv = int_vec_get(ir_result, 1)
+    var exe_out = native_tmp_exe()
+    var rt_o = di_runtime_object_path()
+    if native_force_no_external() == 1 { rt_o = "" }
+    if str_len(rt_o) != 0 {
+        var asm_text = cg_module_to_str(m, merged_src, stream, strv, newline_str())
+        if (file_size(rt_o) < 0) {
+            if quiet == 0 { err_line("native build: runtime object not readable (DI_RUNTIME_O or ROOT_DIR/bootstrap/runtime-linux-amd64.o)") }
+            return 1
+        }
+        if native_build_linked_with_runtime(asm_text, exe_out, rt_o, quiet) == 0 { return 0 }
+        return 1
+    }
+    if native_require_no_externs(m, merged_src, stream) != 0 { return 1 }
+    var code = int_vec_new()
+    var main_ent = cg_module_to_bin(m, merged_src, stream, strv, code)
+    if main_ent < 0 {
+        if quiet == 0 { err_line("native codegen failed: unresolved branch/call target or offset-size mismatch") }
+        int_vec_free(code)
+        return 1
+    }
+    return native_emit_pure_elf(code, main_ent, exe_out, quiet)
 }
 
 // 1 = source needs the bootstrap compiler (parse/native-subset gap); 0 = try native pipeline.

@@ -40,8 +40,15 @@ ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${DI_STDLIB_DIR}" \
   python3 "${ROOT_DIR}/scripts/merge_compiler_package.py" >"${MERGED}"
 
 echo "[build-compiler-cc-link] seed asm -> ${ASM}"
+set +e
 DI_STDLIB_DIR="${DI_STDLIB_DIR}" ROOT_DIR="${ROOT_DIR}" \
-  "${SEED}" asm "${MERGED}" >"${ASM}"
+  timeout 300 "${SEED}" asm "${MERGED}" >"${ASM}"
+ASM_RC=$?
+set -e
+if [ "${ASM_RC}" -ne 0 ]; then
+  echo "[build-compiler-cc-link] seed asm step failed or timed out (exit=${ASM_RC})" >&2
+  exit 1
+fi
 
 echo "[build-compiler-cc-link] cc (user asm + crt + runtime)"
 # PIE final link matches the seed binary (ET_DYN); a static ET_EXEC + this runtime mix

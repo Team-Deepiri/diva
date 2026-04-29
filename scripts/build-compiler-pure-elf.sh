@@ -38,9 +38,18 @@ unset DI_RUNTIME_O 2>/dev/null || true
 
 LOG="${WORK}/build.log"
 PKG="${ROOT_DIR}/compiler"
+BUILD_TIMEOUT_SECS="${BUILD_TIMEOUT_SECS:-600}"
 echo "[pure-elf-compiler] ${DRIVER} build ${PKG} (DIVA_NO_EXTERNAL=1, no DI_RUNTIME_O)"
-if ! "${DRIVER}" build "${PKG}" >"${LOG}" 2>&1; then
-  echo "[pure-elf-compiler] build failed; first lines of ${LOG}:" >&2
+set +e
+timeout "${BUILD_TIMEOUT_SECS}" "${DRIVER}" build "${PKG}" >"${LOG}" 2>&1
+RC=$?
+set -e
+if [[ "${RC}" -ne 0 ]]; then
+  if [[ "${RC}" -eq 124 ]]; then
+    echo "[pure-elf-compiler] build timed out after ${BUILD_TIMEOUT_SECS}s" >&2
+  else
+    echo "[pure-elf-compiler] build failed (exit=${RC}); first lines of ${LOG}:" >&2
+  fi
   sed -n '1,80p' "${LOG}" >&2
   exit 1
 fi
