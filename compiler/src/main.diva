@@ -765,6 +765,34 @@ func cmd_lex(path: str): int {
     return lex_file_to_stdout(path)
 }
 
+func cmd_runtime_probe(): int {
+    print_str("runtime-probe argc=")
+    print_str(int_to_str(host_argc()))
+    stdout(newline_str())
+    if (host_argc() >= 3) {
+        var path = host_argv(2)
+        print_str("runtime-probe argv2=")
+        print_str(path)
+        stdout(newline_str())
+        print_str("runtime-probe file_size=")
+        print_str(int_to_str(file_size(path)))
+        stdout(newline_str())
+        var data = read_file(path)
+        print_str("runtime-probe read_file_len=")
+        print_str(int_to_str(str_len(data)))
+        stdout(newline_str())
+    }
+    var cpath = "compiler/src/main.diva"
+    print_str("runtime-probe const_file_size=")
+    print_str(int_to_str(file_size(cpath)))
+    stdout(newline_str())
+    var apath = "/home/josep/projects/Deepiri/diri-lang/compiler/src/main.diva"
+    print_str("runtime-probe abs_file_size=")
+    print_str(int_to_str(file_size(apath)))
+    stdout(newline_str())
+    return 0
+}
+
 func cmd_parse(path: str): int {
     var src = read_source(path)
     if str_len(src) == 0 { return 1 }
@@ -1045,6 +1073,10 @@ func main(): int {
             return 1
         }
         return cmd_lex(host_argv(2))
+    }
+
+    if str_eq(a1, "runtime-probe") == 1 {
+        return cmd_runtime_probe()
     }
 
     if str_eq(a1, "parse") == 1 {

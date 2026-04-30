@@ -299,13 +299,13 @@ func lex_source(src: str): int {
 
 func lex_file_to_stdout(path: str): int {
     if file_size(path) < 0 {
-        stderr("diva lex: cannot read file\n")
+        print_str("diva lex: cannot read file")
         return 1
     }
     var src = read_file(path)
     var stream = lex_source(src)
     if stream == 0 {
-        stderr("diva lex: tokenization error\n")
+        print_str("diva lex: tokenization error")
         return 1
     }
     var count = tok_count(stream)

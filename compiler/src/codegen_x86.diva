@@ -614,8 +614,8 @@ func pure_builtin_call_size_hi_misc(id: int): int {
     if id == 19 { return 96 }
     if id == 20 { return 192 }
     if id == 21 { return 128 }
-    if id == 22 { return 32 }
-    if id == 23 { return 64 }
+    if id == 22 { return 104 }
+    if id == 23 { return 161 }
     if id == 24 { return 3 }
     if id == 25 { return 16 }
     if id == 26 { return 64 }
