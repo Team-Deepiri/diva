@@ -1072,12 +1072,7 @@ func cg_p1_func(p2fctx: int, src: str, f: int, brtab: int, offset: int): int {
     var br_fi = brtab_fi(brtab)
     var br_lb = brtab_lb(brtab)
     var br_off = brtab_off(brtab)
-    var prologue_sz = 11
-    if (fi == main_fi) == 1 {
-        // Entry function captures initial process stack pointer in r15 for host_argc/host_argv builtins.
-        prologue_sz = 14
-    }
-    var result = offset + prologue_sz
+    var result = offset + 11
     var bc = func_block_count(f)
     if (bc > 50000) { bc = 0 }
     var bi = 0
@@ -1402,13 +1397,7 @@ func cg_p2_term(p2fctx: int, f: int, out: int): int {
 // Returns 0 on success, -1 on bad branch/size mismatch.
 func cg_p2_func(p2fctx: int, src: str, f: int, brtab: int, p2out_ctx: int): int {
     var out = p2out_out(p2out_ctx)
-    var fi = cg_p2fctx_fi(p2fctx)
-    var main_fi = cg_p2fctx_main_fi(p2fctx)
     var frame_b2 = func_prologue_frame_bytes(f)
-    if (fi == main_fi) == 1 {
-        // Save initial process stack pointer for host_argc/host_argv pure builtins.
-        int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 231)
-    }
     int_vec_push(out, 85)
     int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 229)
     int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236)
@@ -1429,22 +1418,8 @@ func cg_p2_func(p2fctx: int, src: str, f: int, brtab: int, p2out_ctx: int): int 
             if (op < 1) | (op > 60) {
                 ii = ic
             } else {
-            var pre_len = int_vec_len(out)
             var rc = cg_p2_inst(p2fctx, src, brtab, p2out_ctx, inst)
             if (rc < 0) { return 0 - 1 }
-            var act_sz = int_vec_len(out) - pre_len
-            var exp_sz = cg_p1_inst_sz(p2fctx, src, f, inst)
-            if (act_sz == exp_sz) == 0 {
-                stderr("INSTMIS fi=")
-                stderr(int_to_str(cg_p2fctx_fi(p2fctx)))
-                stderr(" op=")
-                stderr(int_to_str(op))
-                stderr(" exp=")
-                stderr(int_to_str(exp_sz))
-                stderr(" act=")
-                stderr(int_to_str(act_sz))
-                stderr(char_to_str(10))
-            }
             ii = ii_cur + 1
             }
         }
@@ -1482,7 +1457,9 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
     // Pass 1: Label resolution
     var brtab = brtab_new()
     var func_offsets = int_vec_new()
-    var current_offset = 0
+    // Entry stub (8 bytes): mov r15,rsp ; jmp main
+    // Pure host_argc/host_argv builtins read startup stack from r15.
+    var current_offset = 8
 
     var fi = 0
     while (fi < fc) {
@@ -1512,26 +1489,17 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
 
     // Pass 2: Code emission
     var p2out_ctx = p2out_new(out, func_offsets, str_cum, instr_total)
+    // Emit entry stub before all functions.
+    // 49 89 E7                mov r15, rsp
+    // E9 rel32               jmp main
+    int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 231)
+    int_vec_push(out, 233)
+    emit_i32(out, main_off - 8)
     fi = 0
     while (fi < fc) {
         var f = mod_get_func(m, fi)
         if (fi == main_fi) == 1 {
             main_off = int_vec_len(out)
-        }
-        var p1_exp_off = int_vec_get(func_offsets, fi)
-        var p2_cur_off = int_vec_len(out)
-        if (p2_cur_off == p1_exp_off) == 0 {
-            stderr("P2MISMATCH fi=")
-            stderr(int_to_str(fi))
-            stderr(" name=")
-            stderr(tok_text(src, toks, func_name_tok(f)))
-            stderr(" p1=")
-            stderr(int_to_str(p1_exp_off))
-            stderr(" p2=")
-            stderr(int_to_str(p2_cur_off))
-            stderr(" diff=")
-            stderr(int_to_str(p2_cur_off - p1_exp_off))
-            stderr(char_to_str(10))
         }
         var p2fctx = cg_p2fctx_new(m, toks, main_fi, fi)
         var p2_rc = cg_p2_func(p2fctx, src, f, brtab, p2out_ctx)
@@ -1562,7 +1530,7 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
     brtab_free(brtab)
     int_vec_free(func_offsets)
     int_vec_free(str_cum)
-    return main_off
+    return 0
 }
 
 func cg_module_print(m: int, src: str, toks: int, str_toks: int, nl: str): int {

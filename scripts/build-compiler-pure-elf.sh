@@ -38,10 +38,15 @@ unset DI_RUNTIME_O 2>/dev/null || true
 
 LOG="${WORK}/build.log"
 PKG="${ROOT_DIR}/compiler"
-BUILD_TIMEOUT_SECS="${BUILD_TIMEOUT_SECS:-600}"
-echo "[pure-elf-compiler] ${DRIVER} build ${PKG} (DIVA_NO_EXTERNAL=1, no DI_RUNTIME_O)"
+# Full compiler package can take 12–20+ minutes on slower hosts; override with BUILD_TIMEOUT_SECS.
+BUILD_TIMEOUT_SECS="${BUILD_TIMEOUT_SECS:-1800}"
+echo "[pure-elf-compiler] ${DRIVER} build ${PKG} (DIVA_NO_EXTERNAL=1, no DI_RUNTIME_O, timeout=${BUILD_TIMEOUT_SECS}s)"
 set +e
-timeout "${BUILD_TIMEOUT_SECS}" "${DRIVER}" build "${PKG}" >"${LOG}" 2>&1
+if command -v stdbuf >/dev/null 2>&1; then
+  timeout "${BUILD_TIMEOUT_SECS}" stdbuf -o0 -e0 "${DRIVER}" build "${PKG}" >"${LOG}" 2>&1
+else
+  timeout "${BUILD_TIMEOUT_SECS}" "${DRIVER}" build "${PKG}" >"${LOG}" 2>&1
+fi
 RC=$?
 set -e
 if [[ "${RC}" -ne 0 ]]; then

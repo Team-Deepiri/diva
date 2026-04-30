@@ -1,6 +1,0 @@
-extern func print_str(x: str): void
-
-func main(): int {
-    print_str("hi")
-    return 0
-}

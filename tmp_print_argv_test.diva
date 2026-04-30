@@ -1,7 +1,0 @@
-extern func host_argv(i: int): str
-extern func print_str(x: str): void
-
-func main(): int {
-    print_str(host_argv(1))
-    return 0
-}

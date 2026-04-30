@@ -1,9 +1,0 @@
-extern func host_argc(): int
-extern func host_argv(i: int): str
-extern func write(fd: int, s: str): int
-
-func main(): int {
-    var c = host_argc()
-    // Return argc directly so we can validate calling path without relying on formatting.
-    return c
-}

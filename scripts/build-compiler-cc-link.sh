@@ -13,6 +13,7 @@ RT_O="${DI_RUNTIME_O:-${ROOT_DIR}/bootstrap/runtime-linux-amd64.o}"
 CRT_SRC="${ROOT_DIR}/compiler/res/native_crt.s"
 OUT_EXE="${1:-${ROOT_DIR}/build/diva-stage2}"
 WORK="${ROOT_DIR}/build/.compiler-cc-link"
+ASM_TIMEOUT_SECS="${ASM_TIMEOUT_SECS:-300}"
 MERGED="${WORK}/merged.diva"
 ASM="${WORK}/merged.s"
 USER_O="${WORK}/merged.o"
@@ -42,7 +43,7 @@ ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${DI_STDLIB_DIR}" \
 echo "[build-compiler-cc-link] seed asm -> ${ASM}"
 set +e
 DI_STDLIB_DIR="${DI_STDLIB_DIR}" ROOT_DIR="${ROOT_DIR}" \
-  timeout 300 "${SEED}" asm "${MERGED}" >"${ASM}"
+  timeout "${ASM_TIMEOUT_SECS}" "${SEED}" asm "${MERGED}" >"${ASM}"
 ASM_RC=$?
 set -e
 if [ "${ASM_RC}" -ne 0 ]; then
