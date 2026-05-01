@@ -5,7 +5,7 @@ This roadmap starts from the current Diva MVP, not from zero.
 Already present today:
 
 - **Pinned seed** `bootstrap/diva-linux-amd64`: full compiler (lexer, parser, AST, semantic analysis, native build via generated C + link, pseudo–LLVM IR text output). No in-tree C sources; seed rebuilt only from git history when needed.
-- **`.diva`** sources everywhere user-facing; **Diva bootstrap driver** in `compiler/` forwards to the seed until a full Diva-implemented compiler exists.
+- **`.diva`** sources everywhere user-facing; **Diva driver** in `compiler/` implements the main CLI natively; the pinned seed remains the trust root until promotion.
 - `diva` CLI with `build`, `run`, `emit-ir`, `watch`, and `new` (via seed + install layout; `di` symlink optional).
 - Hosted **LLVM IR** runtime (`runtime/runtime.ll` / `runtime.o`), install scripts, examples, tests, and a local editor extension
 

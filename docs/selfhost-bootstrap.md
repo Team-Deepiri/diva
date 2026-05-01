@@ -4,14 +4,14 @@ This document tracks what the hosted Diva runtime exposes so a Diva-implemented 
 
 ## Bootstrap driver (`compiler/`)
 
-The repository ships a Diva app (`compiler/src/main.diva`) that builds to a hosted executable (installed as `diva-driver`; `install.sh` wraps it as `diva`). **Implemented in Diva** (no C sources in-tree):
+The repository ships a Diva app (`compiler/src/main.diva`) that builds to the **native driver** (installed as `diva-driver`; `install.sh` wraps it as `diva`). **Implemented in Diva** (no C sources in-tree):
 
 - `diva lex`, `diva parse`, `diva ir`, `diva asm` — lexer, parser, AST → Diva IR, x86 assembly text (`compiler/src/*.diva`).
-- `diva build`, `diva run`, `diva emit-ir`, `diva check`, … — still **forwarded** to the pinned **seed** binary (`bootstrap/diva-linux-amd64`) via `host_system`, until those stages are replaced in Diva.
+- `diva build`, `diva run`, `diva emit-ir`, `diva check`, `diva new` (app / `--lib`) — implemented in the native driver. Default is **pure ELF**; hosted **`cc` + `runtime.o`** only when **`DIVA_ALLOW_HOSTED_LINK=1`** (and `DIVA_NO_EXTERNAL` is not forcing pure). **`diva new --kernel`** remains seed-only.
 
-Set `DIVA_BOOTSTRAP` or `DI_BOOTSTRAP` to the seed path (the install wrapper sets this). The driver uses `host_getenv` and `host_system`; the hosted runtime implements them in LLVM IR (`runtime/runtime.ll`), compiled with `clang` at install when available, or use `bootstrap/runtime-linux-amd64.o` when `NO_CLANG=1`.
+The install wrapper may still set `DIVA_BOOTSTRAP` / `DI_BOOTSTRAP` for promotion workflows. The driver uses `host_getenv` and `host_system` where needed (e.g. writing ELFs via `python3` in some paths); the hosted runtime implements hosted hooks in LLVM IR (`runtime/runtime.ll`), or use `bootstrap/runtime-linux-amd64.o` when `NO_CLANG=1`.
 
-**Full self-host** (no seed for normal builds) means reimplementing `build` / codegen / link entirely in Diva and then promoting that executable to become the new seed; see `docs/replace-llvm.md` and `docs/source-language-policy.md`.
+**Trust root:** the pinned seed remains the binary trust root until you promote a new one; CI `tests/run.sh` requires pure compiler rebuild convergence and `scripts/verify-pure-compiler-build.sh`. See `README.md` and `docs/replace-llvm.md`.
 
 ## Process and file I/O
 

@@ -1,6 +1,6 @@
 // Diva compiler driver — native pipeline (lexer → parser → sema → IR → x86).
-// Default: pure in-process ELF (no external toolchain). If DI_RUNTIME_O points at
-// runtime-linux-amd64.o, we emit gas and link with cc + that object (hosted di_runtime_*).
+// Default: pure in-process ELF (no external toolchain). Hosted cc+runtime.o linking runs only
+// when DIVA_ALLOW_HOSTED_LINK=1 and DI_RUNTIME_O (or ROOT_DIR/bootstrap/runtime-linux-amd64.o) is usable.
 
 import "std/host.diva"
 import "std/io.diva"
@@ -26,8 +26,8 @@ func cmd_print_usage(): int {
     stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast] | run <...>\n")
     stderr("  check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline\n")
-    stderr("Environment: DI_STDLIB_DIR; DI_RUNTIME_O overrides auto path; else ROOT_DIR/bootstrap/runtime-linux-amd64.o is used for native build+link (cc); DIVA_BOOTSTRAP / DI_BOOTSTRAP for check/new/\n")
-    stderr("  package emit-ir and kernel package build (delegates to seed when set)\n")
+    stderr("Environment: DI_STDLIB_DIR; DIVA_NO_EXTERNAL=1 forces pure ELF; hosted cc+runtime.o only if DIVA_ALLOW_HOSTED_LINK=1 and runtime .o is readable\n")
+    stderr("  diva new <path> [--lib]; diva new --kernel → use seed binary\n")
     return 1
 }
 
@@ -46,95 +46,6 @@ func system_exit_code(rc: int): int {
         return rc
     }
     return rc / 256
-}
-
-func bootstrap_path(): str {
-    var p = host_getenv("DIVA_BOOTSTRAP")
-    if (str_len(p) > 0) {
-        return p
-    }
-    p = host_getenv("DI_BOOTSTRAP")
-    if (str_len(p) > 0) {
-        return p
-    }
-    var root = host_getenv("ROOT_DIR")
-    if str_len(root) == 0 {
-        root = "."
-    }
-    var auto = str_concat(root, "/bootstrap/diva-linux-amd64")
-    if (file_size(auto) < 0) {
-        return ""
-    }
-    return auto
-}
-
-// ASCII 32..126 as contiguous bytes (see stdlib/std/char_to_str_table.bin).
-func ascii_table_load(): str {
-    var root = host_getenv("DI_STDLIB_DIR")
-    if str_len(root) == 0 {
-        root = "stdlib"
-    }
-    var b = str_builder_new()
-    str_builder_append(b, root)
-    str_builder_append(b, "/std/char_to_str_table.bin")
-    var p = str_builder_to_str(b)
-    str_builder_free(b)
-    return read_file(p)
-}
-
-func shell_byte_to_str(c: int, table: str): str {
-    if (!(c < 32) & !(c > 126)) {
-        var need = (c - 32) + 1
-        if (!(need > str_len(table))) {
-            return str_slice(table, c - 32, 1)
-        }
-    }
-    return ""
-}
-
-// Shell-escape one argument as a single-quoted word (safe for sh -c via system()).
-func shell_append_single_quoted(sb: int, s: str, table: str): int {
-    str_builder_append(sb, "'")
-    var n = str_len(s)
-    var i = 0
-    while (i < n) {
-        var c = str_byte(s, i)
-        if c == 39 {
-            str_builder_append(sb, "'")
-            str_builder_append(sb, shell_byte_to_str(92, table))
-            str_builder_append(sb, "'")
-            str_builder_append(sb, "'")
-        } else {
-            str_builder_append(sb, shell_byte_to_str(c, table))
-        }
-        i = i + 1
-    }
-    str_builder_append(sb, "'")
-    return 0
-}
-
-func forward_bootstrap_argv(): int {
-    var boot = bootstrap_path()
-    if str_len(boot) == 0 {
-        err_line("set DIVA_BOOTSTRAP or DI_BOOTSTRAP to the seed diva binary for this command")
-        return 1
-    }
-    var tbl = ascii_table_load()
-    if (str_len(tbl) < 95) {
-        err_line("bootstrap forward: missing stdlib/std/char_to_str_table.bin (check DI_STDLIB_DIR)")
-        return 1
-    }
-    var b = str_builder_new()
-    shell_append_single_quoted(b, boot, tbl)
-    var i = 1
-    while (i < host_argc()) {
-        str_builder_append(b, " ")
-        shell_append_single_quoted(b, host_argv(i), tbl)
-        i = i + 1
-    }
-    var cmd = str_builder_to_str(b)
-    str_builder_free(b)
-    return system_exit_code(host_system(cmd))
 }
 
 // Native x86_64 PIE ELF generator - no cc, no as, no ld!
@@ -564,6 +475,15 @@ func native_force_no_external(): int {
     return 0
 }
 
+// Hosted cc + prebuilt runtime.o (di_runtime_*). Off by default so normal installs stay pure-first.
+func native_allow_hosted_link(): int {
+    var v = host_getenv("DIVA_ALLOW_HOSTED_LINK")
+    if str_eq(v, "1") == 1 { return 1 }
+    if str_eq(v, "true") == 1 { return 1 }
+    if str_eq(v, "yes") == 1 { return 1 }
+    return 0
+}
+
 func native_require_no_externs(m: int, src: str, toks: int): int {
     var ec = mod_extern_count(m)
     var unresolved = 0
@@ -691,6 +611,11 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     var rt_o = di_runtime_object_path()
     if native_force_no_external() == 1 { rt_o = "" }
     if str_len(rt_o) != 0 {
+        if (file_size(rt_o) >= 0 & native_allow_hosted_link() == 0) {
+            rt_o = ""
+        }
+    }
+    if str_len(rt_o) != 0 {
         var asm_text = cg_module_to_str(m, merged_src, stream, strv, newline_str())
         if (file_size(rt_o) < 0) {
             if quiet == 0 { err_line("native build: runtime object not readable (DI_RUNTIME_O or ROOT_DIR/bootstrap/runtime-linux-amd64.o)") }
@@ -761,36 +686,206 @@ func newline_str(): str {
     return empty
 }
 
-func cmd_lex(path: str): int {
-    return lex_file_to_stdout(path)
+func path_basename(path: str): str {
+    var n = str_len(path)
+    while (n > 0 & str_byte(path, n - 1) == 47) {
+        n = n - 1
+    }
+    if n == 0 {
+        var empty = ""
+        return empty
+    }
+    var i = n - 1
+    while (i >= 0) {
+        if str_byte(path, i) == 47 {
+            return str_slice(path, i + 1, n - (i + 1))
+        }
+        i = i - 1
+    }
+    return str_slice(path, 0, n)
 }
 
-func cmd_runtime_probe(): int {
-    print_str("runtime-probe argc=")
-    print_str(int_to_str(host_argc()))
-    stdout(newline_str())
-    if (host_argc() >= 3) {
-        var path = host_argv(2)
-        print_str("runtime-probe argv2=")
-        print_str(path)
-        stdout(newline_str())
-        print_str("runtime-probe file_size=")
-        print_str(int_to_str(file_size(path)))
-        stdout(newline_str())
-        var data = read_file(path)
-        print_str("runtime-probe read_file_len=")
-        print_str(int_to_str(str_len(data)))
-        stdout(newline_str())
+// Shell-safe subset for mkdir -p (no spaces, quotes, globs).
+func new_path_shell_safe(p: str): int {
+    var n = str_len(p)
+    if n == 0 {
+        return 0
     }
-    var cpath = "compiler/src/main.diva"
-    print_str("runtime-probe const_file_size=")
-    print_str(int_to_str(file_size(cpath)))
-    stdout(newline_str())
-    var apath = "/home/josep/projects/Deepiri/diri-lang/compiler/src/main.diva"
-    print_str("runtime-probe abs_file_size=")
-    print_str(int_to_str(file_size(apath)))
-    stdout(newline_str())
+    if str_contains(p, "..") == 1 {
+        return 0
+    }
+    var i = 0
+    while (i < n) {
+        var c = str_byte(p, i)
+        if c == 47 { i = i + 1 continue }
+        if c == 45 { i = i + 1 continue }
+        if c == 95 { i = i + 1 continue }
+        if c == 46 { i = i + 1 continue }
+        if (c >= 48 & c <= 57) { i = i + 1 continue }
+        if (c >= 65 & c <= 90) { i = i + 1 continue }
+        if (c >= 97 & c <= 122) { i = i + 1 continue }
+        return 0
+    }
+    return 1
+}
+
+func native_mkdir_p(path: str): int {
+    var b = str_builder_new()
+    str_builder_append(b, "mkdir -p ")
+    str_builder_append(b, path)
+    var cmd = str_builder_to_str(b)
+    str_builder_free(b)
+    if host_system(cmd) != 0 {
+        err_line("new: mkdir -p failed (check path permissions)")
+        return 1
+    }
     return 0
+}
+
+func cmd_new(): int {
+    if (host_argc() < 3) {
+        err_line("usage: diva new <path> [--lib]   (or: diva new --lib <path>)")
+        err_line("diva new --kernel is not supported in the native driver; run the seed binary")
+        return 1
+    }
+    var want_lib = 0
+    var want_kernel = 0
+    var path = ""
+    var i = 2
+    while (i < host_argc()) {
+        var a = host_argv(i)
+        if str_eq(a, "--lib") == 1 {
+            want_lib = 1
+        } else {
+            if str_eq(a, "--kernel") == 1 {
+                want_kernel = 1
+            } else {
+                if str_byte(a, 0) != 45 {
+                    if str_len(path) == 0 {
+                        path = a
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    if want_kernel == 1 {
+        err_line("diva new --kernel is not supported in the native driver; run the seed binary (e.g. bootstrap/diva-linux-amd64)")
+        return 1
+    }
+    if str_len(path) == 0 {
+        err_line("usage: diva new <path> [--lib]")
+        return 1
+    }
+    if new_path_shell_safe(path) == 0 {
+        err_line("new: path must use only [A-Za-z0-9._/-] and must not contain ..")
+        return 1
+    }
+    if (file_size(path_join_dir(path, "package.diva")) >= 0) {
+        err_line("new: destination already exists (package.diva present)")
+        return 1
+    }
+    if native_mkdir_p(path) != 0 {
+        return 1
+    }
+    var src_dir = path_join_dir(path, "src")
+    if native_mkdir_p(src_dir) != 0 {
+        return 1
+    }
+    var nm = path_basename(path)
+    if str_len(nm) == 0 {
+        nm = "app"
+    }
+    var nl = newline_str()
+    var mf = str_builder_new()
+    str_builder_append(mf, "name = \"")
+    str_builder_append(mf, nm)
+    str_builder_append(mf, "\"")
+    str_builder_append(mf, nl)
+    if want_lib == 1 {
+        str_builder_append(mf, "kind = \"lib\"")
+        str_builder_append(mf, nl)
+        str_builder_append(mf, "entry = \"src/lib.diva\"")
+        str_builder_append(mf, nl)
+    } else {
+        str_builder_append(mf, "kind = \"app\"")
+        str_builder_append(mf, nl)
+        str_builder_append(mf, "entry = \"src/main.diva\"")
+        str_builder_append(mf, nl)
+    }
+    var mf_s = str_builder_to_str(mf)
+    str_builder_free(mf)
+    if native_write_text_bytes(path_join_dir(path, "package.diva"), mf_s) != 0 {
+        err_line("new: writing package.diva failed")
+        return 1
+    }
+    var main_body = ""
+    if want_lib == 1 {
+        main_body = "// Library package: add funcs here; depend from apps via package.diva deps."
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "func lib_ping(): int {")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    return 1")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "}")
+        main_body = str_concat(main_body, nl)
+        if native_write_text_bytes(path_join_dir(src_dir, "lib.diva"), main_body) != 0 {
+            err_line("new: writing src/lib.diva failed")
+            return 1
+        }
+    } else {
+        main_body = "extern func print_str(s: str): void"
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "func main(): int {")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    print_str(\"new_smoke_ok\")")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    return 0")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "}")
+        main_body = str_concat(main_body, nl)
+        if native_write_text_bytes(path_join_dir(src_dir, "main.diva"), main_body) != 0 {
+            err_line("new: writing src/main.diva failed")
+            return 1
+        }
+    }
+    var gitig = str_builder_new()
+    str_builder_append(gitig, "/build/")
+    str_builder_append(gitig, nl)
+    str_builder_append(gitig, "*.o")
+    str_builder_append(gitig, nl)
+    str_builder_append(gitig, "/tmp/")
+    str_builder_append(gitig, nl)
+    if native_write_text_bytes(path_join_dir(path, ".gitignore"), str_builder_to_str(gitig)) != 0 {
+        str_builder_free(gitig)
+        err_line("new: writing .gitignore failed")
+        return 1
+    }
+    str_builder_free(gitig)
+    var rd = str_builder_new()
+    str_builder_append(rd, "# ")
+    str_builder_append(rd, nm)
+    str_builder_append(rd, nl)
+    str_builder_append(rd, nl)
+    str_builder_append(rd, "Created with `diva new`. Run: `diva run ")
+    str_builder_append(rd, path)
+    str_builder_append(rd, "`")
+    str_builder_append(rd, nl)
+    if native_write_text_bytes(path_join_dir(path, "README.md"), str_builder_to_str(rd)) != 0 {
+        str_builder_free(rd)
+        err_line("new: writing README.md failed")
+        return 1
+    }
+    str_builder_free(rd)
+    print_str("[native] created package at ")
+    print_str(path)
+    stdout(nl)
+    return 0
+}
+
+func cmd_lex(path: str): int {
+    return lex_file_to_stdout(path)
 }
 
 func cmd_parse(path: str): int {
@@ -844,7 +939,20 @@ func cmd_asm(path: str): int {
 }
 
 func cmd_emit_ir(path: str): int {
-    var src = merge_file_sources(path)
+    var src = ""
+    if path_is_package_dir(path) == 1 {
+        if package_is_kernel_dir(path) == 1 {
+            err_line("emit-ir: kernel packages are not supported in the native driver")
+            return 1
+        }
+        src = merge_package_sources(path)
+    } else {
+        if path_is_diva_file(path) == 0 {
+            err_line("emit-ir: expected a .diva file or an app/lib package directory")
+            return 1
+        }
+        src = merge_file_sources(path)
+    }
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
@@ -902,7 +1010,7 @@ func build_wants_ast(): int {
     return 0
 }
 
-// Lex + parse + sema for a lib/app package (merged sources). Kernel packages still use the seed.
+// Lex + parse + sema for a lib/app package (merged sources). No seed forwarding.
 func cmd_check(): int {
     if (host_argc() < 3) {
         err_line("usage: diva check <package-dir>")
@@ -914,21 +1022,17 @@ func cmd_check(): int {
         return 1
     }
     if package_is_kernel_dir(path) == 1 {
-        return forward_bootstrap_argv()
+        err_line("check: kernel packages are not supported in the native driver")
+        return 1
     }
     var merged = merge_package_sources(path)
     if str_len(merged) == 0 {
-        if (str_len(bootstrap_path()) > 0) {
-            return forward_bootstrap_argv()
-        }
+        err_line("check: could not merge package sources (see loader messages above)")
         return 1
     }
     if native_driver_should_delegate(merged) == 1 {
-        if str_len(bootstrap_path()) == 0 {
-            err_line("native driver: set DIVA_BOOTSTRAP (or DI_BOOTSTRAP) for this source")
-            return 1
-        }
-        return forward_bootstrap_argv()
+        err_line("check: native driver cannot handle this source surface yet")
+        return 1
     }
     var stream = lex_source(merged)
     if stream == 0 {
@@ -966,16 +1070,15 @@ func cmd_build(): int {
     }
     if build_path_is_package_dir(path) == 1 {
         if package_is_kernel_dir(path) == 1 {
-            return forward_bootstrap_argv()
+            err_line("build: kernel packages are not supported in the native driver")
+            return 1
         }
     }
     var merged = ""
     if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
         if str_len(merged) == 0 {
-            if (str_len(bootstrap_path()) > 0) {
-                return forward_bootstrap_argv()
-            }
+            err_line("build: could not merge package sources (see loader messages above)")
             return 1
         }
     } else {
@@ -993,11 +1096,8 @@ func cmd_build(): int {
         return 1
     }
     if native_driver_should_delegate(merged) == 1 {
-        if str_len(bootstrap_path()) == 0 {
-            err_line("native driver: set DIVA_BOOTSTRAP (or DI_BOOTSTRAP) for this source")
-            return 1
-        }
-        return forward_bootstrap_argv()
+        err_line("build: native driver cannot handle this source surface yet")
+        return 1
     }
     if native_compile_and_link(merged, 0) != 0 {
         return 1
@@ -1013,9 +1113,7 @@ func cmd_run_file(path: str): int {
     if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
         if str_len(merged) == 0 {
-            if (str_len(bootstrap_path()) > 0) {
-                return forward_bootstrap_argv()
-            }
+            err_line("run: could not merge package sources (see loader messages above)")
             return 1
         }
     } else {
@@ -1033,20 +1131,10 @@ func cmd_run_file(path: str): int {
         return 1
     }
     if native_driver_should_delegate(merged) == 1 {
-        if str_len(bootstrap_path()) == 0 {
-            err_line("native driver: set DIVA_BOOTSTRAP (or DI_BOOTSTRAP) for this source")
-            return 1
-        }
-        return forward_bootstrap_argv()
+        err_line("run: native driver cannot handle this source surface yet")
+        return 1
     }
-    var quiet_native = 0
-    if (str_len(bootstrap_path()) > 0) {
-        quiet_native = 1
-    }
-    if native_compile_and_link(merged, quiet_native) != 0 {
-        if (str_len(bootstrap_path()) > 0) {
-            return forward_bootstrap_argv()
-        }
+    if native_compile_and_link(merged, 0) != 0 {
         return 1
     }
     var rc = host_system(native_tmp_exe())
@@ -1064,7 +1152,7 @@ func main(): int {
     }
 
     if str_eq(a1, "new") == 1 {
-        return forward_bootstrap_argv()
+        return cmd_new()
     }
 
     if str_eq(a1, "lex") == 1 {
@@ -1073,10 +1161,6 @@ func main(): int {
             return 1
         }
         return cmd_lex(host_argv(2))
-    }
-
-    if str_eq(a1, "runtime-probe") == 1 {
-        return cmd_runtime_probe()
     }
 
     if str_eq(a1, "parse") == 1 {
@@ -1109,13 +1193,6 @@ func main(): int {
             return 1
         }
         var p = host_argv(2)
-        if path_is_package_dir(p) == 1 {
-            return forward_bootstrap_argv()
-        }
-        if path_is_diva_file(p) == 0 {
-            err_line("emit-ir: expected a .diva file or package directory")
-            return 1
-        }
         return cmd_emit_ir(p)
     }
 
@@ -1134,7 +1211,7 @@ func main(): int {
     if str_eq(a1, "compiler-version") == 1 {
         print_str("diva compiler v0.5.0")
         print_str("  native: lex, parse, sema, Diva IR, x86_64 binary (ELF PIE)")
-        print_str("  build/run: single .diva or package directory (pure native, no cc/as/ld)")
+        print_str("  build/run: pure ELF by default; cc+runtime.o only if DIVA_ALLOW_HOSTED_LINK=1 and runtime .o readable")
         return 0
     }
 

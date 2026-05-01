@@ -31,7 +31,7 @@ You **cannot** patch the opaque seed ELF in git to “fix GCC.” You **can** (a
 
 **Do this (C toolchain only optional for one-off experiments elsewhere):**
 
-1. Ensure `native_compile_and_link` takes the **pure ELF** branch for the build you care about: e.g. do **not** point `DI_RUNTIME_O` at a readable `runtime-linux-amd64.o`, or set `DIVA_NO_EXTERNAL=1` so the driver clears `rt_o` (see `compiler/src/main.diva`).
+1. Ensure `native_compile_and_link` takes the **pure ELF** branch for the build you care about: omit **`DIVA_ALLOW_HOSTED_LINK`**, set **`DIVA_NO_EXTERNAL=1`**, or unset / hide **`DI_RUNTIME_O`** / `bootstrap/runtime-linux-amd64.o` so the driver does not select the hosted `cc` path (see `compiler/src/main.diva`).
 2. Build the merged driver with the **seed** only:  
    `sh scripts/build-bootstrap-driver-merged.sh build/diva-driver-merged`  
    or promote: `sh scripts/promote-bootstrap-seed.sh` (see comments in that script — it prefers the seed’s `diva build compiler/` output).

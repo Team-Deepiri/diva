@@ -15,6 +15,13 @@ SEED="${ROOT_DIR}/bootstrap/diva-linux-amd64"
 BUILD_LOG="${DIVA_SHARE}/.compiler-build.log"
 TRACE_LOG="${DIVA_SHARE}/install.log"
 QUIET="${DIVA_INSTALL_QUIET:-0}"
+# Strict: require Diva-authored driver build (no seed-only install). Default on in CI unless DIVA_INSTALL_SEED_ONLY=1.
+INSTALL_STRICT=0
+if [ "${DIVA_INSTALL_SEED_ONLY:-}" != "1" ]; then
+  if [ "${DIVA_INSTALL_STRICT:-}" = "1" ] || [ "${CI:-}" = "true" ] || [ "${CI:-}" = "1" ]; then
+    INSTALL_STRICT=1
+  fi
+fi
 
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 
@@ -133,6 +140,13 @@ else
   tail -n 60 "${BUILD_LOG}" >&2 || true
 fi
 
+if [ "${INSTALL_STRICT}" = "1" ]; then
+  if [ "${seed_rc}" -ne 0 ] || [ "${DRIVER_INSTALLED}" != "1" ]; then
+    log "strict install (CI or DIVA_INSTALL_STRICT=1): refusing seed-only install; fix compiler build or set DIVA_INSTALL_SEED_ONLY=1 for bring-up"
+    die "Diva driver build required in strict mode (seed_rc=${seed_rc} driver_installed=${DRIVER_INSTALLED})"
+  fi
+fi
+
 hr "install wrapper / binaries"
 if [ "${DRIVER_INSTALLED}" = "1" ]; then
   cat >"${INSTALL_DIR}/diva" <<'WRAPPER'
@@ -163,7 +177,7 @@ echo "Installed runtime object to ${RUNTIME_O}"
 echo "Installed stdlib to ${STDLIB_DIR}"
 echo "Installed bootstrap seed to ${BOOTSTRAP_DIR}/diva-linux-amd64"
 if [ "${DRIVER_INSTALLED}" = "1" ]; then
-  echo "Installed Diva-authored driver to ${LIBEXEC_DIR}/diva-driver (lexer + seed forward)"
+  echo "Installed Diva-authored driver to ${LIBEXEC_DIR}/diva-driver (native pipeline; hosted cc+link only with DIVA_ALLOW_HOSTED_LINK=1)"
 fi
 echo ""
 echo "Install trace log: ${TRACE_LOG}"
@@ -173,6 +187,8 @@ echo "Add to your environment (e.g. ~/.profile):"
 echo "  export PATH=\"${INSTALL_DIR}:\${PATH}\""
 echo "  export DI_STDLIB_DIR=\"${STDLIB_DIR}\""
 echo "  export DI_RUNTIME_O=\"${RUNTIME_O}\""
+echo "  # Optional: hosted cc + runtime.o for user builds (default driver path is pure ELF):"
+echo "  export DIVA_ALLOW_HOSTED_LINK=1"
 echo ""
 echo "DIVA_BOOTSTRAP / DI_BOOTSTRAP are set by the diva wrapper to \${XDG_DATA_HOME:-\$HOME/.local/share}/diva/bootstrap/diva-linux-amd64"
 echo "Linking user programs still uses the system linker driver (cc); there are no C sources in this repository."

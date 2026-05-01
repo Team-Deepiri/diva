@@ -150,6 +150,25 @@ if ! diva parse "${ROOT_DIR}/compiler/src/cell.diva" >"${TEST_ROOT}/check-cell-p
     fail "diva parse compiler/src/cell.diva failed"
 fi
 
+log "checking diva new (native driver)"
+(
+    cd "${TEST_ROOT}" || exit 1
+    rm -rf diva_new_smoke diva_new_lib
+    if ! diva new diva_new_smoke >"${TEST_ROOT}/new-app.out" 2>&1; then
+        sed -n '1,80p' "${TEST_ROOT}/new-app.out" >&2
+        exit 1
+    fi
+    if ! diva new diva_new_lib --lib >"${TEST_ROOT}/new-lib.out" 2>&1; then
+        sed -n '1,80p' "${TEST_ROOT}/new-lib.out" >&2
+        exit 1
+    fi
+) || fail "diva new failed"
+assert_output_equals "${TEST_ROOT}/diva_new_smoke" "new_smoke_ok"
+if ! diva check "${TEST_ROOT}/diva_new_lib" >"${TEST_ROOT}/new-lib-check.out" 2>&1; then
+    sed -n '1,80p' "${TEST_ROOT}/new-lib-check.out" >&2
+    fail "diva check on diva new --lib package failed"
+fi
+
 run_all_tests() {
     _stage=$1
     log "running integration tests (${_stage})"
@@ -221,7 +240,7 @@ assert_ir_contains "${ROOT_DIR}/examples/array_mutation.diva" "store"
 
 log "checking generated project workflow"
 rm -rf "${TEST_ROOT}/generated-app"
-# `diva new` forwards through host_system(sh …); use static fixtures so tests stay reliable
+# Package layout smoke tests use static fixtures; `diva new` is exercised explicitly after install.
 # when fork limits are tight after many native runs.
 cp -R "${ROOT_DIR}/tests/fixtures/generated_app" "${TEST_ROOT}/generated-app"
 
@@ -297,7 +316,7 @@ fi
 
 run_all_tests seed
 
-log "checking self-host bootstrap (Diva compiler package forwards to seed)"
+log "checking self-host bootstrap (seed builds compiler; pure path: DIVA_NO_EXTERNAL=1, no DI_RUNTIME_O)"
 export DIVA_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
 export DI_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
 RUNTIME_O="${HOME_DIR}/.local/share/diva/runtime/runtime.o"
@@ -305,13 +324,13 @@ if ! [ -f "${RUNTIME_O}" ]; then
     fail "expected runtime object at ${RUNTIME_O}"
 fi
 BUILD_OUT="${TEST_ROOT}/compiler-selfhost-build.out"
-if ! DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
+if ! ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+    env -u DI_RUNTIME_O \
     "${ROOT_DIR}/bootstrap/diva-linux-amd64" build "${ROOT_DIR}/compiler" >"${BUILD_OUT}" 2>&1
 then
-    log "self-host stage skipped: seed cannot build compiler in this environment yet"
-    sed -n '1,20p' "${BUILD_OUT}" >&2 || true
-    log "all tests passed (seed-mode checks)"
-    exit 0
+    printf '[test:error] seed pure build of compiler/ failed (required for self-host convergence)\n' >&2
+    sed -n '1,120p' "${BUILD_OUT}" >&2
+    fail "seed build compiler with DIVA_NO_EXTERNAL=1 failed; fix compiler sources or pure runtime builtins"
 fi
 SELFHOST_EXE=$(sed -n 's/^\[native\] built executable at //p' "${BUILD_OUT}" | tail -n 1)
 if [ -z "${SELFHOST_EXE}" ]; then
@@ -328,9 +347,10 @@ ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
 
 run_all_tests selfhost
 
-log "checking self-host convergence (stage3: compiler rebuilt with stage2 diva)"
+log "checking self-host convergence (stage3: compiler rebuilt with stage2 diva, pure path)"
 BUILD3_OUT="${TEST_ROOT}/compiler-stage3-build.out"
-if ! DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
+if ! ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+    env -u DI_RUNTIME_O \
     "${BIN_DIR}/diva" build "${ROOT_DIR}/compiler" >"${BUILD3_OUT}" 2>&1
 then
     sed -n '1,120p' "${BUILD3_OUT}" >&2
@@ -350,6 +370,19 @@ chmod +x "${BIN_DIR}/diva"
 ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
 
 run_all_tests selfhost_stage3
+
+log "verifying pure-elf full compiler package (scripts/verify-pure-compiler-build.sh)"
+if [ ! -x "${ROOT_DIR}/build/diva-stage2" ]; then
+    log "building ./build/diva-stage2 via scripts/build-compiler-cc-link.sh"
+    if ! bash "${ROOT_DIR}/scripts/build-compiler-cc-link.sh" >"${TEST_ROOT}/build-stage2-cc-link.out" 2>&1; then
+        sed -n '1,120p' "${TEST_ROOT}/build-stage2-cc-link.out" >&2
+        fail "scripts/build-compiler-cc-link.sh failed (required for pure compiler verification)"
+    fi
+fi
+if ! sh "${ROOT_DIR}/scripts/verify-pure-compiler-build.sh" >"${TEST_ROOT}/pure-compiler-verify.out" 2>&1; then
+    sed -n '1,120p' "${TEST_ROOT}/pure-compiler-verify.out" >&2
+    fail "scripts/verify-pure-compiler-build.sh failed"
+fi
 
 log "verifying NO_CLANG=1 install contract (scripts/verify-no-clang.sh)"
 if ! NO_CLANG=1 sh "${ROOT_DIR}/scripts/verify-no-clang.sh" >"${TEST_ROOT}/no-clang-verify.out" 2>&1; then
