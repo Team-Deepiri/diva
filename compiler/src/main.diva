@@ -27,7 +27,7 @@ func cmd_print_usage(): int {
     stderr("  check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline\n")
     stderr("Environment: DI_STDLIB_DIR; DIVA_NO_EXTERNAL=1 forces pure ELF; hosted cc+runtime.o only if DIVA_ALLOW_HOSTED_LINK=1 and runtime .o is readable\n")
-    stderr("  diva new <path> [--lib]; diva new --kernel → use seed binary\n")
+    stderr("  diva new <path> [--lib|--kernel] (native scaffolding)\n")
     return 1
 }
 
@@ -673,6 +673,7 @@ func build_path_is_package_dir(path: str): int {
 }
 
 // Real LF byte from file — Diva `"\n"` in source is two chars (backslash + n), not ASCII 10.
+// Resolve via cwd-relative paths first, then DI_STDLIB_DIR/std/lf.txt, then ROOT_DIR.
 func newline_str(): str {
     var s = read_file("compiler/res/lf.txt")
     if (!(str_len(s) < 1)) {
@@ -681,6 +682,18 @@ func newline_str(): str {
     s = read_file("res/lf.txt")
     if (!(str_len(s) < 1)) {
         return str_slice(s, 0, 1)
+    }
+    var stdroot = loader_stdlib_dir()
+    s = read_file(path_join_dir(stdroot, "std/lf.txt"))
+    if (!(str_len(s) < 1)) {
+        return str_slice(s, 0, 1)
+    }
+    var root = host_getenv("ROOT_DIR")
+    if str_len(root) > 0 {
+        s = read_file(path_join_dir(root, "compiler/res/lf.txt"))
+        if (!(str_len(s) < 1)) {
+            return str_slice(s, 0, 1)
+        }
     }
     var empty = ""
     return empty
@@ -705,38 +718,50 @@ func path_basename(path: str): str {
     return str_slice(path, 0, n)
 }
 
-// Shell-safe subset for mkdir -p (no spaces, quotes, globs).
+// Shell-safe subset for mkdir -p (no spaces, quotes, globs, dot-segments).
+// No `continue` here: the driver subset may not implement continue, which would
+// make every path look invalid after the first character.
 func new_path_shell_safe(p: str): int {
     var n = str_len(p)
     if n == 0 {
         return 0
     }
-    if str_contains(p, "..") == 1 {
-        return 0
-    }
     var i = 0
     while (i < n) {
         var c = str_byte(p, i)
-        if c == 47 { i = i + 1 continue }
-        if c == 45 { i = i + 1 continue }
-        if c == 95 { i = i + 1 continue }
-        if c == 46 { i = i + 1 continue }
-        if (c >= 48 & c <= 57) { i = i + 1 continue }
-        if (c >= 65 & c <= 90) { i = i + 1 continue }
-        if (c >= 97 & c <= 122) { i = i + 1 continue }
-        return 0
+        var ok = 0
+        if c == 47 { ok = 1 }
+        if c == 45 { ok = 1 }
+        if c == 95 { ok = 1 }
+        if (c >= 48 & c <= 57) { ok = 1 }
+        if (c >= 65 & c <= 90) { ok = 1 }
+        if (c >= 97 & c <= 122) { ok = 1 }
+        if ok == 0 {
+            return 0
+        }
+        i = i + 1
     }
     return 1
 }
 
+// Create directory trees without invoking /bin/mkdir (paths are caller-validated safe).
 func native_mkdir_p(path: str): int {
     var b = str_builder_new()
-    str_builder_append(b, "mkdir -p ")
+    str_builder_append(b, "python3 -c \"import os; os.makedirs('")
     str_builder_append(b, path)
+    str_builder_append(b, "', exist_ok=True)\"")
     var cmd = str_builder_to_str(b)
     str_builder_free(b)
     if host_system(cmd) != 0 {
-        err_line("new: mkdir -p failed (check path permissions)")
+        err_line("new: could not create directories (need python3 on PATH)")
+        return 1
+    }
+    return 0
+}
+
+// True when di_runtime_file_size reports ENOENT (-1); avoids brittle signed `>= 0` checks.
+func file_size_isENOENT(z: int): int {
+    if z + 1 == 0 {
         return 1
     }
     return 0
@@ -744,8 +769,7 @@ func native_mkdir_p(path: str): int {
 
 func cmd_new(): int {
     if (host_argc() < 3) {
-        err_line("usage: diva new <path> [--lib]   (or: diva new --lib <path>)")
-        err_line("diva new --kernel is not supported in the native driver; run the seed binary")
+        err_line("usage: diva new <path> [--lib|--kernel]   (or: diva new --lib <path>)")
         return 1
     }
     var want_lib = 0
@@ -769,19 +793,21 @@ func cmd_new(): int {
         }
         i = i + 1
     }
-    if want_kernel == 1 {
-        err_line("diva new --kernel is not supported in the native driver; run the seed binary (e.g. bootstrap/diva-linux-amd64)")
+    if (want_lib == 1 & want_kernel == 1) {
+        err_line("new: choose either --lib or --kernel")
         return 1
     }
     if str_len(path) == 0 {
-        err_line("usage: diva new <path> [--lib]")
+        err_line("usage: diva new <path> [--lib|--kernel]")
         return 1
     }
     if new_path_shell_safe(path) == 0 {
-        err_line("new: path must use only [A-Za-z0-9._/-] and must not contain ..")
+        err_line("new: path must use only [A-Za-z0-9_/-] (no dots, spaces, or shell metacharacters)")
         return 1
     }
-    if (file_size(path_join_dir(path, "package.diva")) >= 0) {
+    var manifest_path = path_join_dir(path, "package.diva")
+    var msz = file_size(manifest_path)
+    if file_size_isENOENT(msz) == 0 {
         err_line("new: destination already exists (package.diva present)")
         return 1
     }
@@ -797,6 +823,10 @@ func cmd_new(): int {
         nm = "app"
     }
     var nl = newline_str()
+    if str_len(nl) == 0 {
+        err_line("new: could not load a newline byte (lf.txt); set DI_STDLIB_DIR or ROOT_DIR, or run from the repo tree")
+        return 1
+    }
     var mf = str_builder_new()
     str_builder_append(mf, "name = \"")
     str_builder_append(mf, nm)
@@ -806,6 +836,11 @@ func cmd_new(): int {
         str_builder_append(mf, "kind = \"lib\"")
         str_builder_append(mf, nl)
         str_builder_append(mf, "entry = \"src/lib.diva\"")
+        str_builder_append(mf, nl)
+    } else if want_kernel == 1 {
+        str_builder_append(mf, "kind = \"kernel\"")
+        str_builder_append(mf, nl)
+        str_builder_append(mf, "entry = \"src/boot.diva\"")
         str_builder_append(mf, nl)
     } else {
         str_builder_append(mf, "kind = \"app\"")
@@ -831,6 +866,19 @@ func cmd_new(): int {
         main_body = str_concat(main_body, nl)
         if native_write_text_bytes(path_join_dir(src_dir, "lib.diva"), main_body) != 0 {
             err_line("new: writing src/lib.diva failed")
+            return 1
+        }
+    } else if want_kernel == 1 {
+        main_body = "func kmain(): int {"
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    var boot_magic = 42")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    return boot_magic")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "}")
+        main_body = str_concat(main_body, nl)
+        if native_write_text_bytes(path_join_dir(src_dir, "boot.diva"), main_body) != 0 {
+            err_line("new: writing src/boot.diva failed")
             return 1
         }
     } else {
@@ -868,10 +916,29 @@ func cmd_new(): int {
     str_builder_append(rd, nm)
     str_builder_append(rd, nl)
     str_builder_append(rd, nl)
-    str_builder_append(rd, "Created with `diva new`. Run: `diva run ")
-    str_builder_append(rd, path)
-    str_builder_append(rd, "`")
+    str_builder_append(rd, "Created with `diva new`.")
     str_builder_append(rd, nl)
+    str_builder_append(rd, nl)
+    if want_kernel == 1 {
+        str_builder_append(rd, "Kernel package scaffold. Validate with:")
+        str_builder_append(rd, nl)
+        str_builder_append(rd, "`diva parse ")
+        str_builder_append(rd, path_join_dir(path, "src/boot.diva"))
+        str_builder_append(rd, "`")
+        str_builder_append(rd, nl)
+    } else if want_lib == 1 {
+        str_builder_append(rd, "Library scaffold. Validate with:")
+        str_builder_append(rd, nl)
+        str_builder_append(rd, "`diva check ")
+        str_builder_append(rd, path)
+        str_builder_append(rd, "`")
+        str_builder_append(rd, nl)
+    } else {
+        str_builder_append(rd, "Run: `diva run ")
+        str_builder_append(rd, path)
+        str_builder_append(rd, "`")
+        str_builder_append(rd, nl)
+    }
     if native_write_text_bytes(path_join_dir(path, "README.md"), str_builder_to_str(rd)) != 0 {
         str_builder_free(rd)
         err_line("new: writing README.md failed")

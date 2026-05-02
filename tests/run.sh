@@ -153,7 +153,7 @@ fi
 log "checking diva new (native driver)"
 (
     cd "${TEST_ROOT}" || exit 1
-    rm -rf diva_new_smoke diva_new_lib
+    rm -rf diva_new_smoke diva_new_lib diva_new_kernel
     if ! diva new diva_new_smoke >"${TEST_ROOT}/new-app.out" 2>&1; then
         sed -n '1,80p' "${TEST_ROOT}/new-app.out" >&2
         exit 1
@@ -162,11 +162,23 @@ log "checking diva new (native driver)"
         sed -n '1,80p' "${TEST_ROOT}/new-lib.out" >&2
         exit 1
     fi
+    if ! diva new diva_new_kernel --kernel >"${TEST_ROOT}/new-kernel.out" 2>&1; then
+        sed -n '1,80p' "${TEST_ROOT}/new-kernel.out" >&2
+        exit 1
+    fi
 ) || fail "diva new failed"
 assert_output_equals "${TEST_ROOT}/diva_new_smoke" "new_smoke_ok"
 if ! diva check "${TEST_ROOT}/diva_new_lib" >"${TEST_ROOT}/new-lib-check.out" 2>&1; then
     sed -n '1,80p' "${TEST_ROOT}/new-lib-check.out" >&2
     fail "diva check on diva new --lib package failed"
+fi
+if ! grep -q '^kind = "kernel"$' "${TEST_ROOT}/diva_new_kernel/package.diva"; then
+    sed -n '1,40p' "${TEST_ROOT}/diva_new_kernel/package.diva" >&2
+    fail "diva new --kernel did not write kernel manifest kind"
+fi
+if ! diva parse "${TEST_ROOT}/diva_new_kernel/src/boot.diva" >"${TEST_ROOT}/new-kernel-parse.out" 2>&1; then
+    sed -n '1,80p' "${TEST_ROOT}/new-kernel-parse.out" >&2
+    fail "diva parse on diva new --kernel boot.diva failed"
 fi
 
 run_all_tests() {

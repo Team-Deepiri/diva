@@ -100,7 +100,7 @@ seed_rc=0
 if [ "${QUIET}" = "1" ]; then
   log "QUIET=1: build output only in ${BUILD_LOG} (no live tee)"
   set +e
-  DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
+  DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" DIVA_ALLOW_HOSTED_LINK=1 \
     "${SEED}" build "${ROOT_DIR}/compiler" >"${BUILD_LOG}" 2>&1
   seed_rc=$?
   set -e
@@ -108,10 +108,10 @@ else
   log "Streaming build to terminal and ${BUILD_LOG} (set DIVA_INSTALL_QUIET=1 to disable stream)"
   set +e
   if command -v stdbuf >/dev/null 2>&1; then
-    DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
+    DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" DIVA_ALLOW_HOSTED_LINK=1 \
       stdbuf -oL -eL "${SEED}" build "${ROOT_DIR}/compiler" 2>&1 | tee "${BUILD_LOG}"
   else
-    DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
+    DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" DIVA_ALLOW_HOSTED_LINK=1 \
       "${SEED}" build "${ROOT_DIR}/compiler" 2>&1 | tee "${BUILD_LOG}"
   fi
   seed_rc=${PIPESTATUS[0]}
@@ -138,6 +138,25 @@ else
   log "Compiler build failed (exit ${seed_rc}). See ${BUILD_LOG}"
   log "Last 60 lines of ${BUILD_LOG}:"
   tail -n 60 "${BUILD_LOG}" >&2 || true
+  if [ -x "${ROOT_DIR}/scripts/build-compiler-cc-link.sh" ]; then
+    log "Attempting fallback driver build via scripts/build-compiler-cc-link.sh"
+    if DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
+      ASM_TIMEOUT_SECS="${ASM_TIMEOUT_SECS:-1200}" \
+      bash "${ROOT_DIR}/scripts/build-compiler-cc-link.sh" >>"${BUILD_LOG}" 2>&1; then
+      DRIVER="${ROOT_DIR}/build/diva-stage2"
+      if [ -x "${DRIVER}" ]; then
+        log "Fallback build succeeded; installing driver from ${DRIVER}"
+        cp -v "${DRIVER}" "${LIBEXEC_DIR}/diva-driver" >&2
+        chmod +x "${LIBEXEC_DIR}/diva-driver"
+        DRIVER_INSTALLED=1
+        seed_rc=0
+      else
+        log "Fallback build reported success but ${DRIVER} is missing or not executable"
+      fi
+    else
+      log "Fallback build failed; see ${BUILD_LOG}"
+    fi
+  fi
 fi
 
 if [ "${INSTALL_STRICT}" = "1" ]; then

@@ -42,7 +42,7 @@ The repository only updates `bootstrap/diva-linux-amd64` when someone **commits*
 
 Set `DI_STDLIB_DIR` and `DI_RUNTIME_O` after install, or rely on defaults under `~/.local/share/diva/` (see `scripts/install.sh`).
 
-For **`diva build` / `diva run`**: the driver uses **pure in-process ELF** by default (no `cc` / `runtime.o`). **`DIVA_NO_EXTERNAL=1`** still forces that path. Hosted linking (**`cc`** + **`compiler/res/native_crt.s`** + **`DI_RUNTIME_O`** / `ROOT_DIR/bootstrap/runtime-linux-amd64.o`) runs only when **`DIVA_ALLOW_HOSTED_LINK=1`** (and a readable runtime object is available). The native **`diva` driver** does not delegate normal commands to the seed; use the seed binary for **`diva new --kernel`** and any other seed-only workflows.
+For **`diva build` / `diva run`**: the driver uses **pure in-process ELF** by default (no `cc` / `runtime.o`). **`DIVA_NO_EXTERNAL=1`** still forces that path. Hosted linking (**`cc`** + **`compiler/res/native_crt.s`** + **`DI_RUNTIME_O`** / `ROOT_DIR/bootstrap/runtime-linux-amd64.o`) runs only when **`DIVA_ALLOW_HOSTED_LINK=1`** (and a readable runtime object is available). The native **`diva` driver** does not delegate normal commands to the seed.
 
 ## Source extension
 

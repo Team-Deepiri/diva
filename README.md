@@ -8,7 +8,7 @@
 |--------|------|
 | **`bootstrap/diva-linux-amd64`** | **Pinned seed binary** (full pipeline for `build` / `run` / `emit-ir` today). Not C *source* in this repo — it is the trust root until the Diva-only compiler can replace it end-to-end. See `bootstrap/README.md`. |
 | **`runtime/runtime.ll`** + **`bootstrap/runtime-linux-amd64.o`** | Hosted runtime (argv, I/O, `std/host` / `std/vec`). Becomes **`runtime.o`** at install (`clang -c` on the `.ll`, or copy the prebuilt `.o` when `NO_CLANG=1`). |
-| **`compiler/`** (`package.diva`) | **Diva-built driver**: native commands (`lex`, `parse`, `ir`, `asm`, `emit-ir`, `build`, `run`, `check`, `new` for app/lib) run in Diva without delegating to the seed. **`diva new --kernel`** is still seed-only. Default **`build`/`run`** use pure ELF; hosted **`cc` + `runtime.o`** only when **`DIVA_ALLOW_HOSTED_LINK=1`**. Installed as `$XDG_DATA_HOME/diva/libexec/diva-driver` with a **`diva` wrapper** (still ships the seed for promotion / manual use). |
+| **`compiler/`** (`package.diva`) | **Diva-built driver**: native commands (`lex`, `parse`, `ir`, `asm`, `emit-ir`, `build`, `run`, `check`, `new` for app/lib/kernel) run in Diva without delegating to the seed. Default **`build`/`run`** use pure ELF; hosted **`cc` + `runtime.o`** only when **`DIVA_ALLOW_HOSTED_LINK=1`**. Installed as `$XDG_DATA_HOME/diva/libexec/diva-driver` with a **`diva` wrapper** (still ships the seed for promotion / manual use). |
 | **`compiler/{mir,backend}/`** | MIR / ELF scaffolding for the native backend in Diva. |
 | **`compiler/frontend/`** | Shares lexer sources with `compiler/src/`. |
 
@@ -120,7 +120,7 @@ diva emit-ir .
 diva watch .
 ```
 
-`diva new` (native driver) creates a package directory with `package.diva`, `src/`, `.gitignore`, and README. Use the **seed** binary for **`diva new --kernel`**.
+`diva new` (native driver) creates app/lib/kernel package directories with `package.diva`, `src/`, `.gitignore`, and README.
 
 Package manifests can also declare local dependencies like `dep.math_lib = "../math_lib"`, and source files can import them with `import "pkg/math_lib"`.
 

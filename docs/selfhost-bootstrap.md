@@ -7,7 +7,7 @@ This document tracks what the hosted Diva runtime exposes so a Diva-implemented 
 The repository ships a Diva app (`compiler/src/main.diva`) that builds to the **native driver** (installed as `diva-driver`; `install.sh` wraps it as `diva`). **Implemented in Diva** (no C sources in-tree):
 
 - `diva lex`, `diva parse`, `diva ir`, `diva asm` — lexer, parser, AST → Diva IR, x86 assembly text (`compiler/src/*.diva`).
-- `diva build`, `diva run`, `diva emit-ir`, `diva check`, `diva new` (app / `--lib`) — implemented in the native driver. Default is **pure ELF**; hosted **`cc` + `runtime.o`** only when **`DIVA_ALLOW_HOSTED_LINK=1`** (and `DIVA_NO_EXTERNAL` is not forcing pure). **`diva new --kernel`** remains seed-only.
+- `diva build`, `diva run`, `diva emit-ir`, `diva check`, `diva new` (app / `--lib` / `--kernel`) — implemented in the native driver. Default is **pure ELF**; hosted **`cc` + `runtime.o`** only when **`DIVA_ALLOW_HOSTED_LINK=1`** (and `DIVA_NO_EXTERNAL` is not forcing pure).
 
 The install wrapper may still set `DIVA_BOOTSTRAP` / `DI_BOOTSTRAP` for promotion workflows. The driver uses `host_getenv` and `host_system` where needed (e.g. writing ELFs via `python3` in some paths); the hosted runtime implements hosted hooks in LLVM IR (`runtime/runtime.ll`), or use `bootstrap/runtime-linux-amd64.o` when `NO_CLANG=1`.
 
