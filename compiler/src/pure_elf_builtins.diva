@@ -1,4 +1,4 @@
-// Machine-generated padded x86-64 blobs for DIVA_NO_EXTERNAL ELF path.
+// Machine-generated padded x86-64 blobs for the pure in-process ELF emit path.
 import "std/vec.diva"
 import "tokens.diva"
 

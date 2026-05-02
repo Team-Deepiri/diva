@@ -17,6 +17,6 @@ extern func int_to_str(n: int): str
 extern func host_getenv(name: str): str
 extern func host_system(cmd: str): int
 
-// Optional driver helpers (runtime_extra.o + pure ELF blobs): mkdir one component, write full file.
+// Driver helpers (pure ELF syscall blobs): mkdir one component, write full file.
 extern func mkdir(path: str): int
 extern func write_text_file(path: str, data: str): int

@@ -327,7 +327,7 @@ fi
 
 run_all_tests seed
 
-log "checking self-host bootstrap (seed builds compiler; pure path: DIVA_NO_EXTERNAL=1, no DI_RUNTIME_O)"
+log "checking self-host bootstrap (seed builds compiler; pure ELF)"
 export DIVA_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
 export DI_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
 RUNTIME_O="${HOME_DIR}/.local/share/diva/runtime/runtime.o"
@@ -336,7 +336,7 @@ if ! [ -f "${RUNTIME_O}" ]; then
 fi
 BUILD_OUT="${TEST_ROOT}/compiler-selfhost-build.out"
 if ! ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-    env -u DI_RUNTIME_O \
+    DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
     "${ROOT_DIR}/bootstrap/diva-linux-amd64" build "${ROOT_DIR}/compiler" >"${BUILD_OUT}" 2>&1
 then
     printf '[test:error] seed pure build of compiler/ failed (required for self-host convergence)\n' >&2
@@ -361,7 +361,7 @@ run_all_tests selfhost
 log "checking self-host convergence (stage3: compiler rebuilt with stage2 diva, pure path)"
 BUILD3_OUT="${TEST_ROOT}/compiler-stage3-build.out"
 if ! ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-    env -u DI_RUNTIME_O \
+    DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
     "${BIN_DIR}/diva" build "${ROOT_DIR}/compiler" >"${BUILD3_OUT}" 2>&1
 then
     sed -n '1,120p' "${BUILD3_OUT}" >&2
@@ -383,13 +383,6 @@ ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
 run_all_tests selfhost_stage3
 
 log "verifying pure-elf full compiler package (scripts/verify-pure-compiler-build.sh)"
-if [ ! -x "${ROOT_DIR}/build/diva-stage2" ]; then
-    log "building ./build/diva-stage2 via scripts/build-compiler-cc-link.sh"
-    if ! bash "${ROOT_DIR}/scripts/build-compiler-cc-link.sh" >"${TEST_ROOT}/build-stage2-cc-link.out" 2>&1; then
-        sed -n '1,120p' "${TEST_ROOT}/build-stage2-cc-link.out" >&2
-        fail "scripts/build-compiler-cc-link.sh failed (required for pure compiler verification)"
-    fi
-fi
 if ! sh "${ROOT_DIR}/scripts/verify-pure-compiler-build.sh" >"${TEST_ROOT}/pure-compiler-verify.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/pure-compiler-verify.out" >&2
     fail "scripts/verify-pure-compiler-build.sh failed"

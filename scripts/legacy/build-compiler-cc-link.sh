@@ -1,17 +1,18 @@
 #!/usr/bin/env sh
+# DEPRECATED: gas + cc + runtime.o was the old driver link path. The product now uses pure in-process
+# ELF only. Kept for forensic/bisect. Prefer: scripts/build-compiler-pure-elf.sh
+#
 # Build the merged compiler driver with the pinned seed: `diva asm` (gas) + cc + runtime.o.
-# Use when `diva build compiler/` fails with "link failed (requires cc and a valid DI_RUNTIME_O)"
-# because the seed embeds a native driver that passes the whole asm through the shell (ARG_MAX).
 set -eu
 
-ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "${ROOT_DIR}"
 
 SEED="${SEED:-${ROOT_DIR}/bootstrap/diva-linux-amd64}"
 DI_STDLIB_DIR="${DI_STDLIB_DIR:-${ROOT_DIR}/stdlib}"
 RT_O="${DI_RUNTIME_O:-${ROOT_DIR}/bootstrap/runtime-linux-amd64.o}"
-CRT_SRC="${ROOT_DIR}/compiler/res/native_crt.s"
-EXTRA_SRC="${ROOT_DIR}/compiler/res/runtime_extra.s"
+CRT_SRC="${ROOT_DIR}/compiler/res/legacy/native_crt.s"
+EXTRA_SRC="${ROOT_DIR}/compiler/res/legacy/runtime_extra.s"
 OUT_EXE="${1:-${ROOT_DIR}/build/diva-stage2}"
 WORK="${ROOT_DIR}/build/.compiler-cc-link"
 ASM_TIMEOUT_SECS="${ASM_TIMEOUT_SECS:-1200}"

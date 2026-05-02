@@ -68,8 +68,12 @@ func asm_runtime_label(src: str, toks: int, name_tok: int): str {
     if str_eq(nm, "set_argv") == 1 { return "di_runtime_set_argv" }
     if str_eq(nm, "argc") == 1 { return "di_runtime_argc" }
     if str_eq(nm, "argv") == 1 { return "di_runtime_argv" }
+    if str_eq(nm, "host_argc") == 1 { return "di_runtime_argc" }
+    if str_eq(nm, "host_argv") == 1 { return "di_runtime_argv" }
     if str_eq(nm, "getenv") == 1 { return "di_runtime_getenv" }
+    if str_eq(nm, "host_getenv") == 1 { return "di_runtime_getenv" }
     if str_eq(nm, "system") == 1 { return "di_runtime_system" }
+    if str_eq(nm, "host_system") == 1 { return "di_runtime_system" }
     if str_eq(nm, "file_size") == 1 { return "di_runtime_file_size" }
     if str_eq(nm, "read_file") == 1 { return "di_runtime_read_file" }
     if str_eq(nm, "str_len") == 1 { return "di_runtime_str_len" }

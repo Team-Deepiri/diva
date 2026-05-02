@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Build the merged compiler driver as a single ELF using only Diva's in-process emitter
-# (no cc/ld/runtime.o). Requires a working driver binary (seed or stage2) that already
-# includes the pure-ELF path (cg_module_to_bin + native_write_exe).
+# (no cc/ld/runtime.o). Uses the pinned seed unless DRIVER or ./build/diva-compiler-pure-elf is set.
 #
 # Usage (repo root):
-#   ./scripts/build-compiler-cc-link.sh   # once, if you need ./build/diva-stage2
 #   ./scripts/build-compiler-pure-elf.sh
 #
 # Output: ./build/diva-compiler-pure-elf (override with OUT_EXE=...)
@@ -19,14 +17,14 @@ mkdir -p "${WORK}"
 
 DRIVER="${DRIVER:-}"
 if [[ -z "${DRIVER}" ]]; then
-  if [[ -x "${ROOT_DIR}/build/diva-stage2" ]]; then
-    DRIVER="${ROOT_DIR}/build/diva-stage2"
+  if [[ -x "${ROOT_DIR}/build/diva-compiler-pure-elf" ]]; then
+    DRIVER="${ROOT_DIR}/build/diva-compiler-pure-elf"
   else
     DRIVER="${ROOT_DIR}/bootstrap/diva-linux-amd64"
   fi
 fi
 if [[ ! -x "${DRIVER}" ]]; then
-  echo "build-compiler-pure-elf: need executable DRIVER or ./build/diva-stage2 or bootstrap seed" >&2
+  echo "build-compiler-pure-elf: need executable DRIVER or bootstrap seed at bootstrap/diva-linux-amd64" >&2
   exit 1
 fi
 
@@ -34,13 +32,14 @@ DI_STDLIB_DIR="${DI_STDLIB_DIR:-${ROOT_DIR}/stdlib}"
 export DI_STDLIB_DIR ROOT_DIR
 
 export DIVA_NO_EXTERNAL=1
-unset DI_RUNTIME_O 2>/dev/null || true
+# Pinned seed still expects DI_RUNTIME_O to point at a file; driver uses pure ELF emit regardless.
+export DI_RUNTIME_O="${DI_RUNTIME_O:-${ROOT_DIR}/bootstrap/runtime-linux-amd64.o}"
 
 LOG="${WORK}/build.log"
 PKG="${ROOT_DIR}/compiler"
 # Full compiler package can take 12–20+ minutes on slower hosts; override with BUILD_TIMEOUT_SECS.
 BUILD_TIMEOUT_SECS="${BUILD_TIMEOUT_SECS:-1800}"
-echo "[pure-elf-compiler] ${DRIVER} build ${PKG} (DIVA_NO_EXTERNAL=1, no DI_RUNTIME_O, timeout=${BUILD_TIMEOUT_SECS}s)"
+echo "[pure-elf-compiler] ${DRIVER} build ${PKG} (DIVA_NO_EXTERNAL=1, DI_RUNTIME_O=${DI_RUNTIME_O}, timeout=${BUILD_TIMEOUT_SECS}s)"
 set +e
 if command -v stdbuf >/dev/null 2>&1; then
   timeout "${BUILD_TIMEOUT_SECS}" stdbuf -o0 -e0 "${DRIVER}" build "${PKG}" >"${LOG}" 2>&1

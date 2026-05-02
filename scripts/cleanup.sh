@@ -14,6 +14,7 @@ TARGETS=(
   "${BUILD_DIR}/merged-compiler.s"
   "${BUILD_DIR}/merged-compiler-stage2.s"
   "${BUILD_DIR}/diva-stage2"
+  "${BUILD_DIR}/diva-compiler-pure-elf"
   "${BUILD_DIR}/diva-stage3"
   "${BUILD_DIR}/diva-stage3-native"
   "${BUILD_DIR}/diva-stage3-cc"

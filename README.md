@@ -8,13 +8,13 @@
 |--------|------|
 | **`bootstrap/diva-linux-amd64`** | **Pinned seed binary** (full pipeline for `build` / `run` / `emit-ir` today). Not C *source* in this repo — it is the trust root until the Diva-only compiler can replace it end-to-end. See `bootstrap/README.md`. |
 | **`runtime/runtime.ll`** + **`bootstrap/runtime-linux-amd64.o`** | Hosted runtime (argv, I/O, `std/host` / `std/vec`). Becomes **`runtime.o`** at install (`clang -c` on the `.ll`, or copy the prebuilt `.o` when `NO_CLANG=1`). |
-| **`compiler/`** (`package.diva`) | **Diva-built driver**: native commands (`lex`, `parse`, `ir`, `asm`, `emit-ir`, `build`, `run`, `check`, `new` for app/lib/kernel) run in Diva without delegating to the seed. Default **`build`/`run`** use pure ELF; hosted **`cc` + `runtime.o`** only when **`DIVA_ALLOW_HOSTED_LINK=1`**. Installed as `$XDG_DATA_HOME/diva/libexec/diva-driver` with a **`diva` wrapper** (still ships the seed for promotion / manual use). |
+| **`compiler/`** (`package.diva`) | **Diva-built driver**: native commands (`lex`, `parse`, `ir`, `asm`, `emit-ir`, `build`, `run`, `check`, `new` for app/lib/kernel) run in Diva without delegating to the seed. **`build`/`run`** emit **pure in-process ELF** (no external `cc`/link of user programs). Installed as `$XDG_DATA_HOME/diva/libexec/diva-driver` with a **`diva` wrapper** (still ships the seed for promotion / manual use). |
 | **`compiler/{mir,backend}/`** | MIR / ELF scaffolding for the native backend in Diva. |
 | **`compiler/frontend/`** | Shares lexer sources with `compiler/src/`. |
 
 **Self-sustainability** here means: you ship and edit **only `.diva`** (plus LLVM IR for the small hosted runtime and shell for scripts). The seed remains the **trust root** until you promote a new binary (see `bootstrap/README.md`).
 
-**Self-host acceptance (CI / `tests/run.sh`):** the suite requires (1) seed building `compiler/` with `DIVA_NO_EXTERNAL=1` and no `DI_RUNTIME_O`, (2) stage-3 rebuild with the in-tree driver under the same pure flags, and (3) `scripts/verify-pure-compiler-build.sh` (needs `./build/diva-stage2` from `scripts/build-compiler-cc-link.sh` if missing). There is no “skip self-host and pass” path.
+**Self-host acceptance (CI / `tests/run.sh`):** the suite requires (1) seed building `compiler/` with `DIVA_NO_EXTERNAL=1` and no `DI_RUNTIME_O`, (2) stage-3 rebuild with the in-tree driver under the same pure flags, and (3) `scripts/verify-pure-compiler-build.sh` (pinned seed by default). There is no “skip self-host and pass” path.
 
 **Install strict mode:** when `CI` is set or `DIVA_INSTALL_STRICT=1`, `scripts/install.sh` fails if the Diva-authored driver cannot be built (no silent seed-only install). For bring-up in CI, set `DIVA_INSTALL_SEED_ONLY=1` to allow seed-only installs.
 

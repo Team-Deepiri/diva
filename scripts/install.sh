@@ -100,8 +100,8 @@ seed_rc=0
 if [ "${QUIET}" = "1" ]; then
   log "QUIET=1: build output only in ${BUILD_LOG} (no live tee)"
   set +e
-  # DIVA_ALLOW_HOSTED_LINK=1: older seeds still gate cc+runtime.o on this; in-tree driver ignores it.
-  DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" DIVA_ALLOW_HOSTED_LINK=1 \
+  ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+    DI_RUNTIME_O="${RUNTIME_O}" \
     "${SEED}" build "${ROOT_DIR}/compiler" >"${BUILD_LOG}" 2>&1
   seed_rc=$?
   set -e
@@ -109,10 +109,12 @@ else
   log "Streaming build to terminal and ${BUILD_LOG} (set DIVA_INSTALL_QUIET=1 to disable stream)"
   set +e
   if command -v stdbuf >/dev/null 2>&1; then
-    DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" DIVA_ALLOW_HOSTED_LINK=1 \
+    ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+      DI_RUNTIME_O="${RUNTIME_O}" \
       stdbuf -oL -eL "${SEED}" build "${ROOT_DIR}/compiler" 2>&1 | tee "${BUILD_LOG}"
   else
-    DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" DIVA_ALLOW_HOSTED_LINK=1 \
+    ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+      DI_RUNTIME_O="${RUNTIME_O}" \
       "${SEED}" build "${ROOT_DIR}/compiler" 2>&1 | tee "${BUILD_LOG}"
   fi
   seed_rc=${PIPESTATUS[0]}
@@ -139,12 +141,13 @@ else
   log "Compiler build failed (exit ${seed_rc}). See ${BUILD_LOG}"
   log "Last 60 lines of ${BUILD_LOG}:"
   tail -n 60 "${BUILD_LOG}" >&2 || true
-  if [ -x "${ROOT_DIR}/scripts/build-compiler-cc-link.sh" ]; then
-    log "Attempting fallback driver build via scripts/build-compiler-cc-link.sh"
-    if DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
-      ASM_TIMEOUT_SECS="${ASM_TIMEOUT_SECS:-1200}" \
-      bash "${ROOT_DIR}/scripts/build-compiler-cc-link.sh" >>"${BUILD_LOG}" 2>&1; then
-      DRIVER="${ROOT_DIR}/build/diva-stage2"
+  if [ -x "${ROOT_DIR}/scripts/build-compiler-pure-elf.sh" ]; then
+    log "Attempting fallback driver build via scripts/build-compiler-pure-elf.sh (pure ELF, no cc link)"
+    if ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+      DI_RUNTIME_O="${RUNTIME_O}" \
+      BUILD_TIMEOUT_SECS="${BUILD_TIMEOUT_SECS:-3600}" \
+      bash "${ROOT_DIR}/scripts/build-compiler-pure-elf.sh" >>"${BUILD_LOG}" 2>&1; then
+      DRIVER="${ROOT_DIR}/build/diva-compiler-pure-elf"
       if [ -x "${DRIVER}" ]; then
         log "Fallback build succeeded; installing driver from ${DRIVER}"
         cp -v "${DRIVER}" "${LIBEXEC_DIR}/diva-driver" >&2
@@ -177,7 +180,6 @@ _BOOT="${_DIVA_DATA}/bootstrap/diva-linux-amd64"
 export DIVA_BOOTSTRAP="${_BOOT}"
 export DI_BOOTSTRAP="${_BOOT}"
 export DI_STDLIB_DIR="${DI_STDLIB_DIR:-${_DIVA_DATA}/stdlib}"
-export DI_RUNTIME_O="${DI_RUNTIME_O:-${_DIVA_DATA}/runtime/runtime.o}"
 exec "${_DIVA_DATA}/libexec/diva-driver" "$@"
 WRAPPER
   chmod +x "${INSTALL_DIR}/diva"
@@ -197,7 +199,7 @@ echo "Installed runtime object to ${RUNTIME_O}"
 echo "Installed stdlib to ${STDLIB_DIR}"
 echo "Installed bootstrap seed to ${BOOTSTRAP_DIR}/diva-linux-amd64"
 if [ "${DRIVER_INSTALLED}" = "1" ]; then
-  echo "Installed Diva-authored driver to ${LIBEXEC_DIR}/diva-driver (native pipeline; user build/run uses cc+runtime.o when DI_RUNTIME_O is readable)"
+  echo "Installed Diva-authored driver to ${LIBEXEC_DIR}/diva-driver (native pipeline; pure in-process ELF for user build/run)"
 fi
 echo ""
 echo "Install trace log: ${TRACE_LOG}"
@@ -206,10 +208,8 @@ echo ""
 echo "Add to your environment (e.g. ~/.profile):"
 echo "  export PATH=\"${INSTALL_DIR}:\${PATH}\""
 echo "  export DI_STDLIB_DIR=\"${STDLIB_DIR}\""
-echo "  export DI_RUNTIME_O=\"${RUNTIME_O}\""
-echo "  # Use DIVA_NO_EXTERNAL=1 only if you need pure in-process ELF (no cc link)."
 echo ""
 echo "DIVA_BOOTSTRAP / DI_BOOTSTRAP are set by the diva wrapper to \${XDG_DATA_HOME:-\$HOME/.local/share}/diva/bootstrap/diva-linux-amd64"
-echo "Linking user programs still uses the system linker driver (cc); there are no C sources in this repository."
+echo "User programs are emitted as pure x86_64 ELF by the driver (no cc/ld). Optional runtime.o remains under ${RUNTIME_DIR} for LLVM experiments."
 
 log "Finished successfully (driver_installed=${DRIVER_INSTALLED})"

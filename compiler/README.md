@@ -6,7 +6,7 @@ Installable **app** package (`package.diva`): builds the **`diva` driver** on `P
 
 | Part | Source | Role |
 |------|--------|------|
-| **Driver** | `src/main.diva` + pipeline modules | **Diva-authored** executable: `lex`, `parse`, `ir`, `asm`, `emit-ir`, `build`, `run`, `check`, `new` (app/lib) run natively. Pure ELF by default; `cc`+`runtime.o` only with `DIVA_ALLOW_HOSTED_LINK=1` and a readable runtime object (`DIVA_NO_EXTERNAL=1` still forces pure). |
+| **Driver** | `src/main.diva` + pipeline modules | **Diva-authored** executable: `lex`, `parse`, `ir`, `asm`, `emit-ir`, `build`, `run`, `check`, `new` (app/lib) run natively. **`build`/`run`** use pure in-process ELF only (no external linker for user programs). |
 | **Seed** | `bootstrap/diva-linux-amd64` (binary only) | Trust root and tooling for promotion and any workflow you run on the seed directly. Copied to `$XDG_DATA_HOME/diva/bootstrap/` at install. |
 | **Wrapper** | emitted by `scripts/install.sh` | Sets `DIVA_BOOTSTRAP` / `DI_BOOTSTRAP` and `exec`s `$XDG_DATA_HOME/diva/libexec/diva-driver`. Symlink `di` → `diva`. |
 

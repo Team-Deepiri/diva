@@ -60,7 +60,15 @@ func dirname_of_file(path: str): str {
 }
 
 func path_is_package_dir(root: str): int {
-    if (file_size(path_join_dir(root, "package.diva")) < 0) {
+    var nl = str_len(root)
+    if nl >= 5 {
+        var suf = str_slice(root, nl - 5, 5)
+        if str_eq(suf, ".diva") == 1 {
+            return 0
+        }
+    }
+    var msz = file_size(path_join_dir(root, "package.diva"))
+    if str_eq(int_to_str(msz), "-1") == 1 {
         return 0
     }
     return 1
