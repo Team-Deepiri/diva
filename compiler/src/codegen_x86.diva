@@ -93,6 +93,8 @@ func asm_runtime_label(src: str, toks: int, name_tok: int): str {
     if str_eq(nm, "write") == 1 { return "di_runtime_write" }
     if str_eq(nm, "exit") == 1 { return "di_runtime_exit" }
     if str_eq(nm, "abort") == 1 { return "di_runtime_abort" }
+    if str_eq(nm, "mkdir") == 1 { return "di_runtime_mkdir" }
+    if str_eq(nm, "write_text_file") == 1 { return "di_runtime_write_text_file" }
     return nm
 }
 
@@ -620,6 +622,8 @@ func pure_builtin_call_size_hi_misc(id: int): int {
     if id == 25 { return 16 }
     if id == 26 { return 64 }
     if id == 27 { return 16 }
+    if id == 28 { return 40 }
+    if id == 29 { return 129 }
     return 5
 }
 
@@ -739,7 +743,7 @@ func emit_pure_builtin_call(out: int, id: int): int {
         }
     }
     if (!(id < 9)) {
-        if (!(id > 27)) {
+        if (!(id > 29)) {
             return emit_pure_builtin_high(out, id)
         }
     }

@@ -100,6 +100,7 @@ seed_rc=0
 if [ "${QUIET}" = "1" ]; then
   log "QUIET=1: build output only in ${BUILD_LOG} (no live tee)"
   set +e
+  # DIVA_ALLOW_HOSTED_LINK=1: older seeds still gate cc+runtime.o on this; in-tree driver ignores it.
   DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" DIVA_ALLOW_HOSTED_LINK=1 \
     "${SEED}" build "${ROOT_DIR}/compiler" >"${BUILD_LOG}" 2>&1
   seed_rc=$?
@@ -196,7 +197,7 @@ echo "Installed runtime object to ${RUNTIME_O}"
 echo "Installed stdlib to ${STDLIB_DIR}"
 echo "Installed bootstrap seed to ${BOOTSTRAP_DIR}/diva-linux-amd64"
 if [ "${DRIVER_INSTALLED}" = "1" ]; then
-  echo "Installed Diva-authored driver to ${LIBEXEC_DIR}/diva-driver (native pipeline; hosted cc+link only with DIVA_ALLOW_HOSTED_LINK=1)"
+  echo "Installed Diva-authored driver to ${LIBEXEC_DIR}/diva-driver (native pipeline; user build/run uses cc+runtime.o when DI_RUNTIME_O is readable)"
 fi
 echo ""
 echo "Install trace log: ${TRACE_LOG}"
@@ -206,8 +207,7 @@ echo "Add to your environment (e.g. ~/.profile):"
 echo "  export PATH=\"${INSTALL_DIR}:\${PATH}\""
 echo "  export DI_STDLIB_DIR=\"${STDLIB_DIR}\""
 echo "  export DI_RUNTIME_O=\"${RUNTIME_O}\""
-echo "  # Optional: hosted cc + runtime.o for user builds (default driver path is pure ELF):"
-echo "  export DIVA_ALLOW_HOSTED_LINK=1"
+echo "  # Use DIVA_NO_EXTERNAL=1 only if you need pure in-process ELF (no cc link)."
 echo ""
 echo "DIVA_BOOTSTRAP / DI_BOOTSTRAP are set by the diva wrapper to \${XDG_DATA_HOME:-\$HOME/.local/share}/diva/bootstrap/diva-linux-amd64"
 echo "Linking user programs still uses the system linker driver (cc); there are no C sources in this repository."

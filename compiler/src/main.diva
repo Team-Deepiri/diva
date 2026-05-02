@@ -1,6 +1,7 @@
 // Diva compiler driver — native pipeline (lexer → parser → sema → IR → x86).
-// Default: pure in-process ELF (no external toolchain). Hosted cc+runtime.o linking runs only
-// when DIVA_ALLOW_HOSTED_LINK=1 and DI_RUNTIME_O (or ROOT_DIR/bootstrap/runtime-linux-amd64.o) is usable.
+// When DI_RUNTIME_O (or ROOT_DIR/bootstrap/runtime-linux-amd64.o) resolves to a readable file and
+// DIVA_NO_EXTERNAL is off, user build/run always uses hosted cc + runtime.o + crt (no pure-ELF fallback).
+// Pure in-process ELF only when no runtime path or DIVA_NO_EXTERNAL=1.
 
 import "std/host.diva"
 import "std/io.diva"
@@ -26,7 +27,7 @@ func cmd_print_usage(): int {
     stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast] | run <...>\n")
     stderr("  check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline\n")
-    stderr("Environment: DI_STDLIB_DIR; DIVA_NO_EXTERNAL=1 forces pure ELF; hosted cc+runtime.o only if DIVA_ALLOW_HOSTED_LINK=1 and runtime .o is readable\n")
+    stderr("Environment: DI_STDLIB_DIR; DIVA_NO_EXTERNAL=1 forces pure ELF; otherwise cc+runtime.o when runtime .o path is readable\n")
     stderr("  diva new <path> [--lib|--kernel] (native scaffolding)\n")
     return 1
 }
@@ -187,6 +188,11 @@ func hex_char(n: int): int {
     return 87 + n
 }
 
+// Write text using runtime_extra.o (hosted) or syscall blobs (pure ELF) — no shell/python.
+func native_write_text_bytes(path: str, data: str): int {
+    return write_text_file(path, data)
+}
+
 // Materialize ELF bytes without building one giant hex string (large programs OOM the builder).
 func native_write_exe(data: int, path: str): int {
     var b0 = str_builder_new()
@@ -240,51 +246,6 @@ func native_write_exe(data: int, path: str): int {
     return host_system(cmd2)
 }
 
-// Write UTF-8-ish ASCII (one byte per str_byte) via chunked hex + python append.
-func native_write_text_bytes(path: str, data: str): int {
-    var b0 = str_builder_new()
-    str_builder_append(b0, "rm -f ")
-    str_builder_append(b0, path)
-    var cmd0 = str_builder_to_str(b0)
-    str_builder_free(b0)
-    if host_system(cmd0) != 0 {
-        return 1
-    }
-    var n = str_len(data)
-    var pos = 0
-    while (pos < n) {
-        var take = 64000
-        if (pos + take > n) {
-            take = n - pos
-        }
-        var sb = str_builder_new()
-        var j = 0
-        while (j < take) {
-            var b = str_byte(data, pos + j)
-            var hi = (b / 16) & 15
-            var lo = b & 15
-            str_builder_append(sb, char_to_str(hex_char(hi)))
-            str_builder_append(sb, char_to_str(hex_char(lo)))
-            j = j + 1
-        }
-        var chunk = str_builder_to_str(sb)
-        str_builder_free(sb)
-        var sbp = str_builder_new()
-        str_builder_append(sbp, "python3 -c 'open(\"")
-        str_builder_append(sbp, path)
-        str_builder_append(sbp, "\",\"ab\").write(bytes.fromhex(\"")
-        str_builder_append(sbp, chunk)
-        str_builder_append(sbp, "\"))'")
-        var pyc = str_builder_to_str(sbp)
-        str_builder_free(sbp)
-        if host_system(pyc) != 0 {
-            return 1
-        }
-        pos = pos + take
-    }
-    return 0
-}
-
 // Emit gas from IR and link with prebuilt runtime (.o) + small crt (requires cc on PATH).
 func native_build_linked_with_runtime(asm: str, exe_out: str, runtime_o: str, quiet: int): int {
     var root = host_getenv("ROOT_DIR")
@@ -329,6 +290,22 @@ func native_build_linked_with_runtime(asm: str, exe_out: str, runtime_o: str, qu
         }
         return 1
     }
+    var extra_src = str_concat(root, "/compiler/res/runtime_extra.s")
+    var extra_o = "/tmp/diva-runtime-extra.o"
+    var be = str_builder_new()
+    str_builder_append(be, "cc -fPIC -c -o ")
+    str_builder_append(be, extra_o)
+    str_builder_append(be, " ")
+    str_builder_append(be, extra_src)
+    str_builder_append(be, " -fno-stack-protector")
+    var ce = str_builder_to_str(be)
+    str_builder_free(be)
+    if host_system(ce) != 0 {
+        if quiet == 0 {
+            err_line("native link: cc -c runtime_extra.s failed (check ROOT_DIR and compiler/res/runtime_extra.s)")
+        }
+        return 1
+    }
     var b3 = str_builder_new()
     str_builder_append(b3, "cc -no-pie -nostartfiles ")
     str_builder_append(b3, crt_o)
@@ -336,6 +313,8 @@ func native_build_linked_with_runtime(asm: str, exe_out: str, runtime_o: str, qu
     str_builder_append(b3, user_o)
     str_builder_append(b3, " ")
     str_builder_append(b3, runtime_o)
+    str_builder_append(b3, " ")
+    str_builder_append(b3, extra_o)
     str_builder_append(b3, " -o ")
     str_builder_append(b3, exe_out)
     str_builder_append(b3, " -lc -Wl,-z,noexecstack")
@@ -475,15 +454,6 @@ func native_force_no_external(): int {
     return 0
 }
 
-// Hosted cc + prebuilt runtime.o (di_runtime_*). Off by default so normal installs stay pure-first.
-func native_allow_hosted_link(): int {
-    var v = host_getenv("DIVA_ALLOW_HOSTED_LINK")
-    if str_eq(v, "1") == 1 { return 1 }
-    if str_eq(v, "true") == 1 { return 1 }
-    if str_eq(v, "yes") == 1 { return 1 }
-    return 0
-}
-
 func native_require_no_externs(m: int, src: str, toks: int): int {
     var ec = mod_extern_count(m)
     var unresolved = 0
@@ -519,6 +489,8 @@ func native_require_no_externs(m: int, src: str, toks: int): int {
         if str_eq(nm, "host_argv") == 1 { supported = 1 }
         if str_eq(nm, "host_getenv") == 1 { supported = 1 }
         if str_eq(nm, "host_system") == 1 { supported = 1 }
+        if str_eq(nm, "mkdir") == 1 { supported = 1 }
+        if str_eq(nm, "write_text_file") == 1 { supported = 1 }
         if supported == 0 {
             if unresolved == 0 {
                 err_line("native pure mode: unresolved extern runtime dependencies remain:")
@@ -611,16 +583,12 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     var rt_o = di_runtime_object_path()
     if native_force_no_external() == 1 { rt_o = "" }
     if str_len(rt_o) != 0 {
-        if (file_size(rt_o) >= 0 & native_allow_hosted_link() == 0) {
-            rt_o = ""
-        }
-    }
-    if str_len(rt_o) != 0 {
-        var asm_text = cg_module_to_str(m, merged_src, stream, strv, newline_str())
-        if (file_size(rt_o) < 0) {
+        var rt_sz = file_size(rt_o)
+        if str_eq(int_to_str(rt_sz), "-1") == 1 {
             if quiet == 0 { err_line("native build: runtime object not readable (DI_RUNTIME_O or ROOT_DIR/bootstrap/runtime-linux-amd64.o)") }
             return 1
         }
+        var asm_text = cg_module_to_str(m, merged_src, stream, strv, newline_str())
         if native_build_linked_with_runtime(asm_text, exe_out, rt_o, quiet) == 0 { return 0 }
         return 1
     }
@@ -744,25 +712,38 @@ func new_path_shell_safe(p: str): int {
     return 1
 }
 
-// Create directory trees without invoking /bin/mkdir (paths are caller-validated safe).
+// Create directory trees one component at a time (mkdir / EEXIST); paths are caller-validated safe.
 func native_mkdir_p(path: str): int {
-    var b = str_builder_new()
-    str_builder_append(b, "python3 -c \"import os; os.makedirs('")
-    str_builder_append(b, path)
-    str_builder_append(b, "', exist_ok=True)\"")
-    var cmd = str_builder_to_str(b)
-    str_builder_free(b)
-    if host_system(cmd) != 0 {
-        err_line("new: could not create directories (need python3 on PATH)")
-        return 1
+    var n = str_len(path)
+    if n == 0 {
+        return 0
     }
-    return 0
-}
-
-// True when di_runtime_file_size reports ENOENT (-1); avoids brittle signed `>= 0` checks.
-func file_size_isENOENT(z: int): int {
-    if z + 1 == 0 {
-        return 1
+    var acc = ""
+    var i = 0
+    if str_byte(path, 0) == 47 {
+        acc = "/"
+        i = 1
+        while ((i < n) & (str_byte(path, i) == 47)) {
+            i = i + 1
+        }
+    }
+    while (i < n) {
+        var j = i
+        while ((j < n) & (str_byte(path, j) != 47)) {
+            j = j + 1
+        }
+        var seg = str_slice(path, i, j - i)
+        if str_len(seg) > 0 {
+            acc = path_join_dir(acc, seg)
+            if mkdir(acc) != 0 {
+                err_line("new: could not create directory tree")
+                return 1
+            }
+        }
+        i = j
+        while ((i < n) & (str_byte(path, i) == 47)) {
+            i = i + 1
+        }
     }
     return 0
 }
@@ -786,7 +767,8 @@ func cmd_new(): int {
             } else {
                 if str_byte(a, 0) != 45 {
                     if str_len(path) == 0 {
-                        path = a
+                        // Copy argv text: host_argv pointers may alias one buffer reused each call.
+                        path = str_concat(a, "")
                     }
                 }
             }
@@ -807,7 +789,9 @@ func cmd_new(): int {
     }
     var manifest_path = path_join_dir(path, "package.diva")
     var msz = file_size(manifest_path)
-    if file_size_isENOENT(msz) == 0 {
+    // di_runtime_file_size returns -1 on ENOENT. Native subset may lower signed compares / `!= 0`
+    // incorrectly for negative values; int_to_str + str_eq matches the working check used elsewhere.
+    if str_eq(int_to_str(msz), "-1") == 0 {
         err_line("new: destination already exists (package.diva present)")
         return 1
     }
@@ -1278,7 +1262,7 @@ func main(): int {
     if str_eq(a1, "compiler-version") == 1 {
         print_str("diva compiler v0.5.0")
         print_str("  native: lex, parse, sema, Diva IR, x86_64 binary (ELF PIE)")
-        print_str("  build/run: pure ELF by default; cc+runtime.o only if DIVA_ALLOW_HOSTED_LINK=1 and runtime .o readable")
+        print_str("  build/run: cc+runtime.o when runtime path readable; pure ELF only with DIVA_NO_EXTERNAL=1 or no runtime.o")
         return 0
     }
 

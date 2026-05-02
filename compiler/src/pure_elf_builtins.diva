@@ -220,6 +220,31 @@ func emit_pure_str_slice(out: int): int {
     return 128
 }
 
+func emit_pure_mkdir(out: int): int {
+    // Inline syscall snippet (no RET): mkdir(2); treat -EEXIST as success; rax 0 ok / 1 err.
+    int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 198) int_vec_push(out, 237) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 83) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, 0) int_vec_push(out, 116) int_vec_push(out, 15) int_vec_push(out, 72) int_vec_push(out, 131)
+    int_vec_push(out, 248) int_vec_push(out, 239) int_vec_push(out, 116) int_vec_push(out, 9) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 235)
+    int_vec_push(out, 3) int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 192)
+    return 40
+}
+
+func emit_pure_write_text_file(out: int): int {
+    // Inline syscall snippet (no RET): strlen(data); openat(AT_FDCWD); write; close; rax 0 ok / 1 err.
+    int_vec_push(out, 83) int_vec_push(out, 65) int_vec_push(out, 84) int_vec_push(out, 65) int_vec_push(out, 85) int_vec_push(out, 65) int_vec_push(out, 86) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 251) int_vec_push(out, 73) int_vec_push(out, 137)
+    int_vec_push(out, 244) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 231) int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 128) int_vec_push(out, 63) int_vec_push(out, 0) int_vec_push(out, 116) int_vec_push(out, 8)
+    int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 199) int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 192) int_vec_push(out, 235) int_vec_push(out, 243) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 197) int_vec_push(out, 72)
+    int_vec_push(out, 199) int_vec_push(out, 199) int_vec_push(out, 156) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 222) int_vec_push(out, 186) int_vec_push(out, 65) int_vec_push(out, 2)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 164) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 1) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, 0) int_vec_push(out, 124) int_vec_push(out, 48) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 198)
+    int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 247) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 230) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 234) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 76) int_vec_push(out, 57) int_vec_push(out, 232) int_vec_push(out, 117) int_vec_push(out, 14) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 247)
+    int_vec_push(out, 184) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 235) int_vec_push(out, 15) int_vec_push(out, 76)
+    int_vec_push(out, 137) int_vec_push(out, 247) int_vec_push(out, 184) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 94) int_vec_push(out, 65) int_vec_push(out, 93) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 91)
+    return 129
+}
+
 func emit_pure_file_size(out: int): int {
     // Inline syscall snippet (no RET): openat + lseek(SEEK_END) + close.
     int_vec_push(out, 83) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 251) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 199) int_vec_push(out, 156) int_vec_push(out, 255) int_vec_push(out, 255)
@@ -313,6 +338,8 @@ func pure_builtin_extern_id_hi_io(nm: str): int {
     if str_eq(nm, "str_slice") == 1 { return 21 }
     if str_eq(nm, "file_size") == 1 { return 22 }
     if str_eq(nm, "read_file") == 1 { return 23 }
+    if str_eq(nm, "mkdir") == 1 { return 28 }
+    if str_eq(nm, "write_text_file") == 1 { return 29 }
     return 0
 }
 
@@ -361,6 +388,8 @@ func emit_pure_builtin_high_misc(out: int, id: int): int {
     if id == 25 { return emit_pure_host_argv(out) }
     if id == 26 { return emit_pure_host_getenv(out) }
     if id == 27 { return emit_pure_host_system(out) }
+    if id == 28 { return emit_pure_mkdir(out) }
+    if id == 29 { return emit_pure_write_text_file(out) }
     return 0
 }
 
