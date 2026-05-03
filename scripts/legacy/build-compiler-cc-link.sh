@@ -58,10 +58,16 @@ if [ "${ASM_RC}" -ne 0 ]; then
   exit 1
 fi
 
+ASM_LINK="${ASM}"
+DEDUP_ASM="${WORK}/merged.dedup.s"
+echo "[build-compiler-cc-link] dedupe duplicate .globl blocks (merged std helpers) -> ${DEDUP_ASM}"
+python3 "${ROOT_DIR}/scripts/dedupe_merged_gas.py" "${ASM}" "${DEDUP_ASM}"
+ASM_LINK="${DEDUP_ASM}"
+
 echo "[build-compiler-cc-link] cc (user asm + crt + runtime + runtime_extra)"
 # PIE final link matches the seed binary (ET_DYN); a static ET_EXEC + this runtime mix
 # broke di_runtime_argc/argv in practice while the same argv worked against the seed.
-cc -fPIE -pie -c -o "${USER_O}" "${ASM}" -fno-stack-protector
+cc -fPIE -pie -c -o "${USER_O}" "${ASM_LINK}" -fno-stack-protector
 cc -fPIC -pie -c -o "${CRT_O}" "${CRT_SRC}"
 cc -fPIC -c -o "${EXTRA_O}" "${EXTRA_SRC}" -fno-stack-protector
 cc -pie -nostartfiles "${CRT_O}" "${USER_O}" "${RT_O}" "${EXTRA_O}" -o "${OUT_EXE}" -lc -Wl,-z,noexecstack

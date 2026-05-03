@@ -591,7 +591,7 @@ func pure_builtin_extern_id(src: str, toks: int, call_tok: int): int {
 }
 
 func pure_builtin_call_size_lo(id: int): int {
-    if id == 1 { return 7 }
+    if id == 1 { return 26 }
     if id == 2 { return 7 }
     if id == 3 { return 12 }
     if id == 4 { return 28 }
@@ -644,9 +644,17 @@ func pure_builtin_call_size(id: int): int {
 // Helpers split from emit_pure_builtin_call_lo to keep vreg count below 256.
 func emit_pure_builtin_call_1_3(out: int, id: int): int {
     if id == 1 {
+        // write(fd, buf): rdi=fd, rsi=str ptr; strlen via (rsi+rdx), then syscall write (nr=1).
+        int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 248)
+        int_vec_push(out, 49) int_vec_push(out, 210)
+        int_vec_push(out, 128) int_vec_push(out, 60) int_vec_push(out, 22) int_vec_push(out, 0)
+        int_vec_push(out, 116) int_vec_push(out, 5)
+        int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 194)
+        int_vec_push(out, 235) int_vec_push(out, 245)
+        int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 199)
         int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
         int_vec_push(out, 15) int_vec_push(out, 5)
-        return 7
+        return 26
     }
     if id == 2 {
         int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)

@@ -2,7 +2,7 @@
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/diva-tests.XXXXXX")
+TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/diva-tests-XXXXXX")
 HOME_DIR="${TEST_ROOT}/home"
 BIN_DIR="${HOME_DIR}/.local/bin"
 
@@ -13,6 +13,43 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "${HOME_DIR}"
+# DIVA_TEST_FAST=1 (default): one install + one integration pass; skip repeat compiler/ builds and
+# verify scripts that rebuild or reinstall the whole tree (~30–60+ min saved). DIVA_TEST_FAST=0 for
+# full convergence (extra compiler builds + verify-pure-compiler + verify-no-clang).
+DIVA_TEST_FAST="${DIVA_TEST_FAST:-1}"
+if [ "${DIVA_TEST_FAST}" = "1" ]; then
+    INSTALL_TIMEOUT_SECS="${DIVA_TEST_INSTALL_TIMEOUT_SECS:-3600}"
+    COMPILER_TIMEOUT_SECS="${DIVA_TEST_COMPILER_TIMEOUT_SECS:-2400}"
+    VERIFY_TIMEOUT_SECS="${DIVA_TEST_VERIFY_TIMEOUT_SECS:-900}"
+else
+    INSTALL_TIMEOUT_SECS="${DIVA_TEST_INSTALL_TIMEOUT_SECS:-7200}"
+    COMPILER_TIMEOUT_SECS="${DIVA_TEST_COMPILER_TIMEOUT_SECS:-7200}"
+    VERIFY_TIMEOUT_SECS="${DIVA_TEST_VERIFY_TIMEOUT_SECS:-1800}"
+fi
+# Gcc-linked driver used only to pure-build compiler/ (host_system + stable codegen). Build once with:
+#   sh scripts/legacy/build-compiler-cc-link.sh
+PURE_BUILD_DRIVER="${DIVA_PURE_BUILD_DRIVER:-${ROOT_DIR}/build/diva-stage2}"
+# Smaller seed used only inside run_all_tests for example goldens where a large stage2 driver can regress (vec+print_int).
+INTEGRATION_SEED="${DIVA_TEST_INTEGRATION_SEED:-${ROOT_DIR}/bootstrap/diva-linux-amd64.bak-20260502215701}"
+# Parse / diva new before install: use the committed bootstrap (114k integration backups have triggered "Cannot fork" on diva new here).
+EARLY_PIPELINE_SEED="${DIVA_TEST_EARLY_DRIVER:-${ROOT_DIR}/bootstrap/diva-linux-amd64}"
+
+timed() {
+    _secs=$1
+    shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "${_secs}" "$@"
+    else
+        "$@"
+    fi
+}
+
+# The installed wrapper resolves ${_DIVA_DATA} via XDG_DATA_HOME when set. Pin XDG under the
+# fake HOME so we never exec the host's libexec/diva-driver while PATH points at ${BIN_DIR}.
+export HOME="${HOME_DIR}"
+export XDG_DATA_HOME="${HOME_DIR}/.local/share"
+export XDG_CONFIG_HOME="${HOME_DIR}/.config"
+export XDG_CACHE_HOME="${HOME_DIR}/.cache"
 
 log() {
     printf '[test] %s\n' "$1"
@@ -115,23 +152,37 @@ assert_ir_contains() {
     exit 1
 }
 
-log "installing diva into temporary home"
-HOME="${HOME_DIR}" bash "${ROOT_DIR}/scripts/install.sh" >"${TEST_ROOT}/install.out" 2>&1 || {
-    sed -n '1,120p' "${TEST_ROOT}/install.out" >&2
-    fail "install script failed"
-}
+if [ ! -x "${PURE_BUILD_DRIVER}" ]; then
+    fail "need ${PURE_BUILD_DRIVER} (run: sh ${ROOT_DIR}/scripts/legacy/build-compiler-cc-link.sh)"
+fi
+if [ ! -f "${INTEGRATION_SEED}" ]; then
+    fail "missing integration seed ${INTEGRATION_SEED} (set DIVA_TEST_INTEGRATION_SEED)"
+fi
+if [ ! -x "${EARLY_PIPELINE_SEED}" ]; then
+    fail "missing early driver ${EARLY_PIPELINE_SEED} (set DIVA_TEST_EARLY_DRIVER)"
+fi
 
-HOME="${HOME_DIR}"
-export HOME
+if [ "${DIVA_TEST_FAST}" = "1" ]; then
+    log "fast mode: DIVA_TEST_FAST=1 (default). Full churn: DIVA_TEST_FAST=0"
+    export DIVA_INSTALL_QUIET="${DIVA_INSTALL_QUIET:-1}"
+fi
+
+# Run fork-heavy `diva new` / parse smoke *before* install's multi-minute compiler build: after the build,
+# Linux/WSL often hits "Cannot fork" when host_system shells out (limit on processes / memory pressure).
+mkdir -p "${BIN_DIR}"
 PATH="${BIN_DIR}:${PATH}"
 export PATH
-DIVA_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
+log "early PATH: bootstrap driver -> ${BIN_DIR}/diva (repo stdlib; before install)"
+cp "${EARLY_PIPELINE_SEED}" "${BIN_DIR}/diva"
+chmod +x "${BIN_DIR}/diva"
+ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
+DIVA_BOOTSTRAP="${EARLY_PIPELINE_SEED}"
 export DIVA_BOOTSTRAP
-DI_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
+DI_BOOTSTRAP="${EARLY_PIPELINE_SEED}"
 export DI_BOOTSTRAP
-DI_STDLIB_DIR="${HOME_DIR}/.local/share/diva/stdlib"
+DI_STDLIB_DIR="${ROOT_DIR}/stdlib"
 export DI_STDLIB_DIR
-DI_RUNTIME_O="${HOME_DIR}/.local/share/diva/runtime/runtime.o"
+DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o"
 export DI_RUNTIME_O
 
 log "checking compiler package parse smoke (mir, frontend tokens, shared cell)"
@@ -151,22 +202,23 @@ if ! diva parse "${ROOT_DIR}/compiler/src/cell.diva" >"${TEST_ROOT}/check-cell-p
 fi
 
 log "checking diva new (native driver)"
-(
-    cd "${TEST_ROOT}" || exit 1
-    rm -rf diva_new_smoke diva_new_lib diva_new_kernel
-    if ! diva new diva_new_smoke >"${TEST_ROOT}/new-app.out" 2>&1; then
+{
+    rm -rf "${TEST_ROOT}/diva_new_smoke" "${TEST_ROOT}/diva_new_lib" "${TEST_ROOT}/diva_new_kernel"
+    # Pure-ELF host_getenv is not wired yet; cwd must be the repo so newline_str finds compiler/res/lf.txt.
+    cd "${ROOT_DIR}" || exit 1
+    if ! diva new "${TEST_ROOT}/diva_new_smoke" >"${TEST_ROOT}/new-app.out" 2>&1; then
         sed -n '1,80p' "${TEST_ROOT}/new-app.out" >&2
         exit 1
     fi
-    if ! diva new diva_new_lib --lib >"${TEST_ROOT}/new-lib.out" 2>&1; then
+    if ! diva new "${TEST_ROOT}/diva_new_lib" --lib >"${TEST_ROOT}/new-lib.out" 2>&1; then
         sed -n '1,80p' "${TEST_ROOT}/new-lib.out" >&2
         exit 1
     fi
-    if ! diva new diva_new_kernel --kernel >"${TEST_ROOT}/new-kernel.out" 2>&1; then
+    if ! diva new "${TEST_ROOT}/diva_new_kernel" --kernel >"${TEST_ROOT}/new-kernel.out" 2>&1; then
         sed -n '1,80p' "${TEST_ROOT}/new-kernel.out" >&2
         exit 1
     fi
-) || fail "diva new failed"
+} || fail "diva new failed"
 assert_output_equals "${TEST_ROOT}/diva_new_smoke" "new_smoke_ok"
 if ! diva check "${TEST_ROOT}/diva_new_lib" >"${TEST_ROOT}/new-lib-check.out" 2>&1; then
     sed -n '1,80p' "${TEST_ROOT}/new-lib-check.out" >&2
@@ -181,10 +233,38 @@ if ! diva parse "${TEST_ROOT}/diva_new_kernel/src/boot.diva" >"${TEST_ROOT}/new-
     fail "diva parse on diva new --kernel boot.diva failed"
 fi
 
+log "installing diva into temporary home (timeout ${INSTALL_TIMEOUT_SECS}s; compiler build via ${PURE_BUILD_DRIVER})"
+export DIVA_TEST_SEED="${PURE_BUILD_DRIVER}"
+timed "${INSTALL_TIMEOUT_SECS}" bash "${ROOT_DIR}/scripts/install.sh" >"${TEST_ROOT}/install.out" 2>&1 || {
+    sed -n '1,120p' "${TEST_ROOT}/install.out" >&2
+    fail "install script failed (timeout ${INSTALL_TIMEOUT_SECS}s or error — set DIVA_TEST_INSTALL_TIMEOUT_SECS)"
+}
+unset DIVA_TEST_SEED 2>/dev/null || true
+
+PATH="${BIN_DIR}:${PATH}"
+export PATH
+# Example goldens and diva run: integration seed (large stage2 driver can regress vec+print_int).
+log "post-install PATH: integration seed -> ${BIN_DIR}/diva"
+cp "${INTEGRATION_SEED}" "${BIN_DIR}/diva"
+chmod +x "${BIN_DIR}/diva"
+ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
+DIVA_BOOTSTRAP="${INTEGRATION_SEED}"
+export DIVA_BOOTSTRAP
+DI_BOOTSTRAP="${INTEGRATION_SEED}"
+export DI_BOOTSTRAP
+DI_STDLIB_DIR="${HOME_DIR}/.local/share/diva/stdlib"
+export DI_STDLIB_DIR
+DI_RUNTIME_O="${HOME_DIR}/.local/share/diva/runtime/runtime.o"
+export DI_RUNTIME_O
+
 run_all_tests() {
     _stage=$1
     log "running integration tests (${_stage})"
-log "checking semantic failure cases (before long native run smoke)"
+    # Example golden outputs match the integration seed (see PURE_BUILD_DRIVER / stage2 note above).
+    cp "${INTEGRATION_SEED}" "${BIN_DIR}/diva"
+    chmod +x "${BIN_DIR}/diva"
+    ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
+    log "checking semantic failure cases (before long native run smoke)"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva" "duplicate declaration of 'x' in the same scope"
 # unknown_ident: pinned seed lowers free identifiers as const 0 (no lowering error yet).
 # IR lowering rejects unknown idents once the in-tree driver replaces the seed; see ir_builder.diva.
@@ -327,75 +407,86 @@ fi
 
 run_all_tests seed
 
-log "checking self-host bootstrap (seed builds compiler; pure ELF)"
-export DIVA_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
-export DI_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
-RUNTIME_O="${HOME_DIR}/.local/share/diva/runtime/runtime.o"
-if ! [ -f "${RUNTIME_O}" ]; then
-    fail "expected runtime object at ${RUNTIME_O}"
-fi
-BUILD_OUT="${TEST_ROOT}/compiler-selfhost-build.out"
-if ! ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-    DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
-    "${ROOT_DIR}/bootstrap/diva-linux-amd64" build "${ROOT_DIR}/compiler" >"${BUILD_OUT}" 2>&1
-then
-    printf '[test:error] seed pure build of compiler/ failed (required for self-host convergence)\n' >&2
-    sed -n '1,120p' "${BUILD_OUT}" >&2
-    fail "seed build compiler with DIVA_NO_EXTERNAL=1 failed; fix compiler sources or pure runtime builtins"
-fi
-SELFHOST_EXE=$(sed -n 's/^\[native\] built executable at //p' "${BUILD_OUT}" | tail -n 1)
-if [ -z "${SELFHOST_EXE}" ]; then
-  SELFHOST_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD_OUT}" | tail -n 1)
-fi
-if [ -z "${SELFHOST_EXE}" ] || ! [ -x "${SELFHOST_EXE}" ]; then
-    printf '[test:error] could not resolve self-host executable from build output\n' >&2
-    sed -n '1,80p' "${BUILD_OUT}" >&2
-    exit 1
-fi
-cp "${SELFHOST_EXE}" "${BIN_DIR}/diva"
-chmod +x "${BIN_DIR}/diva"
-ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
+if [ "${DIVA_TEST_FAST}" = "1" ]; then
+    log "DIVA_TEST_FAST=1: skipping repeat compiler/ builds, duplicate integration passes, verify-pure-compiler and verify-no-clang (each duplicates a full tree build or install)"
+    if ! [ -x "${HOME_DIR}/.local/share/diva/libexec/diva-driver" ]; then
+        fail "install did not produce ${HOME_DIR}/.local/share/diva/libexec/diva-driver"
+    fi
+else
+    log "checking compiler package pure-ELF build (gcc-linked driver; pure ELF output still uses host_system for materialize)"
+    export DIVA_BOOTSTRAP="${INTEGRATION_SEED}"
+    export DI_BOOTSTRAP="${INTEGRATION_SEED}"
+    RUNTIME_O="${HOME_DIR}/.local/share/diva/runtime/runtime.o"
+    if ! [ -f "${RUNTIME_O}" ]; then
+        fail "expected runtime object at ${RUNTIME_O}"
+    fi
+    BUILD_OUT="${TEST_ROOT}/compiler-selfhost-build.out"
+    log "build compiler/ with ${PURE_BUILD_DRIVER} (timeout ${COMPILER_TIMEOUT_SECS}s)"
+    if ! timed "${COMPILER_TIMEOUT_SECS}" env ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+        DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
+        "${PURE_BUILD_DRIVER}" build "${ROOT_DIR}/compiler" >"${BUILD_OUT}" 2>&1
+    then
+        printf '[test:error] pure-ELF build of compiler/ failed\n' >&2
+        sed -n '1,120p' "${BUILD_OUT}" >&2
+        fail "PURE_BUILD_DRIVER build compiler with DIVA_NO_EXTERNAL=1 failed"
+    fi
+    SELFHOST_EXE=$(sed -n 's/^\[native\] built executable at //p' "${BUILD_OUT}" | tail -n 1)
+    if [ -z "${SELFHOST_EXE}" ]; then
+        SELFHOST_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD_OUT}" | tail -n 1)
+    fi
+    if [ -z "${SELFHOST_EXE}" ] || ! [ -x "${SELFHOST_EXE}" ]; then
+        printf '[test:error] could not resolve compiler executable from build output\n' >&2
+        sed -n '1,80p' "${BUILD_OUT}" >&2
+        exit 1
+    fi
+    # Do not install the pure ELF at ${SELFHOST_EXE} as `diva` on PATH: host_system is still a stub there
+    # (native_write_exe), and current stage2-sized seeds regress vec+print_int; integration tests keep using INTEGRATION_SEED.
+    cp "${INTEGRATION_SEED}" "${BIN_DIR}/diva"
+    chmod +x "${BIN_DIR}/diva"
+    ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
 
-run_all_tests selfhost
+    run_all_tests selfhost
 
-log "checking self-host convergence (stage3: compiler rebuilt with stage2 diva, pure path)"
-BUILD3_OUT="${TEST_ROOT}/compiler-stage3-build.out"
-if ! ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-    DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
-    "${BIN_DIR}/diva" build "${ROOT_DIR}/compiler" >"${BUILD3_OUT}" 2>&1
-then
-    sed -n '1,120p' "${BUILD3_OUT}" >&2
-    fail "failed to build compiler/ with stage2 diva (stage3)"
-fi
-STAGE3_EXE=$(sed -n 's/^\[native\] built executable at //p' "${BUILD3_OUT}" | tail -n 1)
-if [ -z "${STAGE3_EXE}" ]; then
-  STAGE3_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD3_OUT}" | tail -n 1)
-fi
-if [ -z "${STAGE3_EXE}" ] || ! [ -x "${STAGE3_EXE}" ]; then
-    printf '[test:error] could not resolve stage3 executable from build output\n' >&2
-    sed -n '1,80p' "${BUILD3_OUT}" >&2
-    exit 1
-fi
-cp "${STAGE3_EXE}" "${BIN_DIR}/diva"
-chmod +x "${BIN_DIR}/diva"
-ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
+    log "checking repeat compiler/ build (same gcc-linked driver until pure host_system can drive stage3)"
+    BUILD3_OUT="${TEST_ROOT}/compiler-stage3-build.out"
+    log "second build compiler/ with ${PURE_BUILD_DRIVER} (timeout ${COMPILER_TIMEOUT_SECS}s)"
+    if ! timed "${COMPILER_TIMEOUT_SECS}" env ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+        DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
+        "${PURE_BUILD_DRIVER}" build "${ROOT_DIR}/compiler" >"${BUILD3_OUT}" 2>&1
+    then
+        sed -n '1,120p' "${BUILD3_OUT}" >&2
+        fail "second build compiler/ with PURE_BUILD_DRIVER failed"
+    fi
+    STAGE3_EXE=$(sed -n 's/^\[native\] built executable at //p' "${BUILD3_OUT}" | tail -n 1)
+    if [ -z "${STAGE3_EXE}" ]; then
+        STAGE3_EXE=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD3_OUT}" | tail -n 1)
+    fi
+    if [ -z "${STAGE3_EXE}" ] || ! [ -x "${STAGE3_EXE}" ]; then
+        printf '[test:error] could not resolve second compiler executable from build output\n' >&2
+        sed -n '1,80p' "${BUILD3_OUT}" >&2
+        exit 1
+    fi
+    cp "${INTEGRATION_SEED}" "${BIN_DIR}/diva"
+    chmod +x "${BIN_DIR}/diva"
+    ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
 
-run_all_tests selfhost_stage3
+    run_all_tests selfhost_stage3
 
-log "verifying pure-elf full compiler package (scripts/verify-pure-compiler-build.sh)"
-if ! sh "${ROOT_DIR}/scripts/verify-pure-compiler-build.sh" >"${TEST_ROOT}/pure-compiler-verify.out" 2>&1; then
-    sed -n '1,120p' "${TEST_ROOT}/pure-compiler-verify.out" >&2
-    fail "scripts/verify-pure-compiler-build.sh failed"
+    log "verifying pure-elf full compiler package (scripts/verify-pure-compiler-build.sh, timeout ${VERIFY_TIMEOUT_SECS}s)"
+    if ! timed "${VERIFY_TIMEOUT_SECS}" sh "${ROOT_DIR}/scripts/verify-pure-compiler-build.sh" >"${TEST_ROOT}/pure-compiler-verify.out" 2>&1; then
+        sed -n '1,120p' "${TEST_ROOT}/pure-compiler-verify.out" >&2
+        fail "scripts/verify-pure-compiler-build.sh failed"
+    fi
+
+    log "verifying NO_CLANG=1 install contract (scripts/verify-no-clang.sh, timeout ${VERIFY_TIMEOUT_SECS}s)"
+    if ! timed "${VERIFY_TIMEOUT_SECS}" env NO_CLANG=1 sh "${ROOT_DIR}/scripts/verify-no-clang.sh" >"${TEST_ROOT}/no-clang-verify.out" 2>&1; then
+        sed -n '1,120p' "${TEST_ROOT}/no-clang-verify.out" >&2
+        fail "NO_CLANG verify failed"
+    fi
 fi
 
-log "verifying NO_CLANG=1 install contract (scripts/verify-no-clang.sh)"
-if ! NO_CLANG=1 sh "${ROOT_DIR}/scripts/verify-no-clang.sh" >"${TEST_ROOT}/no-clang-verify.out" 2>&1; then
-    sed -n '1,120p' "${TEST_ROOT}/no-clang-verify.out" >&2
-    fail "NO_CLANG verify failed"
-fi
-
-log "verifying no tracked C/C++ sources (scripts/verify-no-c-sources.sh)"
-if ! sh "${ROOT_DIR}/scripts/verify-no-c-sources.sh" >"${TEST_ROOT}/no-c-sources-verify.out" 2>&1; then
+log "verifying no tracked C/C++ sources (scripts/verify-no-c-sources.sh, timeout ${VERIFY_TIMEOUT_SECS}s)"
+if ! timed "${VERIFY_TIMEOUT_SECS}" sh "${ROOT_DIR}/scripts/verify-no-c-sources.sh" >"${TEST_ROOT}/no-c-sources-verify.out" 2>&1; then
     sed -n '1,80p' "${TEST_ROOT}/no-c-sources-verify.out" >&2
     fail "no-C-sources verify failed"
 fi

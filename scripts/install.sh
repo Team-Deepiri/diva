@@ -11,7 +11,9 @@ STDLIB_DIR="${DIVA_SHARE}/stdlib"
 BOOTSTRAP_DIR="${DIVA_SHARE}/bootstrap"
 LIBEXEC_DIR="${DIVA_SHARE}/libexec"
 RUNTIME_O="${RUNTIME_DIR}/runtime.o"
-SEED="${ROOT_DIR}/bootstrap/diva-linux-amd64"
+# tests/run.sh may set DIVA_TEST_SEED to build/diva-stage2 (gcc-linked) for a pure build of compiler/;
+# default remains the committed trust root in bootstrap/.
+SEED="${DIVA_TEST_SEED:-${ROOT_DIR}/bootstrap/diva-linux-amd64}"
 BUILD_LOG="${DIVA_SHARE}/.compiler-build.log"
 TRACE_LOG="${DIVA_SHARE}/install.log"
 QUIET="${DIVA_INSTALL_QUIET:-0}"
@@ -141,13 +143,12 @@ else
   log "Compiler build failed (exit ${seed_rc}). See ${BUILD_LOG}"
   log "Last 60 lines of ${BUILD_LOG}:"
   tail -n 60 "${BUILD_LOG}" >&2 || true
-  if [ -x "${ROOT_DIR}/scripts/build-compiler-pure-elf.sh" ]; then
-    log "Attempting fallback driver build via scripts/build-compiler-pure-elf.sh (pure ELF, no cc link)"
-    if ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-      DI_RUNTIME_O="${RUNTIME_O}" \
-      BUILD_TIMEOUT_SECS="${BUILD_TIMEOUT_SECS:-3600}" \
-      bash "${ROOT_DIR}/scripts/build-compiler-pure-elf.sh" >>"${BUILD_LOG}" 2>&1; then
-      DRIVER="${ROOT_DIR}/build/diva-compiler-pure-elf"
+  if [ -x "${ROOT_DIR}/scripts/legacy/build-compiler-cc-link.sh" ]; then
+    log "Fallback: legacy gas+cc bootstrap (pinned seed build still expects hosted link; run promote-bootstrap-seed after you have a pure-built driver)"
+    if ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DI_RUNTIME_O="${RUNTIME_O}" \
+      ASM_TIMEOUT_SECS="${ASM_TIMEOUT_SECS:-1200}" \
+      bash "${ROOT_DIR}/scripts/legacy/build-compiler-cc-link.sh" >>"${BUILD_LOG}" 2>&1; then
+      DRIVER="${ROOT_DIR}/build/diva-stage2"
       if [ -x "${DRIVER}" ]; then
         log "Fallback build succeeded; installing driver from ${DRIVER}"
         cp -v "${DRIVER}" "${LIBEXEC_DIR}/diva-driver" >&2
@@ -158,7 +159,7 @@ else
         log "Fallback build reported success but ${DRIVER} is missing or not executable"
       fi
     else
-      log "Fallback build failed; see ${BUILD_LOG}"
+      log "Fallback legacy cc-link failed; see ${BUILD_LOG}"
     fi
   fi
 fi

@@ -1022,8 +1022,8 @@ func cmd_build(): int {
     if native_compile_and_link(merged, 0) != 0 {
         return 1
     }
-    print_str("[native] built executable at ")
-    print_str(native_tmp_exe())
+    var built_msg = str_concat("[native] built executable at ", native_tmp_exe())
+    print_str(built_msg)
     stdout(newline_str())
     return 0
 }
