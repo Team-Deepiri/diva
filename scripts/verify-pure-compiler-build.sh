@@ -12,9 +12,17 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "${ROOT_DIR}"
 
 SEED="${ROOT_DIR}/bootstrap/diva-linux-amd64"
-DRIVER="${DRIVER:-${SEED}}"
+DRIVER="${DRIVER:-}"
+if [ -z "${DRIVER}" ]; then
+  for cand in "${ROOT_DIR}/build/diva-stage2-boot" "${ROOT_DIR}/build/diva-stage2" "${SEED}"; do
+    if test -x "${cand}"; then
+      DRIVER="${cand}"
+      break
+    fi
+  done
+fi
 if ! test -x "${DRIVER}"; then
-  echo "[verify-pure-compiler] missing executable DRIVER or seed: ${DRIVER}" >&2
+  echo "[verify-pure-compiler] missing executable DRIVER (set DRIVER= or build scripts/legacy/build-compiler-cc-link.sh)" >&2
   exit 1
 fi
 
@@ -22,6 +30,12 @@ export ROOT_DIR
 export DI_STDLIB_DIR="${DI_STDLIB_DIR:-${ROOT_DIR}/stdlib}"
 export DIVA_NO_EXTERNAL=1
 export DI_RUNTIME_O="${DI_RUNTIME_O:-${ROOT_DIR}/bootstrap/runtime-linux-amd64.o}"
+# Pinned seed may lag new externs until promoted; gcc-linked stage2 does not. Default skip only for seed.
+if [ "${DRIVER}" = "${SEED}" ]; then
+  export DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-1}"
+else
+  export DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-}"
+fi
 
 LOG="${LOG:-${ROOT_DIR}/build/.pure-elf-compiler/verify-build.log}"
 mkdir -p "$(dirname "${LOG}")"

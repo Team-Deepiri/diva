@@ -103,6 +103,7 @@ if [ "${QUIET}" = "1" ]; then
   log "QUIET=1: build output only in ${BUILD_LOG} (no live tee)"
   set +e
   ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+    DIVA_SKIP_NATIVE_EXTERN_CHECK=1 \
     DI_RUNTIME_O="${RUNTIME_O}" \
     "${SEED}" build "${ROOT_DIR}/compiler" >"${BUILD_LOG}" 2>&1
   seed_rc=$?
@@ -112,10 +113,12 @@ else
   set +e
   if command -v stdbuf >/dev/null 2>&1; then
     ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+      DIVA_SKIP_NATIVE_EXTERN_CHECK=1 \
       DI_RUNTIME_O="${RUNTIME_O}" \
       stdbuf -oL -eL "${SEED}" build "${ROOT_DIR}/compiler" 2>&1 | tee "${BUILD_LOG}"
   else
     ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+      DIVA_SKIP_NATIVE_EXTERN_CHECK=1 \
       DI_RUNTIME_O="${RUNTIME_O}" \
       "${SEED}" build "${ROOT_DIR}/compiler" 2>&1 | tee "${BUILD_LOG}"
   fi

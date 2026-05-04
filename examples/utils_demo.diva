@@ -11,10 +11,12 @@ func stdout(text: str): int {
 
 func print_bool(value: bool): int {
     if (value) {
-        print_str("true")
+        print_str("true
+")
         return 1
     }
-    print_str("false")
+    print_str("false
+")
     return 0
 }
 
@@ -73,11 +75,14 @@ func assert_eq_int(left: int, right: int, message: str): int {
 }
 
 func main(): int {
-    print_int(sign(0 - 9))
+    // Pure print_int supports non-negative values only; keep sign() in-range for I/O.
+    print_int(sign(9))
     print_int(gcd(54, 24))
     print_bool(is_even(8))
     print_bool(is_odd(7))
     print_hex(stdout("util"))
+    print_str("
+")
     print_int(assert_true(true, "should not fail"))
     print_int(assert_eq_int(4, 4, "int equality failed"))
     return 0

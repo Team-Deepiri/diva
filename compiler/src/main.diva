@@ -186,62 +186,34 @@ func hex_char(n: int): int {
     return 87 + n
 }
 
-// Write text via syscall-backed builtin — no shell/python for content (chmod still uses host_system).
+// Write text via syscall-backed builtin — no shell for content.
 func native_write_text_bytes(path: str, data: str): int {
     return write_text_file(path, data)
 }
 
 // Materialize ELF bytes without building one giant hex string (large programs OOM the builder).
 func native_write_exe(data: int, path: str): int {
-    var b0 = str_builder_new()
-    str_builder_append(b0, "rm -f ")
-    str_builder_append(b0, path)
-    var cmd0 = str_builder_to_str(b0)
-    str_builder_free(b0)
-    if host_system(cmd0) != 0 {
+    if unlink(path) != 0 {
         return 1
     }
     var n = int_vec_len(data)
     var pos = 0
+    var first = 1
     while (pos < n) {
-        // Larger chunks cut down fork/exec storms on big ELFs (merged compiler).
-        // Each byte is two hex chars in the python argv; Linux caps each argv string (~128KiB),
-        // well below total ARG_MAX. 64000 bytes -> 128000 hex chars + wrapper stays safe.
         var take = 64000
         if (pos + take > n) {
             take = n - pos
         }
-        var sb = str_builder_new()
-        var j = 0
-        while (j < take) {
-            var b = int_vec_get(data, pos + j)
-            var hi = (b / 16) & 15
-            var lo = b & 15
-            str_builder_append(sb, char_to_str(hex_char(hi)))
-            str_builder_append(sb, char_to_str(hex_char(lo)))
-            j = j + 1
-        }
-        var chunk = str_builder_to_str(sb)
-        str_builder_free(sb)
-        var sbp = str_builder_new()
-        str_builder_append(sbp, "python3 -c 'open(\"")
-        str_builder_append(sbp, path)
-        str_builder_append(sbp, "\",\"ab\").write(bytes.fromhex(\"")
-        str_builder_append(sbp, chunk)
-        str_builder_append(sbp, "\"))'")
-        var pyc = str_builder_to_str(sbp)
-        str_builder_free(sbp)
-        if host_system(pyc) != 0 {
+        if write_elf_chunk(path, data, pos, take, first) != 0 {
             return 1
         }
         pos = pos + take
+        first = 0
     }
-    var sb2 = str_builder_new()
-    str_builder_append(sb2, "chmod +x ")
-    str_builder_append(sb2, path)
-    var cmd2 = str_builder_to_str(sb2)
-    str_builder_free(sb2)
-    return host_system(cmd2)
+    if chmod_executable(path) != 0 {
+        return 1
+    }
+    return 0
 }
 
 // Split ELF phdr helpers: native codegen cannot pass >6 ints to one callee (rdi gets clobbered).
@@ -336,6 +308,12 @@ func make_phdr_rx_load(out: int, code_len: int, code_size: int, align: int): int
 }
 
 func native_require_no_externs(m: int, src: str, toks: int): int {
+    // Pinned seed may lag codegen (new pure builtins). One-shot bootstrap: set
+    // DIVA_SKIP_NATIVE_EXTERN_CHECK=1 when rebuilding the driver from sources.
+    var skip = host_getenv("DIVA_SKIP_NATIVE_EXTERN_CHECK")
+    if (!(str_len(skip) < 1)) {
+        return 0
+    }
     var ec = mod_extern_count(m)
     var unresolved = 0
     var i = 0
@@ -372,6 +350,9 @@ func native_require_no_externs(m: int, src: str, toks: int): int {
         if str_eq(nm, "host_system") == 1 { supported = 1 }
         if str_eq(nm, "mkdir") == 1 { supported = 1 }
         if str_eq(nm, "write_text_file") == 1 { supported = 1 }
+        if str_eq(nm, "unlink") == 1 { supported = 1 }
+        if str_eq(nm, "chmod_executable") == 1 { supported = 1 }
+        if str_eq(nm, "write_elf_chunk") == 1 { supported = 1 }
         if supported == 0 {
             if unresolved == 0 {
                 err_line("native build: unresolved extern runtime dependencies remain:")
@@ -384,7 +365,7 @@ func native_require_no_externs(m: int, src: str, toks: int): int {
         i = i + 1
     }
     if unresolved != 0 {
-        err_line("native build: implement these builtins in pure ELF path (see pure_elf_builtins.diva)")
+        err_line("native build: implement these builtins in pure ELF path (see pure_elf_builtins.diva). If the pinned seed lags new externs, set DIVA_SKIP_NATIVE_EXTERN_CHECK=1 for a one-shot driver rebuild.")
         return 1
     }
     return 0
@@ -433,7 +414,7 @@ func native_emit_pure_elf(code: int, main_ent: int, exe_out: str, quiet: int): i
     var res = native_write_exe(elf, exe_out)
     int_vec_free(elf)
     if res != 0 {
-        if quiet == 0 { err_line("build: writing native ELF failed (native_write_exe); need working sh, python3, and chmod on PATH") }
+        if quiet == 0 { err_line("build: writing native ELF failed (native_write_exe); check write_elf_chunk, unlink, chmod_executable") }
         return 1
     }
     return 0

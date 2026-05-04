@@ -1,0 +1,100 @@
+/* Pure ELF inline blob: write one ELF byte chunk via mmap + open + write.
+   SysV: rdi=path, rsi=vec ptr, rdx=pos, rcx=take, r8=is_first (nonzero => O_TRUNC).
+   Preserves r15 (push/pop). No RET — inlined into caller. */
+.section .note.GNU-stack,"",@progbits
+.text
+.globl pure_write_elf_chunk_impl
+.type pure_write_elf_chunk_impl, @function
+pure_write_elf_chunk_impl:
+	pushq	%rbx
+	pushq	%rbp
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+
+	movq	%rdi, %r15		/* path (save; mmap clobbers arg regs) */
+	movq	%rsi, %rbx		/* vec */
+	movq	%rdx, %r12		/* pos */
+	movq	%rcx, %r13		/* take */
+
+	/* mmap(NULL, take, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) */
+	xorl	%edi, %edi
+	movq	%r13, %rsi
+	movl	$3, %edx
+	movl	$0x22, %r10d
+	movq	$-1, %r8
+	xorq	%r9, %r9		/* offset 0 — full 64-bit clear */
+	movl	$9, %eax
+	syscall
+	cmpq	$0, %rax
+	js	.Lpw_fail
+	movq	%rax, %rbp		/* mmap ptr */
+
+	xorq	%r14, %r14
+.Lpw_fill:
+	cmpq	%r13, %r14
+	jge	.Lpw_fill_done
+	movq	%r12, %rsi
+	addq	%r14, %rsi
+	movq	24(%rbx,%rsi,8), %rax
+	movb	%al, (%rbp,%r14,1)
+	incq	%r14
+	jmp	.Lpw_fill
+.Lpw_fill_done:
+
+	movq	%r15, %rdi
+	testq	%r8, %r8
+	jz	.Lpw_append
+	movl	$577, %esi
+	jmp	.Lpw_open
+.Lpw_append:
+	movl	$1089, %esi
+.Lpw_open:
+	movl	$420, %edx
+	movl	$2, %eax
+	syscall
+	cmpq	$0, %rax
+	js	.Lpw_unmap_fail
+	movl	%eax, %r12d		/* fd (pos no longer needed) */
+
+	movl	%r12d, %edi
+	movq	%rbp, %rsi
+	movq	%r13, %rdx
+	movl	$1, %eax
+	syscall
+	cmpq	%r13, %rax
+	jne	.Lpw_close_unmap_fail
+
+	movl	%r12d, %edi
+	movl	$3, %eax
+	syscall
+
+	movq	%rbp, %rdi
+	movq	%r13, %rsi
+	movl	$11, %eax
+	syscall
+
+	xorl	%eax, %eax
+	jmp	.Lpw_done
+
+.Lpw_close_unmap_fail:
+	movl	%r12d, %edi
+	movl	$3, %eax
+	syscall
+.Lpw_unmap_fail:
+	movq	%rbp, %rdi
+	movq	%r13, %rsi
+	movl	$11, %eax
+	syscall
+.Lpw_fail:
+	movl	$1, %eax
+.Lpw_done:
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	popq	%rbp
+	popq	%rbx
+	/* no RET */
+.size	pure_write_elf_chunk_impl, .-pure_write_elf_chunk_impl

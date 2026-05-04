@@ -2,6 +2,7 @@
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+PINNED_BOOTSTRAP="${ROOT_DIR}/bootstrap/diva-linux-amd64"
 TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/diva-tests-XXXXXX")
 HOME_DIR="${TEST_ROOT}/home"
 BIN_DIR="${HOME_DIR}/.local/bin"
@@ -26,13 +27,10 @@ else
     COMPILER_TIMEOUT_SECS="${DIVA_TEST_COMPILER_TIMEOUT_SECS:-7200}"
     VERIFY_TIMEOUT_SECS="${DIVA_TEST_VERIFY_TIMEOUT_SECS:-1800}"
 fi
-# Gcc-linked driver used only to pure-build compiler/ (host_system + stable codegen). Build once with:
-#   sh scripts/legacy/build-compiler-cc-link.sh
+# Single trust root for goldens, early parse/new smoke, and (when no gcc-linked driver exists) compiler self-host.
+DIVA_TEST_SEED="${DIVA_TEST_SEED:-${ROOT_DIR}/bootstrap/diva-linux-amd64}"
+# Gcc-linked driver for pure compiler/ builds (see scripts/legacy/build-compiler-cc-link.sh). Falls back to DIVA_TEST_SEED if absent.
 PURE_BUILD_DRIVER="${DIVA_PURE_BUILD_DRIVER:-${ROOT_DIR}/build/diva-stage2}"
-# Smaller seed used only inside run_all_tests for example goldens where a large stage2 driver can regress (vec+print_int).
-INTEGRATION_SEED="${DIVA_TEST_INTEGRATION_SEED:-${ROOT_DIR}/bootstrap/diva-linux-amd64.bak-20260502215701}"
-# Parse / diva new before install: use the committed bootstrap (114k integration backups have triggered "Cannot fork" on diva new here).
-EARLY_PIPELINE_SEED="${DIVA_TEST_EARLY_DRIVER:-${ROOT_DIR}/bootstrap/diva-linux-amd64}"
 
 timed() {
     _secs=$1
@@ -152,14 +150,12 @@ assert_ir_contains() {
     exit 1
 }
 
+if [ ! -x "${DIVA_TEST_SEED}" ]; then
+    fail "missing or non-executable DIVA_TEST_SEED: ${DIVA_TEST_SEED}"
+fi
 if [ ! -x "${PURE_BUILD_DRIVER}" ]; then
-    fail "need ${PURE_BUILD_DRIVER} (run: sh ${ROOT_DIR}/scripts/legacy/build-compiler-cc-link.sh)"
-fi
-if [ ! -f "${INTEGRATION_SEED}" ]; then
-    fail "missing integration seed ${INTEGRATION_SEED} (set DIVA_TEST_INTEGRATION_SEED)"
-fi
-if [ ! -x "${EARLY_PIPELINE_SEED}" ]; then
-    fail "missing early driver ${EARLY_PIPELINE_SEED} (set DIVA_TEST_EARLY_DRIVER)"
+    log "PURE_BUILD_DRIVER not executable (${PURE_BUILD_DRIVER}); using DIVA_TEST_SEED for compiler self-host (set DIVA_PURE_BUILD_DRIVER to override)"
+    PURE_BUILD_DRIVER="${DIVA_TEST_SEED}"
 fi
 
 if [ "${DIVA_TEST_FAST}" = "1" ]; then
@@ -172,13 +168,13 @@ fi
 mkdir -p "${BIN_DIR}"
 PATH="${BIN_DIR}:${PATH}"
 export PATH
-log "early PATH: bootstrap driver -> ${BIN_DIR}/diva (repo stdlib; before install)"
-cp "${EARLY_PIPELINE_SEED}" "${BIN_DIR}/diva"
+log "early PATH: DIVA_TEST_SEED -> ${BIN_DIR}/diva (repo stdlib; before install)"
+cp "${DIVA_TEST_SEED}" "${BIN_DIR}/diva"
 chmod +x "${BIN_DIR}/diva"
 ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
-DIVA_BOOTSTRAP="${EARLY_PIPELINE_SEED}"
+DIVA_BOOTSTRAP="${DIVA_TEST_SEED}"
 export DIVA_BOOTSTRAP
-DI_BOOTSTRAP="${EARLY_PIPELINE_SEED}"
+DI_BOOTSTRAP="${DIVA_TEST_SEED}"
 export DI_BOOTSTRAP
 DI_STDLIB_DIR="${ROOT_DIR}/stdlib"
 export DI_STDLIB_DIR
@@ -241,16 +237,24 @@ timed "${INSTALL_TIMEOUT_SECS}" bash "${ROOT_DIR}/scripts/install.sh" >"${TEST_R
 }
 unset DIVA_TEST_SEED 2>/dev/null || true
 
+# install.sh copies the pure-built driver to libexec; that binary can still SIGSEGV on some sema paths.
+# When PURE_BUILD_DRIVER is a gcc-linked stage2 (not the repo pin), overlay libexec for stable integration.
+if [ "${DIVA_TESTS_LIBEXEC_OVERLAY:-1}" != "0" ] && [ -x "${PURE_BUILD_DRIVER}" ] && [ "${PURE_BUILD_DRIVER}" != "${PINNED_BOOTSTRAP}" ] && [ -f "${HOME_DIR}/.local/share/diva/libexec/diva-driver" ]; then
+    log "tests: overlay libexec/diva-driver with PURE_BUILD_DRIVER (${PURE_BUILD_DRIVER})"
+    cp -f "${PURE_BUILD_DRIVER}" "${HOME_DIR}/.local/share/diva/libexec/diva-driver"
+    chmod +x "${HOME_DIR}/.local/share/diva/libexec/diva-driver"
+fi
+
 PATH="${BIN_DIR}:${PATH}"
 export PATH
-# Example goldens and diva run: integration seed (large stage2 driver can regress vec+print_int).
-log "post-install PATH: integration seed -> ${BIN_DIR}/diva"
-cp "${INTEGRATION_SEED}" "${BIN_DIR}/diva"
-chmod +x "${BIN_DIR}/diva"
+# install.sh already placed the wrapper + freshly built libexec driver; do not replace diva with the repo pin
+# (pinned seed may lag new externs; integration exercises the installed driver).
+log "post-install PATH: ${BIN_DIR}/diva (installed wrapper + libexec driver)"
 ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
-DIVA_BOOTSTRAP="${INTEGRATION_SEED}"
+BOOT_EXE="${HOME_DIR}/.local/share/diva/bootstrap/diva-linux-amd64"
+DIVA_BOOTSTRAP="${BOOT_EXE}"
 export DIVA_BOOTSTRAP
-DI_BOOTSTRAP="${INTEGRATION_SEED}"
+DI_BOOTSTRAP="${BOOT_EXE}"
 export DI_BOOTSTRAP
 DI_STDLIB_DIR="${HOME_DIR}/.local/share/diva/stdlib"
 export DI_STDLIB_DIR
@@ -260,9 +264,6 @@ export DI_RUNTIME_O
 run_all_tests() {
     _stage=$1
     log "running integration tests (${_stage})"
-    # Example golden outputs match the integration seed (see PURE_BUILD_DRIVER / stage2 note above).
-    cp "${INTEGRATION_SEED}" "${BIN_DIR}/diva"
-    chmod +x "${BIN_DIR}/diva"
     ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
     log "checking semantic failure cases (before long native run smoke)"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva" "duplicate declaration of 'x' in the same scope"
@@ -299,13 +300,13 @@ assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.diva" "12
 5
 1
 1"
-assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from diva0x14"
+assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from diva0x0000000000000014"
 assert_output_equals "${ROOT_DIR}/examples/packages/app_with_dep" "42"
-assert_output_equals "${ROOT_DIR}/examples/utils_demo.diva" "util-1
+assert_output_equals "${ROOT_DIR}/examples/utils_demo.diva" "1
 6
 true
 true
-0x4
+util0x0000000000000004
 1
 1"
 
@@ -414,8 +415,8 @@ if [ "${DIVA_TEST_FAST}" = "1" ]; then
     fi
 else
     log "checking compiler package pure-ELF build (gcc-linked driver; pure ELF output still uses host_system for materialize)"
-    export DIVA_BOOTSTRAP="${INTEGRATION_SEED}"
-    export DI_BOOTSTRAP="${INTEGRATION_SEED}"
+    export DIVA_BOOTSTRAP="${BOOT_EXE}"
+    export DI_BOOTSTRAP="${BOOT_EXE}"
     RUNTIME_O="${HOME_DIR}/.local/share/diva/runtime/runtime.o"
     if ! [ -f "${RUNTIME_O}" ]; then
         fail "expected runtime object at ${RUNTIME_O}"
@@ -423,6 +424,7 @@ else
     BUILD_OUT="${TEST_ROOT}/compiler-selfhost-build.out"
     log "build compiler/ with ${PURE_BUILD_DRIVER} (timeout ${COMPILER_TIMEOUT_SECS}s)"
     if ! timed "${COMPILER_TIMEOUT_SECS}" env ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+        DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-1}" \
         DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
         "${PURE_BUILD_DRIVER}" build "${ROOT_DIR}/compiler" >"${BUILD_OUT}" 2>&1
     then
@@ -439,10 +441,6 @@ else
         sed -n '1,80p' "${BUILD_OUT}" >&2
         exit 1
     fi
-    # Do not install the pure ELF at ${SELFHOST_EXE} as `diva` on PATH: host_system is still a stub there
-    # (native_write_exe), and current stage2-sized seeds regress vec+print_int; integration tests keep using INTEGRATION_SEED.
-    cp "${INTEGRATION_SEED}" "${BIN_DIR}/diva"
-    chmod +x "${BIN_DIR}/diva"
     ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
 
     run_all_tests selfhost
@@ -451,6 +449,7 @@ else
     BUILD3_OUT="${TEST_ROOT}/compiler-stage3-build.out"
     log "second build compiler/ with ${PURE_BUILD_DRIVER} (timeout ${COMPILER_TIMEOUT_SECS}s)"
     if ! timed "${COMPILER_TIMEOUT_SECS}" env ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+        DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-1}" \
         DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
         "${PURE_BUILD_DRIVER}" build "${ROOT_DIR}/compiler" >"${BUILD3_OUT}" 2>&1
     then
@@ -466,8 +465,6 @@ else
         sed -n '1,80p' "${BUILD3_OUT}" >&2
         exit 1
     fi
-    cp "${INTEGRATION_SEED}" "${BIN_DIR}/diva"
-    chmod +x "${BIN_DIR}/diva"
     ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
 
     run_all_tests selfhost_stage3

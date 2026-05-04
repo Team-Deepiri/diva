@@ -2,6 +2,10 @@
 
 `diva-linux-amd64` is the **Linux x86-64** reference compiler binary. It is the **trust root** for the bootstrap: the in-tree Diva compiler package (`compiler/`) is built with this seed; `tests/run.sh` then requires pure rebuild convergence and `scripts/verify-pure-compiler-build.sh` (see repo `README.md`).
 
+## `write_elf_chunk` and promoting the seed
+
+The driver materializes pure ELF output using `write_elf_chunk` (hosted `di_runtime_write_elf_chunk` in `compiler/res/legacy/runtime_extra.s`, pure builtin id 32 in `pure_elf_builtins.diva`). The **pinned** `diva-linux-amd64` may still be an older trust root that does not implement `DIVA_SKIP_NATIVE_EXTERN_CHECK` in `native_require_no_externs`; until you promote a driver built from current sources, `scripts/install.sh`, `scripts/verify-pure-compiler-build.sh`, and `tests/run.sh` (slow path) export that skip for `diva build compiler/`. After a successful promote, clear the skip (empty `DIVA_SKIP_NATIVE_EXTERN_CHECK`) so CI enforces that the seed matches codegen.
+
 ## What is *not* in this repository
 
 - **No C or C++ compiler sources** — all language and compiler logic you edit is **`.diva`**. Verification: `scripts/verify-no-c-sources.sh`.

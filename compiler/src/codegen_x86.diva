@@ -99,6 +99,9 @@ func asm_runtime_label(src: str, toks: int, name_tok: int): str {
     if str_eq(nm, "abort") == 1 { return "di_runtime_abort" }
     if str_eq(nm, "mkdir") == 1 { return "di_runtime_mkdir" }
     if str_eq(nm, "write_text_file") == 1 { return "di_runtime_write_text_file" }
+    if str_eq(nm, "unlink") == 1 { return "di_runtime_unlink" }
+    if str_eq(nm, "chmod_executable") == 1 { return "di_runtime_chmod_executable" }
+    if str_eq(nm, "write_elf_chunk") == 1 { return "di_runtime_write_elf_chunk" }
     return nm
 }
 
@@ -595,7 +598,7 @@ func pure_builtin_call_size_lo(id: int): int {
     if id == 2 { return 7 }
     if id == 3 { return 12 }
     if id == 4 { return 28 }
-    if id == 5 { return 64 }
+    if id == 5 { return 91 }
     if id == 6 { return 20 }
     if id == 7 { return 9 }
     if id == 8 { return 30 }
@@ -624,10 +627,13 @@ func pure_builtin_call_size_hi_misc(id: int): int {
     if id == 23 { return 161 }
     if id == 24 { return 3 }
     if id == 25 { return 16 }
-    if id == 26 { return 64 }
-    if id == 27 { return 16 }
+    if id == 26 { return 135 }
+    if id == 27 { return 214 }
     if id == 28 { return 40 }
     if id == 29 { return 129 }
+    if id == 30 { return 33 }
+    if id == 31 { return 31 }
+    if id == 32 { return 224 }
     return 5
 }
 
@@ -683,26 +689,18 @@ func emit_pure_builtin_call_4(out: int): int {
 }
 
 func emit_pure_builtin_call_5(out: int): int {
-    // print_int(n): supports non-negative int values.
-    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 248)
-    int_vec_push(out, 76) int_vec_push(out, 141) int_vec_push(out, 69) int_vec_push(out, 255)
-    int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 201)
-    int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 210)
-    int_vec_push(out, 72) int_vec_push(out, 187) int_vec_push(out, 10) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 243)
-    int_vec_push(out, 128) int_vec_push(out, 194) int_vec_push(out, 48)
-    int_vec_push(out, 65) int_vec_push(out, 136) int_vec_push(out, 16)
-    int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 200)
-    int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 193)
-    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 192)
-    int_vec_push(out, 117) int_vec_push(out, 223)
-    int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 192)
-    int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 198)
-    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 202)
-    int_vec_push(out, 191) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, 15) int_vec_push(out, 5)
-    return 64
+    // print_int(n): n >= 0; digits + newline (compiler/res/pure_print_int.s, matches hosted runtime).
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 248) int_vec_push(out, 76) int_vec_push(out, 141) int_vec_push(out, 68) int_vec_push(out, 36) int_vec_push(out, 248) int_vec_push(out, 77) int_vec_push(out, 49)
+    int_vec_push(out, 201) int_vec_push(out, 73) int_vec_push(out, 187) int_vec_push(out, 10) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 49) int_vec_push(out, 210) int_vec_push(out, 73) int_vec_push(out, 247) int_vec_push(out, 243) int_vec_push(out, 128) int_vec_push(out, 194) int_vec_push(out, 48) int_vec_push(out, 65)
+    int_vec_push(out, 136) int_vec_push(out, 16) int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 200) int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 193) int_vec_push(out, 72) int_vec_push(out, 133)
+    int_vec_push(out, 192) int_vec_push(out, 117) int_vec_push(out, 234) int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 192) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 198) int_vec_push(out, 76)
+    int_vec_push(out, 137) int_vec_push(out, 202) int_vec_push(out, 191) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 198) int_vec_push(out, 68) int_vec_push(out, 36) int_vec_push(out, 255) int_vec_push(out, 10) int_vec_push(out, 72)
+    int_vec_push(out, 141) int_vec_push(out, 116) int_vec_push(out, 36) int_vec_push(out, 255) int_vec_push(out, 186) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 191)
+    int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15)
+    int_vec_push(out, 5)
+    return 91
 }
 
 func emit_pure_builtin_call_6_8(out: int, id: int): int {
@@ -755,7 +753,7 @@ func emit_pure_builtin_call(out: int, id: int): int {
         }
     }
     if (!(id < 9)) {
-        if (!(id > 29)) {
+        if (!(id > 32)) {
             return emit_pure_builtin_high(out, id)
         }
     }
