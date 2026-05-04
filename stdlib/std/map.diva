@@ -5,11 +5,11 @@ func str_hash(s: str): int {
     var h = 5381
     var n = str_len(s)
     var i = 0
-    while i < n {
+    while (i < n) {
         h = h * 33 + str_byte(s, i)
         i = i + 1
     }
-    if h < 0 {
+    if (h < 0) {
         h = 0 - h
     }
     return h
@@ -17,11 +17,11 @@ func str_hash(s: str): int {
 
 func int_hash(x: int): int {
     var v = x
-    if v < 0 {
+    if (v < 0) {
         v = 0 - v
     }
     v = v * 2654435761
-    if v < 0 {
+    if (v < 0) {
         v = 0 - v
     }
     return v
@@ -29,7 +29,7 @@ func int_hash(x: int): int {
 
 func vec_fill(handle: int, count: int, value: int): int {
     var i = 0
-    while i < count {
+    while (i < count) {
         int_vec_push(handle, value)
         i = i + 1
     }
@@ -43,7 +43,7 @@ func vec_set_at(handle: int, index: int, value: int): int {
         return 0 - 1
     }
     var i = 0
-    while i < n {
+    while (i < n) {
         if i == index {
             int_vec_push(tmp, value)
         } else {
@@ -61,7 +61,7 @@ func vec_copy(src: int): int {
     }
     var n = int_vec_len(src)
     var i = 0
-    while i < n {
+    while (i < n) {
         int_vec_push(dst, int_vec_get(src, i))
         i = i + 1
     }
@@ -74,7 +74,7 @@ func vec_from_range(start: int, end: int): int {
         return 0
     }
     var i = start
-    while i < end {
+    while (i < end) {
         int_vec_push(v, i)
         i = i + 1
     }
@@ -88,7 +88,7 @@ func vec_map_add(handle: int, addend: int): int {
     }
     var n = int_vec_len(handle)
     var i = 0
-    while i < n {
+    while (i < n) {
         int_vec_push(result, int_vec_get(handle, i) + addend)
         i = i + 1
     }
@@ -102,7 +102,7 @@ func vec_map_mul(handle: int, factor: int): int {
     }
     var n = int_vec_len(handle)
     var i = 0
-    while i < n {
+    while (i < n) {
         int_vec_push(result, int_vec_get(handle, i) * factor)
         i = i + 1
     }
@@ -116,9 +116,9 @@ func vec_filter_gt(handle: int, threshold: int): int {
     }
     var n = int_vec_len(handle)
     var i = 0
-    while i < n {
+    while (i < n) {
         var v = int_vec_get(handle, i)
-        if v > threshold {
+        if (v > threshold) {
             int_vec_push(result, v)
         }
         i = i + 1
@@ -133,9 +133,9 @@ func vec_filter_lt(handle: int, threshold: int): int {
     }
     var n = int_vec_len(handle)
     var i = 0
-    while i < n {
+    while (i < n) {
         var v = int_vec_get(handle, i)
-        if v < threshold {
+        if (v < threshold) {
             int_vec_push(result, v)
         }
         i = i + 1

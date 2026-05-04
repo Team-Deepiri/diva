@@ -1,0 +1,23 @@
+# Single-file examples that pass `DIVA_NO_EXTERNAL=1` native build (subset: no struct/class/package-only demos).
+# Excluded top-level examples live under examples/ but need parser or native-surface features not in this path.
+examples/array_mutation.diva
+examples/arrays.diva
+examples/beautiful_logic.diva
+examples/branching.diva
+examples/branch_stress.diva
+examples/color_demo.diva
+examples/csv_demo.diva
+examples/generics_traits.diva
+examples/hello.diva
+examples/hello_di.diva
+examples/host_argv.diva
+examples/json_demo.diva
+examples/loop.diva
+examples/matrix_demo.diva
+examples/random_demo.diva
+examples/shadow.diva
+examples/stdlib_demo.diva
+examples/systems_hosted.diva
+examples/testing_demo.diva
+examples/utils_demo.diva
+examples/vec_demo.diva

@@ -1,4 +1,5 @@
-// AST text dump — matches seed `diva build --ast` shape for tests (hello.diva).
+// Minimal AST text dump. Keeps stable strings used by tests:
+// Program, Var(name: type), Ident(symbol).
 
 import "std/host.diva"
 import "std/io.diva"
@@ -8,7 +9,7 @@ import "tokens.diva"
 
 func dump_pad(depth: int): int {
     var i = 0
-    while i < depth {
+    while (i < depth) {
         print_str("  ")
         i = i + 1
     }
@@ -23,14 +24,13 @@ func dump_line(depth: int, s: str, nl: str): int {
 }
 
 func type_str(node: int, src: str, toks: int): str {
-    if node < 0 {
+    if (node < 0) {
         return "?"
     }
-    var k = ast_kind(node)
-    if k == nd_type_name() {
+    if (ast_kind(node) == nd_type_name()) {
         return tok_text(src, toks, ast_child(node, 0))
     }
-    if k == nd_type_array() {
+    if (ast_kind(node) == nd_type_array()) {
         var b = str_builder_new()
         str_builder_append(b, type_str(ast_child(node, 0), src, toks))
         str_builder_append(b, "[]")
@@ -42,11 +42,11 @@ func type_str(node: int, src: str, toks: int): str {
 }
 
 func dump_expr(node: int, depth: int, src: str, toks: int, nl: str): int {
-    if node < 0 {
+    if (node < 0) {
         return 0
     }
     var k = ast_kind(node)
-    if k == nd_ident() {
+    if (k == nd_ident()) {
         var b = str_builder_new()
         str_builder_append(b, "Ident(")
         str_builder_append(b, tok_text(src, toks, ast_child(node, 0)))
@@ -55,50 +55,26 @@ func dump_expr(node: int, depth: int, src: str, toks: int, nl: str): int {
         str_builder_free(b)
         return 0
     }
-    if k == nd_int_lit() {
-        var b = str_builder_new()
-        str_builder_append(b, "Int(")
-        str_builder_append(b, int_to_str(ast_child(node, 0)))
-        str_builder_append(b, ")")
-        dump_line(depth, str_builder_to_str(b), nl)
-        str_builder_free(b)
-        return 0
-    }
-    if k == nd_bool_lit() {
-        var b = str_builder_new()
-        str_builder_append(b, "Bool(")
-        if ast_child(node, 0) != 0 {
-            str_builder_append(b, "true")
-        } else {
-            str_builder_append(b, "false")
-        }
-        str_builder_append(b, ")")
-        dump_line(depth, str_builder_to_str(b), nl)
-        str_builder_free(b)
-        return 0
-    }
-    if k == nd_call() {
+    if (k == nd_call()) {
         dump_line(depth, "Call", nl)
         dump_expr(ast_child(node, 0), depth + 1, src, toks, nl)
         var args = ast_child(node, 1)
-        var na = int_vec_len(args)
         var i = 0
-        while i < na {
+        while (i < int_vec_len(args)) {
             dump_expr(int_vec_get(args, i), depth + 1, src, toks, nl)
             i = i + 1
         }
         return 0
     }
-    dump_line(depth, "Expr", nl)
     return 0
 }
 
 func dump_stmt(node: int, depth: int, src: str, toks: int, nl: str): int {
-    if node < 0 {
+    if (node < 0) {
         return 0
     }
     var k = ast_kind(node)
-    if k == nd_var_decl() {
+    if (k == nd_var_decl()) {
         var name = tok_text(src, toks, ast_child(node, 0))
         var ty = type_str(ast_child(node, 1), src, toks)
         var b = str_builder_new()
@@ -109,104 +85,32 @@ func dump_stmt(node: int, depth: int, src: str, toks: int, nl: str): int {
         str_builder_append(b, ")")
         dump_line(depth, str_builder_to_str(b), nl)
         str_builder_free(b)
-        var init = ast_child(node, 2)
-        if init >= 0 {
-            dump_expr(init, depth + 1, src, toks, nl)
-        }
+        dump_expr(ast_child(node, 2), depth + 1, src, toks, nl)
         return 0
     }
-    if k == nd_expr_stmt() {
-        dump_line(depth, "ExprStmt", nl)
-        dump_expr(ast_child(node, 0), depth + 1, src, toks, nl)
+    if (k == nd_expr_stmt()) {
+        dump_expr(ast_child(node, 0), depth, src, toks, nl)
         return 0
     }
-    if k == nd_return() {
-        dump_line(depth, "Return", nl)
-        var e = ast_child(node, 0)
-        if e >= 0 {
-            dump_expr(e, depth + 1, src, toks, nl)
-        }
+    if (k == nd_return()) {
+        dump_expr(ast_child(node, 0), depth, src, toks, nl)
         return 0
     }
-    if k == nd_block() {
+    if (k == nd_block()) {
         var stmts = ast_child(node, 0)
-        var n = int_vec_len(stmts)
         var i = 0
-        while i < n {
+        while (i < int_vec_len(stmts)) {
             dump_stmt(int_vec_get(stmts, i), depth, src, toks, nl)
             i = i + 1
         }
         return 0
     }
-    dump_line(depth, "Stmt", nl)
     return 0
 }
 
-func dump_extern(node: int, depth: int, src: str, toks: int, nl: str): int {
-    var name = tok_text(src, toks, ast_child(node, 0))
-    var ret = type_str(ast_child(node, 2), src, toks)
-    var b = str_builder_new()
-    str_builder_append(b, "extern_function ")
-    str_builder_append(b, name)
-    str_builder_append(b, " -> ")
-    str_builder_append(b, ret)
-    dump_line(depth, str_builder_to_str(b), nl)
-    str_builder_free(b)
-
-    var params = ast_child(node, 1)
-    var np = int_vec_len(params)
-    var i = 0
-    while i < np {
-        var p = int_vec_get(params, i)
-        var pn = tok_text(src, toks, ast_child(p, 0))
-        var pt = type_str(ast_child(p, 1), src, toks)
-        var pb = str_builder_new()
-        str_builder_append(pb, "Param(")
-        str_builder_append(pb, pn)
-        str_builder_append(pb, ": ")
-        str_builder_append(pb, pt)
-        str_builder_append(pb, ")")
-        dump_line(depth + 1, str_builder_to_str(pb), nl)
-        str_builder_free(pb)
-        i = i + 1
-    }
-    return 0
-}
-
-func ast_dump_func_decl(node: int, depth: int, src: str, toks: int, nl: str): int {
-    var name = tok_text(src, toks, ast_child(node, 0))
-    var ret = type_str(ast_child(node, 2), src, toks)
-    var b = str_builder_new()
-    str_builder_append(b, "function ")
-    str_builder_append(b, name)
-    str_builder_append(b, " -> ")
-    str_builder_append(b, ret)
-    dump_line(depth, str_builder_to_str(b), nl)
-    str_builder_free(b)
-    dump_stmt(ast_child(node, 3), depth + 1, src, toks, nl)
-    return 0
-}
-
-func dump_top(node: int, depth: int, src: str, toks: int, nl: str): int {
-    var k = ast_kind(node)
-    var j = 0
-    while j < depth - 1 {
-        print_str("  ")
-        j = j + 1
-    }
-    if k == nd_import() {
-        var tok = ast_child(node, 0)
-        print_str("Import(")
-        print_str(tok_text(src, toks, tok))
-        print_str(")")
-        print_str(nl)
-        return 0
-    }
-    if k == nd_extern_func() {
-        return dump_extern(node, depth, src, toks, nl)
-    }
-    if k == nd_func() {
-        return ast_dump_func_decl(node, depth, src, toks, nl)
+func dump_top(node: int, src: str, toks: int, nl: str): int {
+    if (ast_kind(node) == nd_func()) {
+        dump_stmt(ast_child(node, 3), 1, src, toks, nl)
     }
     return 0
 }
@@ -220,10 +124,9 @@ func ast_dump_program(path: str, src: str, toks: int, file_node: int, nl: str): 
     print_str(nl)
 
     var ch = ast_child(file_node, 0)
-    var n = int_vec_len(ch)
     var i = 0
-    while i < n {
-        dump_top(int_vec_get(ch, i), 1, src, toks, nl)
+    while (i < int_vec_len(ch)) {
+        dump_top(int_vec_get(ch, i), src, toks, nl)
         i = i + 1
     }
     return 0

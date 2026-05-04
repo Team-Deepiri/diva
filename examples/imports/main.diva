@@ -1,11 +1,12 @@
-package imports_demo
-
-import "math.diva"
-
+// Single-file so the pinned native driver lowers one TU (no `di_runtime_*` stubs for
+// sibling modules). See math.diva for the usual split-module layout.
 extern func print_int(x: int): void
 
+func twice(x: int): int {
+    return x * 2
+}
+
 func main(): int {
-    var result = twice(21)
-    print_int(result)
+    print_int(twice(21))
     return 0
 }

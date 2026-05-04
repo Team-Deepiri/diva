@@ -105,12 +105,73 @@ func tok_text(src: str, stream: int, index: int): str {
     return str_slice(src, s, l)
 }
 
+// Spelling of two token indices in src; bounds-checked (no str_eq/tok_text aliasing).
+func tok_spelling_eq(src: str, stream: int, a: int, b: int): int {
+    var sn = str_len(src)
+    var tc = tok_count(stream)
+    if (a < 0) { return 0 }
+    if (b < 0) { return 0 }
+    if (a >= tc) { return 0 }
+    if (b >= tc) { return 0 }
+    var sa = tok_start(stream, a)
+    var la = tok_len(stream, a)
+    var sb = tok_start(stream, b)
+    var lb = tok_len(stream, b)
+    if (sa < 0) { return 0 }
+    if (sb < 0) { return 0 }
+    if (la < 0) { return 0 }
+    if (lb < 0) { return 0 }
+    if (sa + la > sn) { return 0 }
+    if (sb + lb > sn) { return 0 }
+    if (la == lb) == 0 {
+        return 0
+    }
+    var k = 0
+    var match = 1
+    while (k < la) {
+        if match == 1 {
+            if (str_byte(src, sa + k) == str_byte(src, sb + k)) == 0 {
+                match = 0
+            }
+        }
+        k = k + 1
+    }
+    return match
+}
+
+// |name| str vs token spelling in src (one str view, byte compare; bounds on src).
+func str_eq_tok_spelling(name: str, src: str, stream: int, tok: int): int {
+    var sn = str_len(src)
+    var tc = tok_count(stream)
+    if (tok < 0) { return 0 }
+    if (tok >= tc) { return 0 }
+    var s = tok_start(stream, tok)
+    var l = tok_len(stream, tok)
+    if (s < 0) { return 0 }
+    if (l < 0) { return 0 }
+    if (s + l > sn) { return 0 }
+    if (str_len(name) == l) == 0 {
+        return 0
+    }
+    var k = 0
+    var match = 1
+    while (k < l) {
+        if match == 1 {
+            if (str_byte(name, k) == str_byte(src, s + k)) == 0 {
+                match = 0
+            }
+        }
+        k = k + 1
+    }
+    return match
+}
+
 func tok_int_value(src: str, stream: int, index: int): int {
     var s = tok_start(stream, index)
     var l = tok_len(stream, index)
     var result = 0
     var i = 0
-    while i < l {
+    while (i < l) {
         result = result * 10 + (str_byte(src, s + i) - 48)
         i = i + 1
     }
@@ -122,17 +183,17 @@ func tok_str_value(src: str, stream: int, index: int): str {
     var t0 = tok_start(stream, index)
     var tl = tok_len(stream, index)
     var inner_len = tl - 2
-    if inner_len <= 0 {
+    if !(inner_len > 0) {
         return ""
     }
     var inner_start = t0 + 1
     var q = str_slice(src, t0, 1)
     var b = str_builder_new()
     var i = 0
-    while i < inner_len {
+    while (i < inner_len) {
         var c = str_byte(src, inner_start + i)
         if c == 92 {
-            if i + 1 >= inner_len {
+            if !(inner_len > i + 1) {
                 str_builder_append(b, str_slice(src, inner_start + i, 1))
                 i = i + 1
             } else {

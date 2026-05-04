@@ -47,7 +47,7 @@ func queue_rest(handle: int): int {
     var n = int_vec_len(handle)
     var fresh = int_vec_new()
     var i = 1
-    while i < n {
+    while (i < n) {
         int_vec_push(fresh, int_vec_get(handle, i))
         i = i + 1
     }
@@ -68,7 +68,7 @@ func queue_to_vec(handle: int): int {
     var n = int_vec_len(handle)
     var copy = int_vec_new()
     var i = 0
-    while i < n {
+    while (i < n) {
         int_vec_push(copy, int_vec_get(handle, i))
         i = i + 1
     }
@@ -78,7 +78,7 @@ func queue_to_vec(handle: int): int {
 func queue_contains(handle: int, value: int): int {
     var n = int_vec_len(handle)
     var i = 0
-    while i < n {
+    while (i < n) {
         if int_vec_get(handle, i) == value {
             return 1
         }
@@ -92,10 +92,10 @@ func priority_insert(handle: int, value: int): int {
     var fresh = int_vec_new()
     var inserted = 0
     var i = 0
-    while i < n {
+    while (i < n) {
         var cur = int_vec_get(handle, i)
         if inserted == 0 {
-            if value <= cur {
+            if (value <= cur) {
                 int_vec_push(fresh, value)
                 inserted = 1
             }

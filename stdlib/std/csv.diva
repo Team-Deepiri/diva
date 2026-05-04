@@ -6,7 +6,7 @@ func csv_escape_field(field: str): str {
     var n = str_len(field)
     var needs_quote = 0
     var i = 0
-    while i < n {
+    while (i < n) {
         var c = str_byte(field, i)
         if c == 44 { needs_quote = 1 }
         if c == 34 { needs_quote = 1 }
@@ -21,7 +21,7 @@ func csv_escape_field(field: str): str {
     if b == 0 { return field }
     str_builder_append(b, "\"")
     i = 0
-    while i < n {
+    while (i < n) {
         var c = str_byte(field, i)
         if c == 34 {
             str_builder_append(b, "\"\"")
@@ -86,7 +86,7 @@ func csv_count_fields(line: str): int {
     var count = 1
     var in_quote = 0
     var i = 0
-    while i < n {
+    while (i < n) {
         var c = str_byte(line, i)
         if c == 34 {
             if in_quote == 0 {
@@ -111,7 +111,7 @@ func csv_get_field(line: str, index: int): str {
     var start = 0
     var in_quote = 0
     var i = 0
-    while i < n {
+    while (i < n) {
         var c = str_byte(line, i)
         if c == 34 {
             if in_quote == 0 {
@@ -144,7 +144,7 @@ func csv_count_lines(data: str): int {
     }
     var count = 1
     var i = 0
-    while i < n {
+    while (i < n) {
         if str_byte(data, i) == 10 {
             count = count + 1
         }
@@ -161,11 +161,11 @@ func csv_get_line(data: str, line_index: int): str {
     var cur = 0
     var start = 0
     var i = 0
-    while i < n {
+    while (i < n) {
         if str_byte(data, i) == 10 {
             if cur == line_index {
                 var len = i - start
-                if len > 0 {
+                if (len > 0) {
                     if str_byte(data, i - 1) == 13 {
                         len = len - 1
                     }

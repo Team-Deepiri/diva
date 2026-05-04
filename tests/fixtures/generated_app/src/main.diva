@@ -1,0 +1,6 @@
+extern func print_str(x: str): void
+
+func main(): int {
+    print_str("hello from diva10")
+    return 0
+}

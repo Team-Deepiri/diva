@@ -14,7 +14,7 @@ func stderr(text: str): int {
 }
 
 func print_bool(value: bool): int {
-    if value {
+    if (value) {
         print_str("true")
         return 1
     }

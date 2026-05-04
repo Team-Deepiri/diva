@@ -9,7 +9,7 @@ func hex_encode_byte(b: int): str {
     }
     var hi = b / 16
     var lo = b - hi * 16
-    if hi < 10 {
+    if (hi < 10) {
         str_builder_append(sb, int_to_str(hi))
     }
     if hi == 10 { str_builder_append(sb, "a") }
@@ -18,7 +18,7 @@ func hex_encode_byte(b: int): str {
     if hi == 13 { str_builder_append(sb, "d") }
     if hi == 14 { str_builder_append(sb, "e") }
     if hi == 15 { str_builder_append(sb, "f") }
-    if lo < 10 {
+    if (lo < 10) {
         str_builder_append(sb, int_to_str(lo))
     }
     if lo == 10 { str_builder_append(sb, "a") }
@@ -39,7 +39,7 @@ func hex_encode(s: str): str {
         return ""
     }
     var i = 0
-    while i < n {
+    while (i < n) {
         str_builder_append(sb, hex_encode_byte(str_byte(s, i)))
         i = i + 1
     }
@@ -51,10 +51,10 @@ func hex_encode(s: str): str {
 func hex_decode_pair(hi_char: int, lo_char: int): int {
     var hi = hex_digit_value(hi_char)
     var lo = hex_digit_value(lo_char)
-    if hi < 0 {
+    if (hi < 0) {
         return 0 - 1
     }
-    if lo < 0 {
+    if (lo < 0) {
         return 0 - 1
     }
     return hi * 16 + lo
@@ -64,9 +64,9 @@ func hex_decode_to_vec(s: str): int {
     var n = str_len(s)
     var vec = int_vec_new()
     var i = 0
-    while i < n - 1 {
+    while (i < n - 1) {
         var val = hex_decode_pair(str_byte(s, i), str_byte(s, i + 1))
-        if val < 0 {
+        if (val < 0) {
             int_vec_free(vec)
             return 0
         }
@@ -83,7 +83,7 @@ func hex_encode_vec(handle: int): str {
         return ""
     }
     var i = 0
-    while i < n {
+    while (i < n) {
         str_builder_append(sb, hex_encode_byte(int_vec_get(handle, i)))
         i = i + 1
     }
@@ -98,7 +98,7 @@ func hex_is_valid(s: str): int {
         return 0
     }
     var i = 0
-    while i < n {
+    while (i < n) {
         if is_hex_digit(str_byte(s, i)) == 0 {
             return 0
         }

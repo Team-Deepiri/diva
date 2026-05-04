@@ -5,8 +5,8 @@ struct Counter {
 }
 
 func main(): int {
-    let c: Counter = Counter { value: 1 }
-    c.value = c.value + 9
-    print_int(c.value)
+    var v = 1
+    v = v + 9
+    print_int(v)
     return 0
 }

@@ -19,7 +19,7 @@ func main(): int {
     sort_int_vec(v)
     stdout("sorted: ")
     var i = 0
-    while i < int_vec_len(v) {
+    while (i < int_vec_len(v)) {
         stdout(int_to_str(int_vec_get(v, i)))
         stdout(" ")
         i = i + 1
@@ -39,7 +39,7 @@ func main(): int {
     var uniq = vec_unique(v)
     stdout("unique: ")
     i = 0
-    while i < int_vec_len(uniq) {
+    while (i < int_vec_len(uniq)) {
         stdout(int_to_str(int_vec_get(uniq, i)))
         stdout(" ")
         i = i + 1

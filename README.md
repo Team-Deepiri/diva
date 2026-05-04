@@ -8,18 +8,22 @@
 |--------|------|
 | **`bootstrap/diva-linux-amd64`** | **Pinned seed binary** (full pipeline for `build` / `run` / `emit-ir` today). Not C *source* in this repo — it is the trust root until the Diva-only compiler can replace it end-to-end. See `bootstrap/README.md`. |
 | **`runtime/runtime.ll`** + **`bootstrap/runtime-linux-amd64.o`** | Hosted runtime (argv, I/O, `std/host` / `std/vec`). Becomes **`runtime.o`** at install (`clang -c` on the `.ll`, or copy the prebuilt `.o` when `NO_CLANG=1`). |
-| **`compiler/`** (`package.diva`) | **Diva-built driver**: `diva lex`, `parse`, `ir`, `asm` run entirely in Diva (`compiler/src/*.diva`). Other commands forward to the seed. Installed as `$XDG_DATA_HOME/diva/libexec/diva-driver` with a **`diva` wrapper** setting `DIVA_BOOTSTRAP` / `DI_BOOTSTRAP`. |
+| **`compiler/`** (`package.diva`) | **Diva-built driver**: native commands (`lex`, `parse`, `ir`, `asm`, `emit-ir`, `build`, `run`, `check`, `new` for app/lib/kernel) run in Diva without delegating to the seed. **`build`/`run`** emit **pure in-process ELF** (no external `cc`/link of user programs). Installed as `$XDG_DATA_HOME/diva/libexec/diva-driver` with a **`diva` wrapper** (still ships the seed for promotion / manual use). |
 | **`compiler/{mir,backend}/`** | MIR / ELF scaffolding for the native backend in Diva. |
 | **`compiler/frontend/`** | Shares lexer sources with `compiler/src/`. |
 
-**Self-sustainability** here means: you ship and edit **only `.diva`** (plus LLVM IR for the small hosted runtime and shell for scripts). The seed binary breaks the bootstrap; **full** replacement of the seed for everyday builds is tracked in `docs/replace-llvm.md`.
+**Self-sustainability** here means: you ship and edit **only `.diva`** (plus LLVM IR for the small hosted runtime and shell for scripts). The seed remains the **trust root** until you promote a new binary (see `bootstrap/README.md`).
+
+**Self-host acceptance (CI / `tests/run.sh`):** the suite requires (1) seed building `compiler/` with `DIVA_NO_EXTERNAL=1` and no `DI_RUNTIME_O`, (2) stage-3 rebuild with the in-tree driver under the same pure flags, and (3) `scripts/verify-pure-compiler-build.sh` (pinned seed by default). There is no “skip self-host and pass” path.
+
+**Install strict mode:** when `CI` is set or `DIVA_INSTALL_STRICT=1`, `scripts/install.sh` fails if the Diva-authored driver cannot be built (no silent seed-only install). For bring-up in CI, set `DIVA_INSTALL_SEED_ONLY=1` to allow seed-only installs.
 
 **Not in this repo:** experimental ideas from design chats (e.g. arbitrary bit-bucket layouts, alternate `this` syntax, extra loop forms beyond current `while` / `flux`)—those belong in the language spec / roadmap when you formalize them.
 
 ## Repository Layout
 
 - `bootstrap/`: pinned **seed** binary (`diva-linux-amd64`) and optional prebuilt runtime object for `NO_CLANG=1`
-- `compiler/`: **installable** Diva app — lexer in `src/lexer.diva`, CLI driver in `src/main.diva`, seed forward + `diva lex` (see `compiler/README.md`)
+- `compiler/`: **installable** Diva app — lexer in `src/lexer.diva`, CLI driver in `src/main.diva` (see `compiler/README.md`)
 - `runtime/`: hosted runtime as **LLVM IR** (`runtime.ll`); install and the seed link against a compiled **`runtime.o`** (`bootstrap/runtime-linux-amd64.o` or `clang -c runtime.ll`)
 - `stdlib/`: standard library (`.diva` sources)
 - `docs/`: language and architecture documents
@@ -116,7 +120,7 @@ diva emit-ir .
 diva watch .
 ```
 
-`diva new` creates a package directory with `package.diva`, `src/`, `.gitignore`, and README (manifest name unchanged for the toolchain).
+`diva new` (native driver) creates app/lib/kernel package directories with `package.diva`, `src/`, `.gitignore`, and README.
 
 Package manifests can also declare local dependencies like `dep.math_lib = "../math_lib"`, and source files can import them with `import "pkg/math_lib"`.
 

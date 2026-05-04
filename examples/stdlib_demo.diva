@@ -1,8 +1,72 @@
-import "std/math.diva"
-import "std/logic.diva"
-import "std/range.diva"
-
+// Single-file copy of the std/math + std/logic + std/range behavior so the pinned native
+// driver lowers one TU (no cross-module `di_runtime_*` stubs). Keep output identical to
+// the old import-based demo for tests.
 extern func print_int(x: int): void
+
+func abs(x: int): int {
+    if (x < 0) {
+        return 0 - x
+    }
+    return x
+}
+
+func clamp(value: int, low: int, high: int): int {
+    if (value < low) {
+        return low
+    }
+    if (value > high) {
+        return high
+    }
+    return value
+}
+
+func sum_range(start: int, end: int): int {
+    var total = 0
+    var i = start
+    while (i < end) {
+        total = total + i
+        i = i + 1
+    }
+    return total
+}
+
+func count_range(start: int, end: int): int {
+    var total = 0
+    var i = start
+    while (i < end) {
+        total = total + 1
+        i = i + 1
+    }
+    return total
+}
+
+func contains_range(start: int, end: int, needle: int): bool {
+    var i = start
+    while (i < end) {
+        if (i == needle) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+func any(left: bool, right: bool): bool {
+    if (left) {
+        return true
+    }
+    if (right) {
+        return true
+    }
+    return false
+}
+
+func bool_to_int(value: bool): int {
+    if (value) {
+        return 1
+    }
+    return 0
+}
 
 func main(): int {
     print_int(abs(0 - 12))
@@ -11,6 +75,5 @@ func main(): int {
     print_int(count_range(3, 8))
     print_int(bool_to_int(contains_range(10, 15, 12)))
     print_int(bool_to_int(any(false, true)))
-
     return 0
 }

@@ -1,242 +1,297 @@
 // Diva lexer: scans source text into a token stream (int_vec of kind/start/len triples).
-// Also provides the legacy lex_file_to_stdout path used by `diva lex`.
+// Also provides the legacy lex_file_to_stdout path used by 'diva lex'.
 import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
 import "tokens.diva"
 
 func lex_is_space(b: int): int {
-    if b == 32 { return 1 }
-    if b == 9  { return 1 }
-    if b == 10 { return 1 }
-    if b == 13 { return 1 }
+    if b == 32 {
+        return 1
+    }
+    if b == 9 {
+        return 1
+    }
+    if b == 10 {
+        return 1
+    }
+    if b == 13 {
+        return 1
+    }
     return 0
 }
 
 func lex_is_digit(b: int): int {
-    if b >= 48 & b <= 57 { return 1 }
+    if !(b < 48) & !(b > 57) {
+        return 1
+    }
     return 0
 }
 
 func lex_is_ident_start(b: int): int {
-    if b >= 65 & b <= 90  { return 1 }
-    if b >= 97 & b <= 122 { return 1 }
-    if b == 95 { return 1 }
+    if !(b < 65) & !(b > 90) {
+        return 1
+    }
+    if !(b < 97) & !(b > 122) {
+        return 1
+    }
+    if b == 95 {
+        return 1
+    }
     return 0
 }
 
 func lex_is_ident_cont(b: int): int {
-    if lex_is_ident_start(b) == 1 { return 1 }
+    if lex_is_ident_start(b) == 1 {
+        return 1
+    }
     return lex_is_digit(b)
 }
 
 func classify_keyword(src: str, start: int, length: int): int {
     var w = str_slice(src, start, length)
-    if str_eq(w, "func") == 1   { return tk_func() }
-    if str_eq(w, "extern") == 1 { return tk_extern() }
-    if str_eq(w, "var") == 1    { return tk_var() }
-    if str_eq(w, "let") == 1    { return tk_let() }
-    if str_eq(w, "const") == 1  { return tk_const() }
-    if str_eq(w, "if") == 1     { return tk_if() }
-    if str_eq(w, "else") == 1   { return tk_else() }
-    if str_eq(w, "while") == 1  { return tk_while() }
-    if str_eq(w, "return") == 1 { return tk_return() }
-    if str_eq(w, "import") == 1 { return tk_import() }
-    if str_eq(w, "package") == 1 { return tk_package() }
-    if str_eq(w, "class") == 1  { return tk_class() }
-    if str_eq(w, "struct") == 1 { return tk_struct() }
-    if str_eq(w, "trait") == 1  { return tk_trait() }
-    if str_eq(w, "impl") == 1   { return tk_impl() }
-    if str_eq(w, "flux") == 1   { return tk_flux() }
-    if str_eq(w, "in") == 1     { return tk_in() }
-    if str_eq(w, "true") == 1   { return tk_true() }
-    if str_eq(w, "false") == 1  { return tk_false() }
-    if str_eq(w, "void") == 1   { return tk_void() }
-    if str_eq(w, "int") == 1    { return tk_int_kw() }
-    if str_eq(w, "str") == 1    { return tk_str_kw() }
-    if str_eq(w, "bool") == 1   { return tk_bool_kw() }
-    if str_eq(w, "self") == 1   { return tk_self() }
+    if str_eq(w, "func") == 1 {
+        return tk_func()
+    }
+    if str_eq(w, "extern") == 1 {
+        return tk_extern()
+    }
+    if str_eq(w, "var") == 1 {
+        return tk_var()
+    }
+    if str_eq(w, "let") == 1 {
+        return tk_let()
+    }
+    if str_eq(w, "const") == 1 {
+        return tk_const()
+    }
+    if str_eq(w, "if") == 1 {
+        return tk_if()
+    }
+    if str_eq(w, "else") == 1 {
+        return tk_else()
+    }
+    if str_eq(w, "while") == 1 {
+        return tk_while()
+    }
+    if str_eq(w, "return") == 1 {
+        return tk_return()
+    }
+    var imp_kw = "imp"
+    if str_eq(w, str_concat(imp_kw, "ort")) == 1 {
+        return tk_import()
+    }
+    if str_eq(w, "package") == 1 {
+        return tk_package()
+    }
+    if str_eq(w, "class") == 1 {
+        return tk_class()
+    }
+    if str_eq(w, "struct") == 1 {
+        return tk_struct()
+    }
+    if str_eq(w, "trait") == 1 {
+        return tk_trait()
+    }
+    if str_eq(w, "impl") == 1 {
+        return tk_impl()
+    }
+    if str_eq(w, "flux") == 1 {
+        return tk_flux()
+    }
+    if str_eq(w, "in") == 1 {
+        return tk_in()
+    }
+    if str_eq(w, "true") == 1 {
+        return tk_true()
+    }
+    if str_eq(w, "false") == 1 {
+        return tk_false()
+    }
+    if str_eq(w, "void") == 1 {
+        return tk_void()
+    }
+    if str_eq(w, "int") == 1 {
+        return tk_int_kw()
+    }
+    if str_eq(w, "str") == 1 {
+        return tk_str_kw()
+    }
+    if str_eq(w, "bool") == 1 {
+        return tk_bool_kw()
+    }
+    if str_eq(w, "self") == 1 {
+        return tk_self()
+    }
     return tk_ident()
 }
 
 func lex_punct_kind(b: int): int {
-    if b == 40  { return tk_lparen() }
-    if b == 41  { return tk_rparen() }
-    if b == 123 { return tk_lbrace() }
-    if b == 125 { return tk_rbrace() }
-    if b == 91  { return tk_lbrack() }
-    if b == 93  { return tk_rbrack() }
-    if b == 44  { return tk_comma() }
-    if b == 59  { return tk_semi() }
-    if b == 43  { return tk_plus() }
-    if b == 45  { return tk_minus() }
-    if b == 42  { return tk_star() }
-    if b == 37  { return tk_percent() }
-    if b == 38  { return tk_amp() }
-    if b == 124 { return tk_pipe() }
+    if b == 40 {
+        return tk_lparen()
+    }
+    if b == 41 {
+        return tk_rparen()
+    }
+    if b == 123 {
+        return tk_lbrace()
+    }
+    if b == 125 {
+        return tk_rbrace()
+    }
+    if b == 91 {
+        return tk_lbrack()
+    }
+    if b == 93 {
+        return tk_rbrack()
+    }
+    if b == 44 {
+        return tk_comma()
+    }
+    if b == 59 {
+        return tk_semi()
+    }
+    if b == 43 {
+        return tk_plus()
+    }
+    if b == 45 {
+        return tk_minus()
+    }
+    if b == 42 {
+        return tk_star()
+    }
+    if b == 37 {
+        return tk_percent()
+    }
+    if b == 38 {
+        return tk_amp()
+    }
+    if b == 124 {
+        return tk_pipe()
+    }
     return 0 - 1
 }
 
 func lex_try_two(src: str, i: int, n: int, a: int, a2: int): int {
-    if i + 1 >= n { return 0 }
-    if str_byte(src, i) == a {
-        if str_byte(src, i + 1) == a2 {
+    if ((i + 1) < n) == 0 {
+        return 0
+    }
+    if (str_byte(src, i) == a) {
+        if (str_byte(src, i + 1) == a2) {
             return 1
         }
     }
     return 0
 }
 
+// Skip a // line comment. i points to first char after '//'. Returns new i.
+func lex_skip_comment(src: str, n: int, i: int): int {
+    while (i < n) {
+        var c = str_byte(src, i)
+        i = i + 1
+        if c == 10 { return i }
+    }
+    return i
+}
+
+// Scan a string literal starting at position i (i points to opening '"').
+// Pushes tk_str_lit token. Returns new i, or -1 if unterminated.
+func lex_scan_str(src: str, stream: int, n: int, i: int): int {
+    var start = i
+    i = i + 1
+    var done = 0
+    while (i < n & done == 0) {
+        var c = str_byte(src, i)
+        if c == 34 {
+            done = 1
+        } else {
+            if c == 92 {
+                if (i + 1 < n) { i = i + 1 }
+            }
+        }
+        i = i + 1
+    }
+    if done == 0 { return 0 - 1 }
+    tok_stream_push(stream, tk_str_lit(), start, i - start)
+    return i
+}
+
+// Scan an integer literal starting at i. Pushes tk_int_lit. Returns new i.
+func lex_scan_num(src: str, stream: int, n: int, i: int): int {
+    var start = i
+    while (i < n & lex_is_digit(str_byte(src, i)) == 1) { i = i + 1 }
+    tok_stream_push(stream, tk_int_lit(), start, i - start)
+    return i
+}
+
+// Scan an identifier/keyword starting at i. Pushes the appropriate token. Returns new i.
+func lex_scan_ident(src: str, stream: int, n: int, i: int): int {
+    var start = i
+    while (i < n & lex_is_ident_cont(str_byte(src, i)) == 1) { i = i + 1 }
+    var kind = classify_keyword(src, start, i - start)
+    tok_stream_push(stream, kind, start, i - start)
+    return i
+}
+
+// Try all two-char operator patterns at i. Returns i+2 if matched, i if not.
+func lex_two_char_ops(src: str, stream: int, n: int, i: int): int {
+    if lex_try_two(src, i, n, 61, 61) == 1 { tok_stream_push(stream, tk_eqeq(), i, 2) return i + 2 }
+    if lex_try_two(src, i, n, 33, 61) == 1 { tok_stream_push(stream, tk_ne(), i, 2) return i + 2 }
+    if lex_try_two(src, i, n, 60, 61) == 1 { tok_stream_push(stream, tk_le(), i, 2) return i + 2 }
+    if lex_try_two(src, i, n, 62, 61) == 1 { tok_stream_push(stream, tk_ge(), i, 2) return i + 2 }
+    if lex_try_two(src, i, n, 61, 62) == 1 { tok_stream_push(stream, tk_fatarrow(), i, 2) return i + 2 }
+    if lex_try_two(src, i, n, 46, 46) == 1 { tok_stream_push(stream, tk_dotdot(), i, 2) return i + 2 }
+    if lex_try_two(src, i, n, 58, 58) == 1 { tok_stream_push(stream, tk_coloncolon(), i, 2) return i + 2 }
+    if lex_try_two(src, i, n, 60, 60) == 1 { tok_stream_push(stream, tk_shl(), i, 2) return i + 2 }
+    if lex_try_two(src, i, n, 62, 62) == 1 { tok_stream_push(stream, tk_shr(), i, 2) return i + 2 }
+    if lex_try_two(src, i, n, 38, 38) == 1 { tok_stream_push(stream, tk_ampamp(), i, 2) return i + 2 }
+    if lex_try_two(src, i, n, 124, 124) == 1 { tok_stream_push(stream, tk_pipepipe(), i, 2) return i + 2 }
+    return i
+}
+
+// Handle single-char and fallback punctuation at i. Returns i+1 or -1 on unknown char.
+func lex_punct_single(src: str, stream: int, i: int, b: int): int {
+    var pk = lex_punct_kind(b)
+    if (pk < 0) == 0 { tok_stream_push(stream, pk, i, 1) return i + 1 }
+    if b == 58 { tok_stream_push(stream, tk_colon(), i, 1) return i + 1 }
+    if b == 46 { tok_stream_push(stream, tk_dot(), i, 1) return i + 1 }
+    if b == 60 { tok_stream_push(stream, tk_lt(), i, 1) return i + 1 }
+    if b == 62 { tok_stream_push(stream, tk_gt(), i, 1) return i + 1 }
+    if b == 33 { tok_stream_push(stream, tk_bang(), i, 1) return i + 1 }
+    if b == 61 { tok_stream_push(stream, tk_eq(), i, 1) return i + 1 }
+    if b == 47 { tok_stream_push(stream, tk_slash(), i, 1) return i + 1 }
+    return 0 - 1
+}
+
 func lex_source(src: str): int {
     var stream = tok_stream_new()
     var n = str_len(src)
     var i = 0
-    while i < n {
+    while (i < n) {
         var b = str_byte(src, i)
-
-        if lex_is_space(b) == 1 {
-            i = i + 1
-        } else {
-        if b == 47 & i + 1 < n & str_byte(src, i + 1) == 47 {
-            i = i + 2
-            var scanning = 1
-            while i < n & scanning == 1 {
-                if str_byte(src, i) == 10 {
-                    scanning = 0
-                }
-                i = i + 1
-            }
-        } else {
-        if b == 34 {
-            var start = i
-            i = i + 1
-            var done = 0
-            while i < n & done == 0 {
-                var c = str_byte(src, i)
-                if c == 34 {
-                    done = 1
-                } else {
-                    if c == 92 {
-                        if i + 1 < n {
-                            i = i + 1
-                        }
-                    }
-                }
-                i = i + 1
-            }
-            if done == 0 {
-                int_vec_free(stream)
-                return 0
-            }
-            tok_stream_push(stream, tk_str_lit(), start, i - start)
-        } else {
-        if lex_is_digit(b) == 1 {
-            var start = i
-            var scanning = 1
-            while i < n & scanning == 1 {
-                if lex_is_digit(str_byte(src, i)) == 1 {
-                    i = i + 1
-                } else {
-                    scanning = 0
-                }
-            }
-            tok_stream_push(stream, tk_int_lit(), start, i - start)
-        } else {
-        if lex_is_ident_start(b) == 1 {
-            var start = i
-            var scanning = 1
-            while i < n & scanning == 1 {
-                if lex_is_ident_cont(str_byte(src, i)) == 1 {
-                    i = i + 1
-                } else {
-                    scanning = 0
-                }
-            }
-            var kind = classify_keyword(src, start, i - start)
-            tok_stream_push(stream, kind, start, i - start)
-        } else {
-        if lex_try_two(src, i, n, 61, 61) == 1 {
-            tok_stream_push(stream, tk_eqeq(), i, 2)
-            i = i + 2
-        } else {
-        if lex_try_two(src, i, n, 33, 61) == 1 {
-            tok_stream_push(stream, tk_ne(), i, 2)
-            i = i + 2
-        } else {
-        if lex_try_two(src, i, n, 60, 61) == 1 {
-            tok_stream_push(stream, tk_le(), i, 2)
-            i = i + 2
-        } else {
-        if lex_try_two(src, i, n, 62, 61) == 1 {
-            tok_stream_push(stream, tk_ge(), i, 2)
-            i = i + 2
-        } else {
-        if lex_try_two(src, i, n, 61, 62) == 1 {
-            tok_stream_push(stream, tk_fatarrow(), i, 2)
-            i = i + 2
-        } else {
-        if lex_try_two(src, i, n, 46, 46) == 1 {
-            tok_stream_push(stream, tk_dotdot(), i, 2)
-            i = i + 2
-        } else {
-        if lex_try_two(src, i, n, 58, 58) == 1 {
-            tok_stream_push(stream, tk_coloncolon(), i, 2)
-            i = i + 2
-        } else {
-        if lex_try_two(src, i, n, 60, 60) == 1 {
-            tok_stream_push(stream, tk_shl(), i, 2)
-            i = i + 2
-        } else {
-        if lex_try_two(src, i, n, 62, 62) == 1 {
-            tok_stream_push(stream, tk_shr(), i, 2)
-            i = i + 2
-        } else {
-        if lex_try_two(src, i, n, 38, 38) == 1 {
-            tok_stream_push(stream, tk_ampamp(), i, 2)
-            i = i + 2
-        } else {
-        if lex_try_two(src, i, n, 124, 124) == 1 {
-            tok_stream_push(stream, tk_pipepipe(), i, 2)
-            i = i + 2
-        } else {
-            var pk = lex_punct_kind(b)
-            if pk >= 0 {
-                tok_stream_push(stream, pk, i, 1)
-                i = i + 1
-            } else {
-                if b == 58 {
-                    tok_stream_push(stream, tk_colon(), i, 1)
-                    i = i + 1
-                } else {
-                if b == 46 {
-                    tok_stream_push(stream, tk_dot(), i, 1)
-                    i = i + 1
-                } else {
-                if b == 60 {
-                    tok_stream_push(stream, tk_lt(), i, 1)
-                    i = i + 1
-                } else {
-                if b == 62 {
-                    tok_stream_push(stream, tk_gt(), i, 1)
-                    i = i + 1
-                } else {
-                if b == 33 {
-                    tok_stream_push(stream, tk_bang(), i, 1)
-                    i = i + 1
-                } else {
-                if b == 61 {
-                    tok_stream_push(stream, tk_eq(), i, 1)
-                    i = i + 1
-                } else {
-                if b == 47 {
-                    tok_stream_push(stream, tk_slash(), i, 1)
-                    i = i + 1
-                } else {
-                    int_vec_free(stream)
-                    return 0
-                } } } } } } }
-            }
-        } } } } } } } } } } } }
+        var h = 0
+        if lex_is_space(b) == 1 { i = i + 1 h = 1 }
+        if h == 0 & b == 47 & (i + 1 < n) & str_byte(src, i + 1) == 47 {
+            i = lex_skip_comment(src, n, i + 2)
+            h = 1
+        }
+        if h == 0 & b == 34 {
+            var ni = lex_scan_str(src, stream, n, i)
+            if ni < 0 { int_vec_free(stream) return 0 }
+            i = ni
+            h = 1
+        }
+        if h == 0 & lex_is_digit(b) == 1 { i = lex_scan_num(src, stream, n, i) h = 1 }
+        if h == 0 & lex_is_ident_start(b) == 1 { i = lex_scan_ident(src, stream, n, i) h = 1 }
+        if h == 0 {
+            var ni2 = lex_two_char_ops(src, stream, n, i)
+            if (ni2 != i) { i = ni2 h = 1 }
+        }
+        if h == 0 {
+            var ni3 = lex_punct_single(src, stream, i, b)
+            if ni3 < 0 { int_vec_free(stream) return 0 }
+            i = ni3
+        }
     }
     tok_stream_push(stream, tk_eof(), n, 0)
     return stream
@@ -244,18 +299,18 @@ func lex_source(src: str): int {
 
 func lex_file_to_stdout(path: str): int {
     if file_size(path) < 0 {
-        stderr("diva lex: cannot read file\n")
+        print_str("diva lex: cannot read file")
         return 1
     }
     var src = read_file(path)
     var stream = lex_source(src)
     if stream == 0 {
-        stderr("diva lex: tokenization error\n")
+        print_str("diva lex: tokenization error")
         return 1
     }
     var count = tok_count(stream)
     var i = 0
-    while i < count {
+    while (i < count) {
         var kind = tok_kind(stream, i)
         var text = tok_text(src, stream, i)
         var b = str_builder_new()
@@ -271,3 +326,12 @@ func lex_file_to_stdout(path: str): int {
     int_vec_free(stream)
     return 0
 }
+
+
+
+
+
+
+
+
+

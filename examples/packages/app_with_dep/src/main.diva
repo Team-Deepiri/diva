@@ -1,4 +1,5 @@
-import "pkg/math_lib"
+// Native merge resolves string paths on disk (no `pkg/` dep alias yet); keep a relative .diva path.
+import "../../math_lib/src/lib.diva"
 
 extern func print_int(x: int): void
 

@@ -1,0 +1,6 @@
+extern func print_int(x: int): void
+
+func main(): int {
+    print_int(2)
+    return 0
+}

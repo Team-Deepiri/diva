@@ -7,7 +7,7 @@ It currently checks:
 - example program integration runs
 - AST smoke output for a simple program
 - semantic failure cases with expected diagnostics
-- generated app and library package workflows through `diva new` and `diva new --lib`
+- app/library/kernel scaffolding workflows through native `diva new`, `diva new --lib`, and `diva new --kernel`
 
 ## Run
 

@@ -279,19 +279,19 @@ func make_elf(): int {
     // Pad from hdr end (0xb0) to code start (0x1000)
     var pad_start = hdr_size
     var i = pad_start
-    while i < align {
+    while (i < align) {
         int_vec_push(elf, 0)
         i = i + 1
     }
     
     i = 0
-    while i < code_len {
+    while (i < code_len) {
         int_vec_push(elf, int_vec_get(code, i))
         i = i + 1
     }
     
     i = code_len
-    while i < code_size {
+    while (i < code_size) {
         int_vec_push(elf, 0)
         i = i + 1
     }
@@ -300,7 +300,7 @@ func make_elf(): int {
 }
 
 func hex_char(n: int): int {
-    if n < 10 { return 48 + n }
+    if (n < 10) { return 48 + n }
     return 87 + n
 }
 
@@ -313,11 +313,11 @@ func to_hex(data: int): str {
     var first = 1
     var i = 0
     var n = int_vec_len(data)
-    while i < n {
+    while (i < n) {
         var b = int_vec_get(data, i)
         var hi = b / 16
         var lo = b - hi * 16
-        if hi < 10 {
+        if (hi < 10) {
             str_builder_append(sb, int_to_str(hi))
         }
         if hi == 10 { str_builder_append(sb, "a") }
@@ -326,7 +326,7 @@ func to_hex(data: int): str {
         if hi == 13 { str_builder_append(sb, "d") }
         if hi == 14 { str_builder_append(sb, "e") }
         if hi == 15 { str_builder_append(sb, "f") }
-        if lo < 10 {
+        if (lo < 10) {
             str_builder_append(sb, int_to_str(lo))
         }
         if lo == 10 { str_builder_append(sb, "a") }
@@ -365,7 +365,7 @@ func to_b64(data: int): str {
     var first = 1
     var i = 0
     var n = int_vec_len(data)
-    while i < n {
+    while (i < n) {
         var b = int_vec_get(data, i)
         if first == 0 {
             str_builder_append(sb, ",")

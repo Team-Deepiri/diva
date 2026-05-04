@@ -16,7 +16,7 @@ func stack_pop(handle: int): int {
     var top = int_vec_get(handle, n - 1)
     var fresh = int_vec_new()
     var i = 0
-    while i < n - 1 {
+    while (i < n - 1) {
         int_vec_push(fresh, int_vec_get(handle, i))
         i = i + 1
     }
@@ -64,14 +64,14 @@ func stack_dup(handle: int): int {
 
 func stack_swap(handle: int): int {
     var n = int_vec_len(handle)
-    if n < 2 {
+    if (n < 2) {
         return 0 - 1
     }
     var a = int_vec_get(handle, n - 1)
     var b = int_vec_get(handle, n - 2)
     var fresh = int_vec_new()
     var i = 0
-    while i < n - 2 {
+    while (i < n - 2) {
         int_vec_push(fresh, int_vec_get(handle, i))
         i = i + 1
     }
@@ -84,7 +84,7 @@ func stack_to_vec(handle: int): int {
     var n = int_vec_len(handle)
     var copy = int_vec_new()
     var i = 0
-    while i < n {
+    while (i < n) {
         int_vec_push(copy, int_vec_get(handle, i))
         i = i + 1
     }

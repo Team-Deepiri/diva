@@ -99,7 +99,7 @@ func bytes_to_hex(bytes: int[]): str {
     var hex = "0123456789abcdef"
     var result = ""
     var i = 0
-    while i < bytes.length {
+    while (i < bytes.length) {
         var hi = str_byte(hex, (bytes[i] >> 4) & 15)
         var lo = str_byte(hex, bytes[i] & 15)
         result = result + str_slice(hex, (bytes[i] >> 4) & 15, 1)
@@ -148,13 +148,13 @@ func native_cg_module(m: int, entry_addr: int, runtime_o_size: int): int[] {
     elf = encode_program_header(elf, 1, 5, 0, 0, code.length + 176, code_size + 176, align)
     
     var i = 0
-    while i < code.length {
+    while (i < code.length) {
         elf = elf + [code[i]]
         i = i + 1
     }
     
     i = code.length
-    while i < code_size {
+    while (i < code_size) {
         elf = elf + [0]
         i = i + 1
     }

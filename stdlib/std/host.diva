@@ -16,3 +16,11 @@ extern func int_to_str(n: int): str
 // Process / bootstrap: libc wrappers (runtime/runtime.ll or merged runtime object).
 extern func host_getenv(name: str): str
 extern func host_system(cmd: str): int
+
+// Driver helpers (pure ELF syscall blobs): mkdir one component, write full file.
+extern func mkdir(path: str): int
+extern func write_text_file(path: str, data: str): int
+extern func unlink(path: str): int
+extern func chmod_executable(path: str): int
+// Append/truncate ELF bytes from int_vec (pure ELF blob + di_runtime_write_elf_chunk when hosted).
+extern func write_elf_chunk(path: str, data: int, pos: int, take: int, is_first: int): int

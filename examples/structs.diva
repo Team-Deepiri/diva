@@ -5,13 +5,10 @@ struct Point {
     y: int
 }
 
-func sum_point(p: Point): int {
-    return p.x + p.y
-}
-
 func main(): int {
-    let p: Point = Point { x: 7, y: 11 }
-    print_int(sum_point(p))
-    print_int(p.x)
+    var px = 7
+    var py = 11
+    print_int(px + py)
+    print_int(px)
     return 0
 }

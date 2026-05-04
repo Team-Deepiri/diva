@@ -56,7 +56,7 @@ func fmt_bool(label: str, value: bool): str {
         return ""
     }
     str_builder_append(b, label)
-    if value {
+    if (value) {
         str_builder_append(b, "true")
     } else {
         str_builder_append(b, "false")
@@ -73,8 +73,8 @@ func join(parts: int, sep: str): str {
     }
     var n = int_vec_len(parts)
     var i = 0
-    while i < n {
-        if i > 0 {
+    while (i < n) {
+        if (i > 0) {
             str_builder_append(b, sep)
         }
         str_builder_append(b, int_to_str(int_vec_get(parts, i)))
@@ -87,7 +87,7 @@ func join(parts: int, sep: str): str {
 
 func pad_left(s: str, width: int, fill: str): str {
     var slen = str_len(s)
-    if slen >= width {
+    if (width <= slen) {
         return s
     }
     var b = str_builder_new()
@@ -95,7 +95,7 @@ func pad_left(s: str, width: int, fill: str): str {
         return s
     }
     var i = 0
-    while i < width - slen {
+    while (i < width - slen) {
         str_builder_append(b, fill)
         i = i + 1
     }
@@ -107,7 +107,7 @@ func pad_left(s: str, width: int, fill: str): str {
 
 func pad_right(s: str, width: int, fill: str): str {
     var slen = str_len(s)
-    if slen >= width {
+    if (width <= slen) {
         return s
     }
     var b = str_builder_new()
@@ -116,7 +116,7 @@ func pad_right(s: str, width: int, fill: str): str {
     }
     str_builder_append(b, s)
     var i = 0
-    while i < width - slen {
+    while (i < width - slen) {
         str_builder_append(b, fill)
         i = i + 1
     }

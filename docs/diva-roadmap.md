@@ -34,4 +34,4 @@ This document maps AST node kinds ([compiler/src/ast.diva](compiler/src/ast.diva
 
 **Examples / tests:** Full `examples/` and `tests/cases` rely on the **seed** compiler for packages, traits, kernels, `diva check`, etc. Native `diva build` / `diva run` apply to single-file programs that fit the supported subset (see `compiler-version` output).
 
-**Bootstrap:** Stage 0 = seed builds compiler; stage 1+ = Diva-built driver compiles `compiler/` with host `cc`/`as` and `DI_RUNTIME_O`.
+**Bootstrap:** Stage 0 = seed builds compiler; stage 1+ = Diva-built driver compiles `compiler/` (pure ELF by default; optional **`cc` + `DI_RUNTIME_O`** only with **`DIVA_ALLOW_HOSTED_LINK=1`**).

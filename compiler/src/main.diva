@@ -1,5 +1,5 @@
-// Diva compiler driver — native pipeline only (lexer → parser → sema → IR → x86 → native ELF).
-// No LLVM IR, no cc, no as, no ld: pure native binary generation.
+// Diva compiler driver — native pipeline (lexer → parser → sema → IR → x86).
+// build/run emit a single in-process ELF (cg_module_to_bin + pure ELF builtins); no cc/ld/runtime.o.
 
 import "std/host.diva"
 import "std/io.diva"
@@ -25,8 +25,8 @@ func cmd_print_usage(): int {
     stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast] | run <...>\n")
     stderr("  check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline\n")
-    stderr("Environment: DI_STDLIB_DIR, DI_RUNTIME_O; DIVA_BOOTSTRAP / DI_BOOTSTRAP for check/new/\n")
-    stderr("  package emit-ir and kernel package build (delegates to seed when set)\n")
+    stderr("Environment: DI_STDLIB_DIR (stdlib search path)\n")
+    stderr("  diva new <path> [--lib|--kernel] (native scaffolding)\n")
     return 1
 }
 
@@ -35,93 +35,16 @@ func native_tmp_exe(): str {
 }
 
 func system_exit_code(rc: int): int {
-    if rc < 0 {
+    if (rc < 0) {
         return 1
     }
     if rc == 0 {
         return 0
     }
-    if rc < 256 {
+    if (rc < 256) {
         return rc
     }
     return rc / 256
-}
-
-func bootstrap_path(): str {
-    var p = host_getenv("DIVA_BOOTSTRAP")
-    if str_len(p) > 0 {
-        return p
-    }
-    return host_getenv("DI_BOOTSTRAP")
-}
-
-// ASCII 32..126 as contiguous bytes (see stdlib/std/char_to_str_table.bin).
-func ascii_table_load(): str {
-    var root = host_getenv("DI_STDLIB_DIR")
-    if str_len(root) == 0 {
-        root = "stdlib"
-    }
-    var b = str_builder_new()
-    str_builder_append(b, root)
-    str_builder_append(b, "/std/char_to_str_table.bin")
-    var p = str_builder_to_str(b)
-    str_builder_free(b)
-    return read_file(p)
-}
-
-func shell_byte_to_str(c: int, table: str): str {
-    if c >= 32 & c <= 126 {
-        var need = (c - 32) + 1
-        if str_len(table) >= need {
-            return str_slice(table, c - 32, 1)
-        }
-    }
-    return ""
-}
-
-// Shell-escape one argument as a single-quoted word (safe for sh -c via system()).
-func shell_append_single_quoted(sb: int, s: str, table: str): int {
-    str_builder_append(sb, "'")
-    var n = str_len(s)
-    var i = 0
-    while i < n {
-        var c = str_byte(s, i)
-        if c == 39 {
-            str_builder_append(sb, "'")
-            str_builder_append(sb, shell_byte_to_str(92, table))
-            str_builder_append(sb, "'")
-            str_builder_append(sb, "'")
-        } else {
-            str_builder_append(sb, shell_byte_to_str(c, table))
-        }
-        i = i + 1
-    }
-    str_builder_append(sb, "'")
-    return 0
-}
-
-func forward_bootstrap_argv(): int {
-    var boot = bootstrap_path()
-    if str_len(boot) == 0 {
-        err_line("set DIVA_BOOTSTRAP or DI_BOOTSTRAP to the seed diva binary for this command")
-        return 1
-    }
-    var tbl = ascii_table_load()
-    if str_len(tbl) < 95 {
-        err_line("bootstrap forward: missing stdlib/std/char_to_str_table.bin (check DI_STDLIB_DIR)")
-        return 1
-    }
-    var b = str_builder_new()
-    shell_append_single_quoted(b, boot, tbl)
-    var i = 1
-    while i < host_argc() {
-        str_builder_append(b, " ")
-        shell_append_single_quoted(b, host_argv(i), tbl)
-        i = i + 1
-    }
-    var cmd = str_builder_to_str(b)
-    str_builder_free(b)
-    return system_exit_code(host_system(cmd))
 }
 
 // Native x86_64 PIE ELF generator - no cc, no as, no ld!
@@ -259,89 +182,75 @@ func encode_phdr(out: int, code_len: int): int {
 }
 
 func hex_char(n: int): int {
-    if n < 10 { return 48 + n }
+    if (n < 10) { return 48 + n }
     return 87 + n
 }
 
-func nybble(n: int): int {
-    return hex_char(n - (n / 16) * 16)
+// Write text via syscall-backed builtin — no shell for content.
+func native_write_text_bytes(path: str, data: str): int {
+    return write_text_file(path, data)
 }
 
-func to_hex(data: int): str {
-    var sb = str_builder_new()
-    var i = 0
-    var n = int_vec_len(data)
-    while i < n {
-        var b = int_vec_get(data, i)
-        var hi = (b / 16) & 15
-        var lo = b & 15
-        str_builder_append(sb, char_to_str(hex_char(hi)))
-        str_builder_append(sb, char_to_str(hex_char(lo)))
-        i = i + 1
-    }
-    return str_builder_to_str(sb)
-}
-
+// Materialize ELF bytes without building one giant hex string (large programs OOM the builder).
 func native_write_exe(data: int, path: str): int {
-    var hexstr = to_hex(data)
-    var sb = str_builder_new()
-    str_builder_append(sb, "python3 -c 'import sys; open(\"")
-    str_builder_append(sb, path)
-    str_builder_append(sb, "\",\"wb\").write(bytes.fromhex(\"")
-    str_builder_append(sb, hexstr)
-    str_builder_append(sb, "\"))'")
-    var cmd = str_builder_to_str(sb)
-    str_builder_free(sb)
-    host_system(cmd)
-    
-    var sb2 = str_builder_new()
-    str_builder_append(sb2, "chmod +x ")
-    str_builder_append(sb2, path)
-    var cmd2 = str_builder_to_str(sb2)
-    str_builder_free(sb2)
-    return host_system(cmd2)
+    if unlink(path) != 0 {
+        return 1
+    }
+    var n = int_vec_len(data)
+    var pos = 0
+    var first = 1
+    while (pos < n) {
+        var take = 64000
+        if (pos + take > n) {
+            take = n - pos
+        }
+        if write_elf_chunk(path, data, pos, take, first) != 0 {
+            return 1
+        }
+        pos = pos + take
+        first = 0
+    }
+    if chmod_executable(path) != 0 {
+        return 1
+    }
+    return 0
 }
 
-func make_phdr(out: int, ptype: int, flags: int, offset: int, vaddr: int, filesz: int, memsz: int, align: int): int {
-    int_vec_push(out, ptype) // p_type
+// Split ELF phdr helpers: native codegen cannot pass >6 ints to one callee (rdi gets clobbered).
+func make_phdr_ro_load(out: int, file_size: int, align: int): int {
+    int_vec_push(out, 1)
     int_vec_push(out, 0)
     int_vec_push(out, 0)
     int_vec_push(out, 0)
-    int_vec_push(out, flags) // p_flags
+    int_vec_push(out, 4)
     int_vec_push(out, 0)
     int_vec_push(out, 0)
     int_vec_push(out, 0)
-    
-    int_vec_push(out, offset & 255)
-    int_vec_push(out, (offset / 256) & 255)
-    int_vec_push(out, (offset / 65536) & 255)
-    int_vec_push(out, (offset / 16777216) & 255)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    
-    int_vec_push(out, vaddr & 255)
-    int_vec_push(out, (vaddr / 256) & 255)
-    int_vec_push(out, (vaddr / 65536) & 255)
-    int_vec_push(out, (vaddr / 16777216) & 255)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    
-    int_vec_push(out, vaddr & 255) // p_paddr
-    int_vec_push(out, (vaddr / 256) & 255)
-    int_vec_push(out, (vaddr / 65536) & 255)
-    int_vec_push(out, (vaddr / 16777216) & 255)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    
-    int_vec_push(out, filesz & 255)
-    int_vec_push(out, (filesz / 256) & 255)
-    int_vec_push(out, (filesz / 65536) & 255)
-    int_vec_push(out, (filesz / 16777216) & 255)
+    int_vec_push(out, file_size & 255)
+    int_vec_push(out, (file_size / 256) & 255)
+    int_vec_push(out, (file_size / 65536) & 255)
+    int_vec_push(out, (file_size / 16777216) & 255)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    
-    int_vec_push(out, memsz & 255)
-    int_vec_push(out, (memsz / 256) & 255)
-    int_vec_push(out, (memsz / 65536) & 255)
-    int_vec_push(out, (memsz / 16777216) & 255)
+    int_vec_push(out, file_size & 255)
+    int_vec_push(out, (file_size / 256) & 255)
+    int_vec_push(out, (file_size / 65536) & 255)
+    int_vec_push(out, (file_size / 16777216) & 255)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    
     int_vec_push(out, align & 255)
     int_vec_push(out, (align / 256) & 255)
     int_vec_push(out, (align / 65536) & 255)
@@ -350,117 +259,198 @@ func make_phdr(out: int, ptype: int, flags: int, offset: int, vaddr: int, filesz
     return 0
 }
 
-func native_link_asm_heredoc(asm_src: str, exe_path: str, runtime_o: str): int {
-    var b = str_builder_new()
-    str_builder_append(b, "cat >/tmp/diva-native-build.s <<'__DIVA_NATIVE_ASM'")
-    str_builder_append(b, newline_str())
-    str_builder_append(b, asm_src)
-    str_builder_append(b, newline_str())
-    str_builder_append(b, "__DIVA_NATIVE_ASM")
-    str_builder_append(b, newline_str())
-    str_builder_append(b, "cc -no-pie -Wl,-z,noexecstack -o '")
-    str_builder_append(b, exe_path)
-    str_builder_append(b, "' /tmp/diva-native-build.s '")
-    str_builder_append(b, runtime_o)
-    str_builder_append(b, "'")
-    var cmd = str_builder_to_str(b)
-    str_builder_free(b)
-    return host_system(cmd)
+// Second half of make_phdr_rx_load: emits code_len, code_size, and final align fields.
+func make_phdr_rx_load_b(out: int, code_len: int, code_size: int, align: int): int {
+    int_vec_push(out, code_len & 255)
+    int_vec_push(out, (code_len / 256) & 255)
+    int_vec_push(out, (code_len / 65536) & 255)
+    int_vec_push(out, (code_len / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, code_size & 255)
+    int_vec_push(out, (code_size / 256) & 255)
+    int_vec_push(out, (code_size / 65536) & 255)
+    int_vec_push(out, (code_size / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, align & 255)
+    int_vec_push(out, (align / 256) & 255)
+    int_vec_push(out, (align / 65536) & 255)
+    int_vec_push(out, (align / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    return 0
+}
+
+func make_phdr_rx_load(out: int, code_len: int, code_size: int, align: int): int {
+    int_vec_push(out, 1)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 5)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    int_vec_push(out, align & 255)
+    int_vec_push(out, (align / 256) & 255)
+    int_vec_push(out, (align / 65536) & 255)
+    int_vec_push(out, (align / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, align & 255)
+    int_vec_push(out, (align / 256) & 255)
+    int_vec_push(out, (align / 65536) & 255)
+    int_vec_push(out, (align / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, align & 255)
+    int_vec_push(out, (align / 256) & 255)
+    int_vec_push(out, (align / 65536) & 255)
+    int_vec_push(out, (align / 16777216) & 255)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    make_phdr_rx_load_b(out, code_len, code_size, align)
+    return 0
+}
+
+func native_require_no_externs(m: int, src: str, toks: int): int {
+    // Pinned seed may lag codegen (new pure builtins). One-shot bootstrap: set
+    // DIVA_SKIP_NATIVE_EXTERN_CHECK=1 when rebuilding the driver from sources.
+    var skip = host_getenv("DIVA_SKIP_NATIVE_EXTERN_CHECK")
+    if (!(str_len(skip) < 1)) {
+        return 0
+    }
+    var ec = mod_extern_count(m)
+    var unresolved = 0
+    var i = 0
+    while (i < ec) {
+        var etok = int_vec_get(mod_externs(m), i)
+        var nm = tok_text(src, toks, etok)
+        var supported = 0
+        if str_eq(nm, "write") == 1 { supported = 1 }
+        if str_eq(nm, "exit") == 1 { supported = 1 }
+        if str_eq(nm, "abort") == 1 { supported = 1 }
+        if str_eq(nm, "print_str") == 1 { supported = 1 }
+        if str_eq(nm, "print_int") == 1 { supported = 1 }
+        if str_eq(nm, "str_len") == 1 { supported = 1 }
+        if str_eq(nm, "str_byte") == 1 { supported = 1 }
+        if str_eq(nm, "str_eq") == 1 { supported = 1 }
+        if str_eq(nm, "int_vec_new") == 1 { supported = 1 }
+        if str_eq(nm, "int_vec_push") == 1 { supported = 1 }
+        if str_eq(nm, "int_vec_len") == 1 { supported = 1 }
+        if str_eq(nm, "int_vec_get") == 1 { supported = 1 }
+        if str_eq(nm, "int_vec_free") == 1 { supported = 1 }
+        if str_eq(nm, "str_builder_new") == 1 { supported = 1 }
+        if str_eq(nm, "str_builder_append") == 1 { supported = 1 }
+        if str_eq(nm, "str_builder_len") == 1 { supported = 1 }
+        if str_eq(nm, "str_builder_to_str") == 1 { supported = 1 }
+        if str_eq(nm, "str_builder_free") == 1 { supported = 1 }
+        if str_eq(nm, "print_hex") == 1 { supported = 1 }
+        if str_eq(nm, "int_to_str") == 1 { supported = 1 }
+        if str_eq(nm, "str_slice") == 1 { supported = 1 }
+        if str_eq(nm, "file_size") == 1 { supported = 1 }
+        if str_eq(nm, "read_file") == 1 { supported = 1 }
+        if str_eq(nm, "host_argc") == 1 { supported = 1 }
+        if str_eq(nm, "host_argv") == 1 { supported = 1 }
+        if str_eq(nm, "host_getenv") == 1 { supported = 1 }
+        if str_eq(nm, "host_system") == 1 { supported = 1 }
+        if str_eq(nm, "mkdir") == 1 { supported = 1 }
+        if str_eq(nm, "write_text_file") == 1 { supported = 1 }
+        if str_eq(nm, "unlink") == 1 { supported = 1 }
+        if str_eq(nm, "chmod_executable") == 1 { supported = 1 }
+        if str_eq(nm, "write_elf_chunk") == 1 { supported = 1 }
+        if supported == 0 {
+            if unresolved == 0 {
+                err_line("native build: unresolved extern runtime dependencies remain:")
+            }
+            stderr("  - ")
+            stderr(nm)
+            stderr(char_to_str(10))
+            unresolved = unresolved + 1
+        }
+        i = i + 1
+    }
+    if unresolved != 0 {
+        err_line("native build: implement these builtins in pure ELF path (see pure_elf_builtins.diva). If the pinned seed lags new externs, set DIVA_SKIP_NATIVE_EXTERN_CHECK=1 for a one-shot driver rebuild.")
+        return 1
+    }
+    return 0
+}
+
+// Emit ELF binary from code bytes (main_ent = entry offset) and write to exe_out. Returns 0 on success.
+func native_emit_elf_hdr(elf: int, entry: int): int {
+    int_vec_push(elf, 127) int_vec_push(elf, 69) int_vec_push(elf, 76) int_vec_push(elf, 70)
+    int_vec_push(elf, 2) int_vec_push(elf, 1) int_vec_push(elf, 1) int_vec_push(elf, 0)
+    var i = 0 while (i < 8) { int_vec_push(elf, 0) i = i + 1 }
+    int_vec_push(elf, 3) int_vec_push(elf, 0)
+    int_vec_push(elf, 62) int_vec_push(elf, 0)
+    int_vec_push(elf, 1) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, entry & 255)
+    int_vec_push(elf, (entry / 256) & 255)
+    int_vec_push(elf, (entry / 65536) & 255)
+    int_vec_push(elf, (entry / 16777216) & 255)
+    int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, 64) i = 1 while (i < 8) { int_vec_push(elf, 0) i = i + 1 }
+    i = 0 while (i < 8) { int_vec_push(elf, 0) i = i + 1 }
+    int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, 64) int_vec_push(elf, 0)
+    int_vec_push(elf, 56) int_vec_push(elf, 0)
+    int_vec_push(elf, 2) int_vec_push(elf, 0)
+    int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, 0) int_vec_push(elf, 0)
+    int_vec_push(elf, 0) int_vec_push(elf, 0)
+    return 0
+}
+
+func native_emit_pure_elf(code: int, main_ent: int, exe_out: str, quiet: int): int {
+    var code_len = int_vec_len(code)
+    var align = 4096
+    var code_size = code_len
+    var rem = code_size % align
+    if rem != 0 { code_size = code_size + align - rem }
+    var file_sz = align + code_size
+    var elf = int_vec_new()
+    var entry = 4096 + main_ent
+    native_emit_elf_hdr(elf, entry)
+    make_phdr_ro_load(elf, file_sz, align)
+    make_phdr_rx_load(elf, code_len, code_size, align)
+    var i = int_vec_len(elf) while (i < align) { int_vec_push(elf, 0) i = i + 1 }
+    i = 0 while (i < code_len) { int_vec_push(elf, int_vec_get(code, i)) i = i + 1 }
+    i = code_len while (i < code_size) { int_vec_push(elf, 0) i = i + 1 }
+    var res = native_write_exe(elf, exe_out)
+    int_vec_free(elf)
+    if res != 0 {
+        if quiet == 0 { err_line("build: writing native ELF failed (native_write_exe); check write_elf_chunk, unlink, chmod_executable") }
+        return 1
+    }
+    return 0
 }
 
 // quiet: when 1, omit stderr on failure (caller may fall back to bootstrap).
 func native_compile_and_link(merged_src: str, quiet: int): int {
     var stream = lex_source(merged_src)
     if stream == 0 {
-        if quiet == 0 {
-            err_line("lexer error")
-        }
+        if quiet == 0 { err_line("lexer error") }
         return 1
     }
     var pr = parse_source(merged_src, stream, 0)
     if int_vec_get(pr, 1) != 0 {
-        if quiet == 0 {
-            err_line("parse error")
-        }
+        if quiet == 0 { err_line("parse error") }
         return 1
     }
     var ast = int_vec_get(pr, 0)
     if sema_file_only_native_subset(ast) == 0 {
-        if quiet == 0 {
-            err_line("native build: unsupported surface (package/struct/class/trait/toplevel let)")
-        }
+        if quiet == 0 { err_line("native build: unsupported surface (package/struct/class/trait/toplevel let)") }
         return 1
     }
-    if sema_check_file(merged_src, stream, ast) != 0 {
-        return 1
-    }
+    if sema_check_file(merged_src, stream, ast) != 0 { return 1 }
     var ir_result = build_ir(merged_src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     var strv = int_vec_get(ir_result, 1)
-    
     var exe_out = native_tmp_exe()
-    
-    // Binary emission + ELF wrapper - no cc/as/ld!
+    if native_require_no_externs(m, merged_src, stream) != 0 { return 1 }
     var code = int_vec_new()
-    cg_module_to_bin(m, strv, code)
-
-    var code_len = int_vec_len(code)
-    var align = 4096
-    var code_size = code_len
-    var rem = code_size % align
-    if rem != 0 { code_size = code_size + align - rem }
-    
-    var file_size = align + code_size
-    var elf = int_vec_new()
-    
-    // ELF Header (DYN/PIE)
-    int_vec_push(elf, 127) int_vec_push(elf, 69) int_vec_push(elf, 76) int_vec_push(elf, 70)
-    int_vec_push(elf, 2) int_vec_push(elf, 1) int_vec_push(elf, 1) int_vec_push(elf, 0)
-    var i = 0 while i < 8 { int_vec_push(elf, 0) i = i + 1 }
-    int_vec_push(elf, 3) int_vec_push(elf, 0) // ET_DYN
-    int_vec_push(elf, 62) int_vec_push(elf, 0) // EM_X86_64
-    int_vec_push(elf, 1) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
-    int_vec_push(elf, 0) int_vec_push(elf, 16) i = 2 while i < 8 { int_vec_push(elf, 0) i = i + 1 } // e_entry = 0x1000
-    int_vec_push(elf, 64) i = 1 while i < 8 { int_vec_push(elf, 0) i = i + 1 } // e_phoff = 64
-    i = 0 while i < 8 { int_vec_push(elf, 0) i = i + 1 } // e_shoff = 0
-    int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
-    int_vec_push(elf, 64) int_vec_push(elf, 0) // e_ehsize
-    int_vec_push(elf, 56) int_vec_push(elf, 0) // e_phentsize
-    int_vec_push(elf, 2) int_vec_push(elf, 0) // e_phnum
-    int_vec_push(elf, 0) int_vec_push(elf, 0) // e_shentsize
-    int_vec_push(elf, 0) int_vec_push(elf, 0) // e_shnum
-    int_vec_push(elf, 0) int_vec_push(elf, 0) // e_shstrndx
-    
-    // Program Headers
-    make_phdr(elf, 1, 4, 0, 0, file_size, file_size, align) // PT_LOAD (R)
-    make_phdr(elf, 1, 5, align, align, code_len, code_size, align) // PT_LOAD (R X)
-    
-    // Padding
-    i = int_vec_len(elf) while i < align { int_vec_push(elf, 0) i = i + 1 }
-    
-    // Code
-    i = 0 while i < code_len { int_vec_push(elf, int_vec_get(code, i)) i = i + 1 }
-    i = code_len while i < code_size { int_vec_push(elf, 0) i = i + 1 }
-    
-    var res = native_write_exe(elf, exe_out)
-    int_vec_free(elf)
-    int_vec_free(code)
-    
-    if res != 0 {
-        // Fallback to CC
-        var ro = host_getenv("DI_RUNTIME_O")
-        var asm_out = cg_module_to_str(m, merged_src, stream, strv, newline_str())
-        if str_len(ro) > 0 {
-            if native_link_asm_heredoc(asm_out, exe_out, ro) == 0 {
-                return 0
-            }
-        }
-        if quiet == 0 {
-            err_line("link failed (native generator issue and no CC fallback)")
-        }
+    var main_ent = cg_module_to_bin(m, merged_src, stream, strv, code)
+    if main_ent < 0 {
+        if quiet == 0 { err_line("native codegen failed: unresolved branch/call target or offset-size mismatch") }
+        int_vec_free(code)
         return 1
     }
-    return 0
+    return native_emit_pure_elf(code, main_ent, exe_out, quiet)
 }
 
 // 1 = source needs the bootstrap compiler (parse/native-subset gap); 0 = try native pipeline.
@@ -475,7 +465,7 @@ func err_line(msg: str): int {
 }
 
 func read_source(path: str): str {
-    if file_size(path) < 0 {
+    if (file_size(path) < 0) {
         stderr("error: cannot read file: ")
         stderr(path)
         stderr(char_to_str(10))
@@ -486,25 +476,313 @@ func read_source(path: str): str {
 
 func path_is_diva_file(p: str): int {
     var n = str_len(p)
-    if n < 5 {
+    if (n < 5) {
         return 0
     }
     var suf = str_slice(p, n - 5, 5)
     return str_eq(suf, ".diva")
 }
 
+func build_path_is_package_dir(path: str): int {
+    if path_is_diva_file(path) == 1 {
+        return 0
+    }
+    return path_is_package_dir(path)
+}
+
 // Real LF byte from file — Diva `"\n"` in source is two chars (backslash + n), not ASCII 10.
+// Resolve via cwd-relative paths first, then DI_STDLIB_DIR/std/lf.txt, then ROOT_DIR.
 func newline_str(): str {
     var s = read_file("compiler/res/lf.txt")
-    if str_len(s) >= 1 {
+    if (!(str_len(s) < 1)) {
         return str_slice(s, 0, 1)
     }
     s = read_file("res/lf.txt")
-    if str_len(s) >= 1 {
+    if (!(str_len(s) < 1)) {
         return str_slice(s, 0, 1)
+    }
+    var stdroot = loader_stdlib_dir()
+    s = read_file(path_join_dir(stdroot, "std/lf.txt"))
+    if (!(str_len(s) < 1)) {
+        return str_slice(s, 0, 1)
+    }
+    var root = host_getenv("ROOT_DIR")
+    if str_len(root) > 0 {
+        s = read_file(path_join_dir(root, "compiler/res/lf.txt"))
+        if (!(str_len(s) < 1)) {
+            return str_slice(s, 0, 1)
+        }
     }
     var empty = ""
     return empty
+}
+
+func path_basename(path: str): str {
+    var n = str_len(path)
+    while (n > 0 & str_byte(path, n - 1) == 47) {
+        n = n - 1
+    }
+    if n == 0 {
+        var empty = ""
+        return empty
+    }
+    var i = n - 1
+    while (i >= 0) {
+        if str_byte(path, i) == 47 {
+            return str_slice(path, i + 1, n - (i + 1))
+        }
+        i = i - 1
+    }
+    return str_slice(path, 0, n)
+}
+
+// Shell-safe subset for mkdir -p (no spaces, quotes, globs, dot-segments).
+// No `continue` here: the driver subset may not implement continue, which would
+// make every path look invalid after the first character.
+func new_path_shell_safe(p: str): int {
+    var n = str_len(p)
+    if n == 0 {
+        return 0
+    }
+    var i = 0
+    while (i < n) {
+        var c = str_byte(p, i)
+        var ok = 0
+        if c == 47 { ok = 1 }
+        if c == 45 { ok = 1 }
+        if c == 95 { ok = 1 }
+        if (c >= 48 & c <= 57) { ok = 1 }
+        if (c >= 65 & c <= 90) { ok = 1 }
+        if (c >= 97 & c <= 122) { ok = 1 }
+        if ok == 0 {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+// Create directory trees one component at a time (mkdir / EEXIST); paths are caller-validated safe.
+func native_mkdir_p(path: str): int {
+    var n = str_len(path)
+    if n == 0 {
+        return 0
+    }
+    var acc = ""
+    var i = 0
+    if str_byte(path, 0) == 47 {
+        acc = "/"
+        i = 1
+        while ((i < n) & (str_byte(path, i) == 47)) {
+            i = i + 1
+        }
+    }
+    while (i < n) {
+        var j = i
+        while ((j < n) & (str_byte(path, j) != 47)) {
+            j = j + 1
+        }
+        var seg = str_slice(path, i, j - i)
+        if str_len(seg) > 0 {
+            acc = path_join_dir(acc, seg)
+            if mkdir(acc) != 0 {
+                err_line("new: could not create directory tree")
+                return 1
+            }
+        }
+        i = j
+        while ((i < n) & (str_byte(path, i) == 47)) {
+            i = i + 1
+        }
+    }
+    return 0
+}
+
+func cmd_new(): int {
+    if (host_argc() < 3) {
+        err_line("usage: diva new <path> [--lib|--kernel]   (or: diva new --lib <path>)")
+        return 1
+    }
+    var want_lib = 0
+    var want_kernel = 0
+    var path = ""
+    var i = 2
+    while (i < host_argc()) {
+        var a = host_argv(i)
+        if str_eq(a, "--lib") == 1 {
+            want_lib = 1
+        } else {
+            if str_eq(a, "--kernel") == 1 {
+                want_kernel = 1
+            } else {
+                if str_byte(a, 0) != 45 {
+                    if str_len(path) == 0 {
+                        // Copy argv text: host_argv pointers may alias one buffer reused each call.
+                        path = str_concat(a, "")
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    if (want_lib == 1 & want_kernel == 1) {
+        err_line("new: choose either --lib or --kernel")
+        return 1
+    }
+    if str_len(path) == 0 {
+        err_line("usage: diva new <path> [--lib|--kernel]")
+        return 1
+    }
+    if new_path_shell_safe(path) == 0 {
+        err_line("new: path must use only [A-Za-z0-9_/-] (no dots, spaces, or shell metacharacters)")
+        return 1
+    }
+    var manifest_path = path_join_dir(path, "package.diva")
+    var msz = file_size(manifest_path)
+    // di_runtime_file_size returns -1 on ENOENT. Native subset may lower signed compares / `!= 0`
+    // incorrectly for negative values; int_to_str + str_eq matches the working check used elsewhere.
+    if str_eq(int_to_str(msz), "-1") == 0 {
+        err_line("new: destination already exists (package.diva present)")
+        return 1
+    }
+    if native_mkdir_p(path) != 0 {
+        return 1
+    }
+    var src_dir = path_join_dir(path, "src")
+    if native_mkdir_p(src_dir) != 0 {
+        return 1
+    }
+    var nm = path_basename(path)
+    if str_len(nm) == 0 {
+        nm = "app"
+    }
+    var nl = newline_str()
+    if str_len(nl) == 0 {
+        err_line("new: could not load a newline byte (lf.txt); set DI_STDLIB_DIR or ROOT_DIR, or run from the repo tree")
+        return 1
+    }
+    var mf = str_builder_new()
+    str_builder_append(mf, "name = \"")
+    str_builder_append(mf, nm)
+    str_builder_append(mf, "\"")
+    str_builder_append(mf, nl)
+    if want_lib == 1 {
+        str_builder_append(mf, "kind = \"lib\"")
+        str_builder_append(mf, nl)
+        str_builder_append(mf, "entry = \"src/lib.diva\"")
+        str_builder_append(mf, nl)
+    } else if want_kernel == 1 {
+        str_builder_append(mf, "kind = \"kernel\"")
+        str_builder_append(mf, nl)
+        str_builder_append(mf, "entry = \"src/boot.diva\"")
+        str_builder_append(mf, nl)
+    } else {
+        str_builder_append(mf, "kind = \"app\"")
+        str_builder_append(mf, nl)
+        str_builder_append(mf, "entry = \"src/main.diva\"")
+        str_builder_append(mf, nl)
+    }
+    var mf_s = str_builder_to_str(mf)
+    str_builder_free(mf)
+    if native_write_text_bytes(path_join_dir(path, "package.diva"), mf_s) != 0 {
+        err_line("new: writing package.diva failed")
+        return 1
+    }
+    var main_body = ""
+    if want_lib == 1 {
+        main_body = "// Library package: add funcs here; depend from apps via package.diva deps."
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "func lib_ping(): int {")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    return 1")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "}")
+        main_body = str_concat(main_body, nl)
+        if native_write_text_bytes(path_join_dir(src_dir, "lib.diva"), main_body) != 0 {
+            err_line("new: writing src/lib.diva failed")
+            return 1
+        }
+    } else if want_kernel == 1 {
+        main_body = "func kmain(): int {"
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    var boot_magic = 42")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    return boot_magic")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "}")
+        main_body = str_concat(main_body, nl)
+        if native_write_text_bytes(path_join_dir(src_dir, "boot.diva"), main_body) != 0 {
+            err_line("new: writing src/boot.diva failed")
+            return 1
+        }
+    } else {
+        main_body = "extern func print_str(s: str): void"
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "func main(): int {")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    print_str(\"new_smoke_ok\")")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    return 0")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "}")
+        main_body = str_concat(main_body, nl)
+        if native_write_text_bytes(path_join_dir(src_dir, "main.diva"), main_body) != 0 {
+            err_line("new: writing src/main.diva failed")
+            return 1
+        }
+    }
+    var gitig = str_builder_new()
+    str_builder_append(gitig, "/build/")
+    str_builder_append(gitig, nl)
+    str_builder_append(gitig, "*.o")
+    str_builder_append(gitig, nl)
+    str_builder_append(gitig, "/tmp/")
+    str_builder_append(gitig, nl)
+    if native_write_text_bytes(path_join_dir(path, ".gitignore"), str_builder_to_str(gitig)) != 0 {
+        str_builder_free(gitig)
+        err_line("new: writing .gitignore failed")
+        return 1
+    }
+    str_builder_free(gitig)
+    var rd = str_builder_new()
+    str_builder_append(rd, "# ")
+    str_builder_append(rd, nm)
+    str_builder_append(rd, nl)
+    str_builder_append(rd, nl)
+    str_builder_append(rd, "Created with `diva new`.")
+    str_builder_append(rd, nl)
+    str_builder_append(rd, nl)
+    if want_kernel == 1 {
+        str_builder_append(rd, "Kernel package scaffold. Validate with:")
+        str_builder_append(rd, nl)
+        str_builder_append(rd, "`diva parse ")
+        str_builder_append(rd, path_join_dir(path, "src/boot.diva"))
+        str_builder_append(rd, "`")
+        str_builder_append(rd, nl)
+    } else if want_lib == 1 {
+        str_builder_append(rd, "Library scaffold. Validate with:")
+        str_builder_append(rd, nl)
+        str_builder_append(rd, "`diva check ")
+        str_builder_append(rd, path)
+        str_builder_append(rd, "`")
+        str_builder_append(rd, nl)
+    } else {
+        str_builder_append(rd, "Run: `diva run ")
+        str_builder_append(rd, path)
+        str_builder_append(rd, "`")
+        str_builder_append(rd, nl)
+    }
+    if native_write_text_bytes(path_join_dir(path, "README.md"), str_builder_to_str(rd)) != 0 {
+        str_builder_free(rd)
+        err_line("new: writing README.md failed")
+        return 1
+    }
+    str_builder_free(rd)
+    print_str("[native] created package at ")
+    print_str(path)
+    stdout(nl)
+    return 0
 }
 
 func cmd_lex(path: str): int {
@@ -557,13 +835,25 @@ func cmd_asm(path: str): int {
     if sema_check_file(src, stream, ast) != 0 { return 1 }
     var ir_result = build_ir(src, stream, ast)
     var m = int_vec_get(ir_result, 0)
-    var strvec = int_vec_get(ir_result, 1)
-    cg_module_print(m, src, stream, strvec, newline_str())
+    cg_module_print(m, src, stream, int_vec_get(ir_result, 1), newline_str())
     return 0
 }
 
 func cmd_emit_ir(path: str): int {
-    var src = merge_file_sources(path)
+    var src = ""
+    if path_is_package_dir(path) == 1 {
+        if package_is_kernel_dir(path) == 1 {
+            err_line("emit-ir: kernel packages are not supported in the native driver")
+            return 1
+        }
+        src = merge_package_sources(path)
+    } else {
+        if path_is_diva_file(path) == 0 {
+            err_line("emit-ir: expected a .diva file or an app/lib package directory")
+            return 1
+        }
+        src = merge_file_sources(path)
+    }
     if str_len(src) == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
@@ -598,7 +888,7 @@ func cmd_build_ast(path: str): int {
 func pick_build_path(): str {
     var path = ""
     var i = 2
-    while i < host_argc() {
+    while (i < host_argc()) {
         var a = host_argv(i)
         if str_byte(a, 0) != 45 {
             if str_len(path) == 0 {
@@ -612,11 +902,52 @@ func pick_build_path(): str {
 
 func build_wants_ast(): int {
     var i = 2
-    while i < host_argc() {
+    while (i < host_argc()) {
         if str_eq(host_argv(i), "--ast") == 1 {
             return 1
         }
         i = i + 1
+    }
+    return 0
+}
+
+// Lex + parse + sema for a lib/app package (merged sources). No seed forwarding.
+func cmd_check(): int {
+    if (host_argc() < 3) {
+        err_line("usage: diva check <package-dir>")
+        return 1
+    }
+    var path = host_argv(2)
+    if path_is_package_dir(path) == 0 {
+        err_line("check: expected a package directory (with package.diva)")
+        return 1
+    }
+    if package_is_kernel_dir(path) == 1 {
+        err_line("check: kernel packages are not supported in the native driver")
+        return 1
+    }
+    var merged = merge_package_sources(path)
+    if str_len(merged) == 0 {
+        err_line("check: could not merge package sources (see loader messages above)")
+        return 1
+    }
+    if native_driver_should_delegate(merged) == 1 {
+        err_line("check: native driver cannot handle this source surface yet")
+        return 1
+    }
+    var stream = lex_source(merged)
+    if stream == 0 {
+        err_line("lexer error")
+        return 1
+    }
+    var pr = parse_source(merged, stream, 0)
+    if int_vec_get(pr, 1) != 0 {
+        err_line("check: parse failed")
+        return 1
+    }
+    var ast = int_vec_get(pr, 0)
+    if sema_check_file(merged, stream, ast) != 0 {
+        return 1
     }
     return 0
 }
@@ -638,18 +969,17 @@ func cmd_build(): int {
         }
         return cmd_build_ast(path)
     }
-    if path_is_package_dir(path) == 1 {
+    if build_path_is_package_dir(path) == 1 {
         if package_is_kernel_dir(path) == 1 {
-            return forward_bootstrap_argv()
+            err_line("build: kernel packages are not supported in the native driver")
+            return 1
         }
     }
     var merged = ""
-    if path_is_package_dir(path) == 1 {
+    if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
         if str_len(merged) == 0 {
-            if str_len(bootstrap_path()) > 0 {
-                return forward_bootstrap_argv()
-            }
+            err_line("build: could not merge package sources (see loader messages above)")
             return 1
         }
     } else {
@@ -667,29 +997,24 @@ func cmd_build(): int {
         return 1
     }
     if native_driver_should_delegate(merged) == 1 {
-        if str_len(bootstrap_path()) == 0 {
-            err_line("native driver: set DIVA_BOOTSTRAP (or DI_BOOTSTRAP) for this source")
-            return 1
-        }
-        return forward_bootstrap_argv()
+        err_line("build: native driver cannot handle this source surface yet")
+        return 1
     }
     if native_compile_and_link(merged, 0) != 0 {
         return 1
     }
-    print_str("[native] built executable at ")
-    print_str(native_tmp_exe())
+    var built_msg = str_concat("[native] built executable at ", native_tmp_exe())
+    print_str(built_msg)
     stdout(newline_str())
     return 0
 }
 
 func cmd_run_file(path: str): int {
     var merged = ""
-    if path_is_package_dir(path) == 1 {
+    if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
         if str_len(merged) == 0 {
-            if str_len(bootstrap_path()) > 0 {
-                return forward_bootstrap_argv()
-            }
+            err_line("run: could not merge package sources (see loader messages above)")
             return 1
         }
     } else {
@@ -707,20 +1032,10 @@ func cmd_run_file(path: str): int {
         return 1
     }
     if native_driver_should_delegate(merged) == 1 {
-        if str_len(bootstrap_path()) == 0 {
-            err_line("native driver: set DIVA_BOOTSTRAP (or DI_BOOTSTRAP) for this source")
-            return 1
-        }
-        return forward_bootstrap_argv()
+        err_line("run: native driver cannot handle this source surface yet")
+        return 1
     }
-    var quiet_native = 0
-    if str_len(bootstrap_path()) > 0 {
-        quiet_native = 1
-    }
-    if native_compile_and_link(merged, quiet_native) != 0 {
-        if str_len(bootstrap_path()) > 0 {
-            return forward_bootstrap_argv()
-        }
+    if native_compile_and_link(merged, 0) != 0 {
         return 1
     }
     var rc = host_system(native_tmp_exe())
@@ -728,21 +1043,21 @@ func cmd_run_file(path: str): int {
 }
 
 func main(): int {
-    if host_argc() < 2 {
+    if (host_argc() < 2) {
         return cmd_print_usage()
     }
     var a1 = host_argv(1)
 
     if str_eq(a1, "check") == 1 {
-        return forward_bootstrap_argv()
+        return cmd_check()
     }
 
     if str_eq(a1, "new") == 1 {
-        return forward_bootstrap_argv()
+        return cmd_new()
     }
 
     if str_eq(a1, "lex") == 1 {
-        if host_argc() < 3 {
+        if (host_argc() < 3) {
             err_line("usage: diva lex <file.diva>")
             return 1
         }
@@ -750,7 +1065,7 @@ func main(): int {
     }
 
     if str_eq(a1, "parse") == 1 {
-        if host_argc() < 3 {
+        if (host_argc() < 3) {
             err_line("usage: diva parse <file.diva>")
             return 1
         }
@@ -758,7 +1073,7 @@ func main(): int {
     }
 
     if str_eq(a1, "ir") == 1 {
-        if host_argc() < 3 {
+        if (host_argc() < 3) {
             err_line("usage: diva ir <file.diva>")
             return 1
         }
@@ -766,7 +1081,7 @@ func main(): int {
     }
 
     if str_eq(a1, "asm") == 1 {
-        if host_argc() < 3 {
+        if (host_argc() < 3) {
             err_line("usage: diva asm <file.diva>")
             return 1
         }
@@ -774,18 +1089,11 @@ func main(): int {
     }
 
     if str_eq(a1, "emit-ir") == 1 {
-        if host_argc() < 3 {
+        if (host_argc() < 3) {
             err_line("usage: diva emit-ir <file.diva|package-dir>")
             return 1
         }
         var p = host_argv(2)
-        if path_is_package_dir(p) == 1 {
-            return forward_bootstrap_argv()
-        }
-        if path_is_diva_file(p) == 0 {
-            err_line("emit-ir: expected a .diva file or package directory")
-            return 1
-        }
         return cmd_emit_ir(p)
     }
 
@@ -794,7 +1102,7 @@ func main(): int {
     }
 
     if str_eq(a1, "run") == 1 {
-        if host_argc() < 3 {
+        if (host_argc() < 3) {
             err_line("usage: diva run <file.diva|package-dir>")
             return 1
         }
@@ -804,7 +1112,7 @@ func main(): int {
     if str_eq(a1, "compiler-version") == 1 {
         print_str("diva compiler v0.5.0")
         print_str("  native: lex, parse, sema, Diva IR, x86_64 binary (ELF PIE)")
-        print_str("  build/run: single .diva or package directory (pure native, no cc/as/ld)")
+        print_str("  build/run: in-process x86_64 ELF PIE (no external linker)")
         return 0
     }
 

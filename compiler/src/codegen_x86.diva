@@ -5,6 +5,7 @@
 import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
+import "pure_elf_builtins.diva"
 import "ir.diva"
 import "tokens.diva"
 import "cell.diva"
@@ -67,8 +68,12 @@ func asm_runtime_label(src: str, toks: int, name_tok: int): str {
     if str_eq(nm, "set_argv") == 1 { return "di_runtime_set_argv" }
     if str_eq(nm, "argc") == 1 { return "di_runtime_argc" }
     if str_eq(nm, "argv") == 1 { return "di_runtime_argv" }
+    if str_eq(nm, "host_argc") == 1 { return "di_runtime_argc" }
+    if str_eq(nm, "host_argv") == 1 { return "di_runtime_argv" }
     if str_eq(nm, "getenv") == 1 { return "di_runtime_getenv" }
+    if str_eq(nm, "host_getenv") == 1 { return "di_runtime_getenv" }
     if str_eq(nm, "system") == 1 { return "di_runtime_system" }
+    if str_eq(nm, "host_system") == 1 { return "di_runtime_system" }
     if str_eq(nm, "file_size") == 1 { return "di_runtime_file_size" }
     if str_eq(nm, "read_file") == 1 { return "di_runtime_read_file" }
     if str_eq(nm, "str_len") == 1 { return "di_runtime_str_len" }
@@ -92,6 +97,11 @@ func asm_runtime_label(src: str, toks: int, name_tok: int): str {
     if str_eq(nm, "write") == 1 { return "di_runtime_write" }
     if str_eq(nm, "exit") == 1 { return "di_runtime_exit" }
     if str_eq(nm, "abort") == 1 { return "di_runtime_abort" }
+    if str_eq(nm, "mkdir") == 1 { return "di_runtime_mkdir" }
+    if str_eq(nm, "write_text_file") == 1 { return "di_runtime_write_text_file" }
+    if str_eq(nm, "unlink") == 1 { return "di_runtime_unlink" }
+    if str_eq(nm, "chmod_executable") == 1 { return "di_runtime_chmod_executable" }
+    if str_eq(nm, "write_elf_chunk") == 1 { return "di_runtime_write_elf_chunk" }
     return nm
 }
 
@@ -99,7 +109,7 @@ func call_is_extern(m: int, src: str, toks: int, call_tok: int): int {
     var cname = tok_text(src, toks, call_tok)
     var fc = mod_func_count(m)
     var i = 0
-    while i < fc {
+    while (i < fc) {
         var ftok = func_name_tok(mod_get_func(m, i))
         if str_eq(tok_text(src, toks, ftok), cname) == 1 {
             return 0
@@ -130,50 +140,157 @@ func bb_label(func_idx: int, lbl: int): str {
     return r
 }
 
-func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, fi: int): int {
+// Pack int-only codegen context to avoid >6 arg call sites in self-hosted codegen.
+// [0]=lp [1]=sb [2]=m [3]=toks [4]=fi
+func cg_ctx_new(lp: int, sb: int, m: int, toks: int, fi: int): int {
+    var c = int_vec_new()
+    int_vec_push(c, lp)
+    int_vec_push(c, sb)
+    int_vec_push(c, m)
+    int_vec_push(c, toks)
+    int_vec_push(c, fi)
+    return c
+}
+
+func cg_ctx_lp(c: int): int { return int_vec_get(c, 0) }
+func cg_ctx_sb(c: int): int { return int_vec_get(c, 1) }
+func cg_ctx_m(c: int): int { return int_vec_get(c, 2) }
+func cg_ctx_toks(c: int): int { return int_vec_get(c, 3) }
+func cg_ctx_fi(c: int): int { return int_vec_get(c, 4) }
+// Per-function context for pass-1 / pass-2 binary codegen.
+// [0]=m [1]=toks [2]=main_fi [3]=fi
+func cg_p2fctx_new(m: int, toks: int, main_fi: int, fi: int): int {
+    var c = int_vec_new()
+    int_vec_push(c, m)
+    int_vec_push(c, toks)
+    int_vec_push(c, main_fi)
+    int_vec_push(c, fi)
+    return c
+}
+func cg_p2fctx_m(c: int): int { return int_vec_get(c, 0) }
+func cg_p2fctx_toks(c: int): int { return int_vec_get(c, 1) }
+func cg_p2fctx_main_fi(c: int): int { return int_vec_get(c, 2) }
+func cg_p2fctx_fi(c: int): int { return int_vec_get(c, 3) }
+
+// Branch-table context. [0]=fi_vec [1]=lb_vec [2]=off_vec
+func brtab_new(): int {
+    var c = int_vec_new()
+    int_vec_push(c, int_vec_new())
+    int_vec_push(c, int_vec_new())
+    int_vec_push(c, int_vec_new())
+    return c
+}
+func brtab_fi(t: int): int { return int_vec_get(t, 0) }
+func brtab_lb(t: int): int { return int_vec_get(t, 1) }
+func brtab_off(t: int): int { return int_vec_get(t, 2) }
+func brtab_free(t: int): int {
+    int_vec_free(int_vec_get(t, 0))
+    int_vec_free(int_vec_get(t, 1))
+    int_vec_free(int_vec_get(t, 2))
+    int_vec_free(t)
+    return 0
+}
+
+// Pass-2 output context. [0]=out [1]=func_offsets [2]=str_cum [3]=instr_total
+func p2out_new(out: int, func_offsets: int, str_cum: int, instr_total: int): int {
+    var c = int_vec_new()
+    int_vec_push(c, out)
+    int_vec_push(c, func_offsets)
+    int_vec_push(c, str_cum)
+    int_vec_push(c, instr_total)
+    return c
+}
+func p2out_out(c: int): int { return int_vec_get(c, 0) }
+func p2out_func_offsets(c: int): int { return int_vec_get(c, 1) }
+func p2out_str_cum(c: int): int { return int_vec_get(c, 2) }
+func p2out_instr_total(c: int): int { return int_vec_get(c, 3) }
+
+
+func cg_inst_mem(ctx: int, nl: str, inst: int): int {
+    var lp = cg_ctx_lp(ctx)
+    var sb = cg_ctx_sb(ctx)
+    var op = inst_op(inst)
+    var res = inst_result(inst)
+    var a = inst_a(inst)
+    if op == ir_const() {
+        lp_add(lp, "    movq $") lp_add_int(lp, a) lp_add(lp, ", ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_const_str() {
+        lp_add(lp, "    leaq .Lstr") lp_add_int(lp, a) lp_add(lp, "(%rip), %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_load() {
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_store() {
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_alloca() {
+        lp_add(lp, "    movq $0, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_param() {
+        if a == 0 { lp_add(lp, "    movq %rdi, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 1 { lp_add(lp, "    movq %rsi, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 2 { lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 3 { lp_add(lp, "    movq %rcx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 4 { lp_add(lp, "    movq %r8, ")  lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        if a == 5 { lp_add(lp, "    movq %r9, ")  lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
+        return 1
+    }
+    return 0
+}
+
+func cg_inst_arith(ctx: int, nl: str, inst: int): int {
+    var lp = cg_ctx_lp(ctx)
+    var sb = cg_ctx_sb(ctx)
     var op = inst_op(inst)
     var res = inst_result(inst)
     var a = inst_a(inst)
     var bv = inst_b(inst)
-
-    if op == ir_const() {
-        lp_add(lp, "    movq $") lp_add_int(lp, a) lp_add(lp, ", ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
-    }
-
-    if op == ir_const_str() {
-        lp_add(lp, "    leaq .Lstr") lp_add_int(lp, a) lp_add(lp, "(%rip), %rax") lp_flush_sb(lp, sb, nl)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
-    }
-
-    if op == ir_add() | op == ir_sub() | op == ir_mul() {
+    if op_is3(op, ir_add(), ir_sub(), ir_mul()) == 1 {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         if op == ir_add() { lp_add(lp, "    addq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl) }
         if op == ir_sub() { lp_add(lp, "    subq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl) }
         if op == ir_mul() { lp_add(lp, "    imulq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl) }
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
+        return 1
     }
-
-    if op == ir_div() | op == ir_mod() {
+    if op_is2(op, ir_div(), ir_mod()) == 1 {
         lp_add(lp, "    movq $0, %rdx") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    cqto") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    idivq ") lp_add(lp, stack_offset(bv)) lp_flush_sb(lp, sb, nl)
         if op == ir_div() { lp_add(lp, "    movq %rax, ") } else { lp_add(lp, "    movq %rdx, ") }
         lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
+        return 1
     }
-
     if op == ir_neg() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    negq %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
+        return 1
     }
+    return 0
+}
 
-    if op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() | op == ir_gt() | op == ir_ge() {
+func cg_inst_compare(ctx: int, nl: str, inst: int): int {
+    var op = inst_op(inst)
+    var is_cmp = 0
+    if (op_is3(op, ir_eq(), ir_ne(), ir_lt()) == 1) { is_cmp = 1 }
+    if (op_is3(op, ir_le(), ir_gt(), ir_ge()) == 1) { is_cmp = 1 }
+    if (is_cmp == 1) {
+        var lp = cg_ctx_lp(ctx)
+        var sb = cg_ctx_sb(ctx)
+        var res = inst_result(inst)
+        var a = inst_a(inst)
+        var bv = inst_b(inst)
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    cmpq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         if op == ir_eq() { lp_add(lp, "    sete %al") lp_flush_sb(lp, sb, nl) }
@@ -184,80 +301,83 @@ func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, 
         if op == ir_ge() { lp_add(lp, "    setge %al") lp_flush_sb(lp, sb, nl) }
         lp_add(lp, "    movzbq %al, %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
+        return 1
     }
+    return 0
+}
 
-    if op == ir_and() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
-        lp_add(lp, "    andq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
-    }
-
-    if op == ir_or() {
-        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
-        lp_add(lp, "    orq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
-        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
-    }
-    
+func cg_inst_shift_not(ctx: int, nl: str, inst: int): int {
+    var lp = cg_ctx_lp(ctx)
+    var sb = cg_ctx_sb(ctx)
+    var op = inst_op(inst)
+    var res = inst_result(inst)
+    var a = inst_a(inst)
+    var bv = inst_b(inst)
     if op == ir_shl() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rcx") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    salq %cl, %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
+        return 1
     }
-    
     if op == ir_shr() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rcx") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    sarq %cl, %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
+        return 1
     }
-    
     if op == ir_not() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    testq %rax, %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    sete %al") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movzbq %al, %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
+        return 1
     }
+    return 0
+}
 
-    if op == ir_load() {
+func cg_inst_cmp(ctx: int, nl: str, inst: int): int {
+    if (cg_inst_compare(ctx, nl, inst) == 1) { return 1 }
+    var lp = cg_ctx_lp(ctx)
+    var sb = cg_ctx_sb(ctx)
+    var op = inst_op(inst)
+    var res = inst_result(inst)
+    var a = inst_a(inst)
+    var bv = inst_b(inst)
+    if op == ir_and() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    andq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
+        return 1
     }
-
-    if op == ir_store() {
+    if op == ir_or() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    orq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
+        return 1
     }
+    return cg_inst_shift_not(ctx, nl, inst)
+}
 
-    if op == ir_alloca() {
-        lp_add(lp, "    movq $0, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
-        return 0
-    }
-
-    if op == ir_param() {
-        if a == 0 { lp_add(lp, "    movq %rdi, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
-        if a == 1 { lp_add(lp, "    movq %rsi, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
-        if a == 2 { lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
-        if a == 3 { lp_add(lp, "    movq %rcx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
-        if a == 4 { lp_add(lp, "    movq %r8, ")  lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
-        if a == 5 { lp_add(lp, "    movq %r9, ")  lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
-        return 0
-    }
-
-    if op == ir_call() {
-        var argc = inst_b(inst)
+func cg_inst_call_op(ctx: int, nl: str, src: str, inst: int): int {
+    var lp = cg_ctx_lp(ctx)
+    var sb = cg_ctx_sb(ctx)
+    var m = cg_ctx_m(ctx)
+    var toks = cg_ctx_toks(ctx)
+    var res = inst_result(inst)
+    var argc = inst_b(inst)
+    if argc == 1 {
+        var only_vr = inst_extra(inst)
+        lp_add(lp, "    movq ")
+        lp_add(lp, stack_offset(only_vr))
+        lp_add(lp, ", %rdi")
+        lp_flush_sb(lp, sb, nl)
+    } else {
         var args = inst_extra(inst)
         var ci = 0
-        while ci < argc {
+        while (ci < argc) {
             var vr = int_vec_get(args, ci)
             lp_add(lp, "    movq ")
             lp_add(lp, stack_offset(vr))
@@ -266,40 +386,46 @@ func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, 
             lp_flush_sb(lp, sb, nl)
             ci = ci + 1
         }
-        var ctok = inst_a(inst)
-        var lab = ""
-        if call_is_extern(m, src, toks, ctok) == 1 {
-            lab = asm_runtime_label(src, toks, ctok)
-        } else {
-            lab = asm_user_label(src, toks, ctok)
-        }
-        lp_add(lp, "    call ")
-        lp_add(lp, lab)
-        lp_flush_sb(lp, sb, nl)
-        lp_add(lp, "    movq %rax, ")
-        lp_add(lp, stack_offset(res))
-        lp_flush_sb(lp, sb, nl)
-        return 0
     }
+    var ctok = inst_a(inst)
+    var lab = ""
+    if call_is_extern(m, src, toks, ctok) == 1 {
+        lab = asm_runtime_label(src, toks, ctok)
+    } else {
+        lab = asm_user_label(src, toks, ctok)
+    }
+    lp_add(lp, "    call ")
+    lp_add(lp, lab)
+    lp_flush_sb(lp, sb, nl)
+    lp_add(lp, "    movq %rax, ")
+    lp_add(lp, stack_offset(res))
+    lp_flush_sb(lp, sb, nl)
+    return 0
+}
 
+func cg_inst_flow(ctx: int, nl: str, inst: int): int {
+    var lp = cg_ctx_lp(ctx)
+    var sb = cg_ctx_sb(ctx)
+    var fi = cg_ctx_fi(ctx)
+    var op = inst_op(inst)
+    var res = inst_result(inst)
+    var a = inst_a(inst)
+    var bv = inst_b(inst)
     if op == ir_ret() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    leave") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    ret") lp_flush_sb(lp, sb, nl)
         return 0
     }
-
     if op == ir_ret_void() {
         lp_add(lp, "    leave") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    ret") lp_flush_sb(lp, sb, nl)
         return 0
     }
-
     if op == ir_br() {
         lp_add(lp, "    jmp ") lp_add(lp, bb_label(fi, a)) lp_flush_sb(lp, sb, nl)
         return 0
     }
-
     if op == ir_br_cond() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(res)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    testq %rax, %rax") lp_flush_sb(lp, sb, nl)
@@ -307,11 +433,25 @@ func cg_inst(lp: int, sb: int, nl: str, m: int, src: str, toks: int, inst: int, 
         lp_add(lp, "    jmp ") lp_add(lp, bb_label(fi, bv)) lp_flush_sb(lp, sb, nl)
         return 0
     }
-
     return 0
 }
 
-func cg_func(lp: int, sb: int, nl: str, m: int, src: str, toks: int, f: int, fi: int): int {
+func cg_inst(ctx: int, src: str, nl: str, inst: int): int {
+    var op = inst_op(inst)
+    if (cg_inst_mem(ctx, nl, inst) == 1) { return 0 }
+    if (cg_inst_arith(ctx, nl, inst) == 1) { return 0 }
+    if (cg_inst_cmp(ctx, nl, inst) == 1) { return 0 }
+    if op == ir_call() { cg_inst_call_op(ctx, nl, src, inst) return 0 }
+    cg_inst_flow(ctx, nl, inst)
+    return 0
+}
+
+func cg_func(ctx: int, src: str, nl: str, f: int, fi: int): int {
+    var lp = cg_ctx_lp(ctx)
+    var sb = cg_ctx_sb(ctx)
+    var m = cg_ctx_m(ctx)
+    var toks = cg_ctx_toks(ctx)
+    var fctx = cg_ctx_new(lp, sb, m, toks, fi)
     var flabel = asm_user_label(src, toks, func_name_tok(f))
     lp_add(lp, "    .globl ") lp_add(lp, flabel) lp_flush_sb(lp, sb, nl)
     lp_add(lp, flabel) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
@@ -320,26 +460,31 @@ func cg_func(lp: int, sb: int, nl: str, m: int, src: str, toks: int, f: int, fi:
         lp_add(lp, "    call di_runtime_set_argv") lp_flush_sb(lp, sb, nl)
     }
 
+    var frame_b = func_prologue_frame_bytes(f)
     lp_add(lp, "    pushq %rbp") lp_flush_sb(lp, sb, nl)
     lp_add(lp, "    movq %rsp, %rbp") lp_flush_sb(lp, sb, nl)
-    lp_add(lp, "    subq $2048, %rsp") lp_flush_sb(lp, sb, nl)
+    lp_add(lp, "    subq $")
+    lp_add_int(lp, frame_b)
+    lp_add(lp, ", %rsp")
+    lp_flush_sb(lp, sb, nl)
 
     var bc = func_block_count(f)
     var bi = 0
-    while bi < bc {
+    while (bi < bc) {
         var blk = func_get_block(f, bi)
-        if bi > 0 {
+        if (bi > 0) {
             lp_add(lp, bb_label(fi, block_label(blk))) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
         }
         var insts = block_insts(blk)
         var ic = int_vec_len(insts)
         var ii = 0
-        while ii < ic {
-            cg_inst(lp, sb, nl, m, src, toks, int_vec_get(insts, ii), fi)
+        while (ii < ic) {
+            cg_inst(fctx, src, nl, int_vec_get(insts, ii))
             ii = ii + 1
         }
         bi = bi + 1
     }
+    int_vec_free(fctx)
     lp_flush_sb(lp, sb, nl)
     return 0
 }
@@ -354,17 +499,20 @@ func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str 
 
     var fc = mod_func_count(m)
     var fi = 0
-    while fi < fc {
-        cg_func(lp, sb, nl, m, src, toks, mod_get_func(m, fi), fi)
+    while (fi < fc) {
+        // Build per-function ctx so helpers never use >6 args.
+        var ctx = cg_ctx_new(lp, sb, m, toks, fi)
+        cg_func(ctx, src, nl, mod_get_func(m, fi), fi)
+        int_vec_free(ctx)
         fi = fi + 1
     }
 
     var gc = mod_global_count(m)
-    if gc > 0 {
+    if (gc > 0) {
         lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    .data") lp_flush_sb(lp, sb, nl)
         var gi = 0
-        while gi < gc {
+        while (gi < gc) {
             var g = mod_get_global(m, gi)
             var gname = tok_text(src, toks, global_name_tok(g))
             lp_add(lp, "    .globl ") lp_add(lp, gname) lp_flush_sb(lp, sb, nl)
@@ -377,16 +525,16 @@ func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str 
         }
     }
 
-    if int_vec_len(str_toks) > 0 {
+    if (int_vec_len(str_toks) > 0) {
         lp_add(lp, "    .section .rodata") lp_flush_sb(lp, sb, nl)
         var si = 0
-        while si < int_vec_len(str_toks) {
+        while (si < int_vec_len(str_toks)) {
             lp_add(lp, ".Lstr") lp_add_int(lp, si) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
             var tok_idx = int_vec_get(str_toks, si)
             var s = tok_str_value(src, toks, tok_idx)
             var bi = 0
             var bn = str_len(s)
-            while bi < bn {
+            while (bi < bn) {
                 lp_add(lp, "    .byte ")
                 lp_add_int(lp, str_byte(s, bi))
                 lp_flush_sb(lp, sb, nl)
@@ -404,187 +552,998 @@ func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str 
 }
 
 func emit_i32(out: int, val: int): void {
-    int_vec_push(out, val & 255)
-    int_vec_push(out, (val / 256) & 255)
-    int_vec_push(out, (val / 65536) & 255)
-    int_vec_push(out, (val / 16777216) & 255)
+    // Signed int32 little-endian. Do not use (val/256)&255 on negatives — truncating / breaks rel32.
+    var i = 0
+    var v = val
+    while (i < 4) {
+        var lo = v - (v / 256) * 256
+        if lo < 0 {
+            lo = lo + 256
+        }
+        int_vec_push(out, lo)
+        v = (v - lo) / 256
+        i = i + 1
+    }
 }
 
-func cg_module_to_bin(m: int, str_toks: int, out: int): int {
+func find_func_index_by_tok(m: int, src: str, toks: int, call_tok: int): int {
+    var cname = tok_text(src, toks, call_tok)
+    var fc = mod_func_count(m)
+    var i = 0
+    while (i < fc) {
+        var ftok = func_name_tok(mod_get_func(m, i))
+        if str_eq(tok_text(src, toks, ftok), cname) == 1 {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func pure_builtin_extern_id(src: str, toks: int, call_tok: int): int {
+    var nm = tok_text(src, toks, call_tok)
+    if str_eq(nm, "write") == 1 { return 1 }
+    if str_eq(nm, "exit") == 1 { return 2 }
+    if str_eq(nm, "abort") == 1 { return 3 }
+    if str_eq(nm, "print_str") == 1 { return 4 }
+    if str_eq(nm, "print_int") == 1 { return 5 }
+    if str_eq(nm, "str_len") == 1 { return 6 }
+    if str_eq(nm, "str_byte") == 1 { return 7 }
+    if str_eq(nm, "str_eq") == 1 { return 8 }
+    return pure_builtin_extern_id_hi(nm)
+}
+
+func pure_builtin_call_size_lo(id: int): int {
+    if id == 1 { return 26 }
+    if id == 2 { return 7 }
+    if id == 3 { return 12 }
+    if id == 4 { return 28 }
+    if id == 5 { return 91 }
+    if id == 6 { return 20 }
+    if id == 7 { return 9 }
+    if id == 8 { return 30 }
+    return 5
+}
+
+func pure_builtin_call_size_hi_vec(id: int): int {
+    if id == 9 { return 96 }
+    if id == 10 { return 64 }
+    if id == 11 { return 16 }
+    if id == 12 { return 16 }
+    if id == 13 { return 16 }
+    if id == 14 { return 96 }
+    if id == 15 { return 128 }
+    if id == 16 { return 16 }
+    if id == 17 { return 128 }
+    if id == 18 { return 16 }
+    return 5
+}
+
+func pure_builtin_call_size_hi_misc(id: int): int {
+    if id == 19 { return 96 }
+    if id == 20 { return 192 }
+    if id == 21 { return 128 }
+    if id == 22 { return 104 }
+    if id == 23 { return 161 }
+    if id == 24 { return 3 }
+    if id == 25 { return 16 }
+    if id == 26 { return 135 }
+    if id == 27 { return 214 }
+    if id == 28 { return 40 }
+    if id == 29 { return 129 }
+    if id == 30 { return 33 }
+    if id == 31 { return 31 }
+    if id == 32 { return 224 }
+    return 5
+}
+
+func pure_builtin_call_size(id: int): int {
+    if (id < 9) {
+        return pure_builtin_call_size_lo(id)
+    }
+    if (id < 19) {
+        return pure_builtin_call_size_hi_vec(id)
+    }
+    return pure_builtin_call_size_hi_misc(id)
+}
+
+// Helpers split from emit_pure_builtin_call_lo to keep vreg count below 256.
+func emit_pure_builtin_call_1_3(out: int, id: int): int {
+    if id == 1 {
+        // write(fd, buf): rdi=fd, rsi=str ptr; strlen via (rsi+rdx), then syscall write (nr=1).
+        int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 248)
+        int_vec_push(out, 49) int_vec_push(out, 210)
+        int_vec_push(out, 128) int_vec_push(out, 60) int_vec_push(out, 22) int_vec_push(out, 0)
+        int_vec_push(out, 116) int_vec_push(out, 5)
+        int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 194)
+        int_vec_push(out, 235) int_vec_push(out, 245)
+        int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 199)
+        int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+        int_vec_push(out, 15) int_vec_push(out, 5)
+        return 26
+    }
+    if id == 2 {
+        int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+        int_vec_push(out, 15) int_vec_push(out, 5)
+        return 7
+    }
+    // id == 3
+    int_vec_push(out, 191) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 15) int_vec_push(out, 5)
+    return 12
+}
+
+func emit_pure_builtin_call_4(out: int): int {
+    // print_str(s): rdi=input str; computes length in rdx and writes to stdout.
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 254)
+    int_vec_push(out, 49) int_vec_push(out, 210)
+    int_vec_push(out, 128) int_vec_push(out, 60) int_vec_push(out, 22) int_vec_push(out, 0)
+    int_vec_push(out, 116) int_vec_push(out, 5)
+    int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 194)
+    int_vec_push(out, 235) int_vec_push(out, 245)
+    int_vec_push(out, 191) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 15) int_vec_push(out, 5)
+    return 28
+}
+
+func emit_pure_builtin_call_5(out: int): int {
+    // print_int(n): n >= 0; digits + newline (compiler/res/pure_print_int.s, matches hosted runtime).
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 248) int_vec_push(out, 76) int_vec_push(out, 141) int_vec_push(out, 68) int_vec_push(out, 36) int_vec_push(out, 248) int_vec_push(out, 77) int_vec_push(out, 49)
+    int_vec_push(out, 201) int_vec_push(out, 73) int_vec_push(out, 187) int_vec_push(out, 10) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 49) int_vec_push(out, 210) int_vec_push(out, 73) int_vec_push(out, 247) int_vec_push(out, 243) int_vec_push(out, 128) int_vec_push(out, 194) int_vec_push(out, 48) int_vec_push(out, 65)
+    int_vec_push(out, 136) int_vec_push(out, 16) int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 200) int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 193) int_vec_push(out, 72) int_vec_push(out, 133)
+    int_vec_push(out, 192) int_vec_push(out, 117) int_vec_push(out, 234) int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 192) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 198) int_vec_push(out, 76)
+    int_vec_push(out, 137) int_vec_push(out, 202) int_vec_push(out, 191) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 198) int_vec_push(out, 68) int_vec_push(out, 36) int_vec_push(out, 255) int_vec_push(out, 10) int_vec_push(out, 72)
+    int_vec_push(out, 141) int_vec_push(out, 116) int_vec_push(out, 36) int_vec_push(out, 255) int_vec_push(out, 186) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 191)
+    int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15)
+    int_vec_push(out, 5)
+    return 91
+}
+
+func emit_pure_builtin_call_6_8(out: int, id: int): int {
+    if id == 6 {
+        // str_len(s): rdi=str ptr -> rax=len (strlen loop, 20 bytes)
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 248)
+        int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 201)
+        int_vec_push(out, 128) int_vec_push(out, 60) int_vec_push(out, 8) int_vec_push(out, 0)
+        int_vec_push(out, 116) int_vec_push(out, 5)
+        int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 193)
+        int_vec_push(out, 235) int_vec_push(out, 245)
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 200)
+        return 20
+    }
+    if id == 7 {
+        // str_byte(s, idx): rdi=str ptr, rsi=index -> rax=byte (0..255)
+        int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 192)
+        int_vec_push(out, 138) int_vec_push(out, 4) int_vec_push(out, 55)
+        int_vec_push(out, 15) int_vec_push(out, 182) int_vec_push(out, 192)
+        return 9
+    }
+    // id == 8: str_eq(a,b): rdi=a, rsi=b -> rax=(a==b ? 1 : 0)
+    int_vec_push(out, 49) int_vec_push(out, 201)
+    int_vec_push(out, 138) int_vec_push(out, 4) int_vec_push(out, 15)
+    int_vec_push(out, 138) int_vec_push(out, 20) int_vec_push(out, 14)
+    int_vec_push(out, 56) int_vec_push(out, 208)
+    int_vec_push(out, 117) int_vec_push(out, 9)
+    int_vec_push(out, 132) int_vec_push(out, 192)
+    int_vec_push(out, 116) int_vec_push(out, 9)
+    int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 193)
+    int_vec_push(out, 235) int_vec_push(out, 237)
+    int_vec_push(out, 49) int_vec_push(out, 192)
+    int_vec_push(out, 235) int_vec_push(out, 5)
+    int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    return 30
+}
+
+// Builtin ids 1..8 only — see docs/seed-codegen-workarounds.md §2.
+func emit_pure_builtin_call_lo(out: int, id: int): int {
+    if id < 4 { return emit_pure_builtin_call_1_3(out, id) }
+    if id == 4 { return emit_pure_builtin_call_4(out) }
+    if id == 5 { return emit_pure_builtin_call_5(out) }
+    return emit_pure_builtin_call_6_8(out, id)
+}
+
+func emit_pure_builtin_call(out: int, id: int): int {
+    if (!(id < 1)) {
+        if (!(id > 8)) {
+            return emit_pure_builtin_call_lo(out, id)
+        }
+    }
+    if (!(id < 9)) {
+        if (!(id > 32)) {
+            return emit_pure_builtin_high(out, id)
+        }
+    }
+    int_vec_push(out, 49) int_vec_push(out, 192)
+    int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144)
+    return 5
+}
+
+// Basic-block start offsets for native bin: IR branch ops carry a *label id* per function,
+// not the flat block index in pass-1 order. Indexing block_offsets[label] was wrong whenever
+// label != block index (common); resolve by (func_idx, label) triples recorded during pass-1.
+func br_tab_lookup(tab_fi: int, tab_lb: int, tab_off: int, fi: int, lb: int): int {
+    var j = 0
+    var n = int_vec_len(tab_fi)
+    while (j < n) {
+        var tf = int_vec_get(tab_fi, j)
+        var tl = int_vec_get(tab_lb, j)
+        if ((tf == fi) & (tl == lb)) == 1 {
+            return int_vec_get(tab_off, j)
+        }
+        j = j + 1
+    }
+    return 0 - 1
+}
+
+func func_has_block_label(f: int, lb: int): int {
+    var bc = func_block_count(f)
+    var bi = 0
+    while (bi < bc) {
+        if (block_label(func_get_block(f, bi)) == lb) {
+            return 1
+        }
+        bi = bi + 1
+    }
+    return 0
+}
+
+func report_bad_branch_label(src: str, toks: int, m: int, fi: int, op_name: str, lb: int): int {
+    stderr("codegen error: malformed branch label in func ")
+    stderr(tok_text(src, toks, func_name_tok(mod_get_func(m, fi))))
+    stderr(" fi=")
+    stderr(int_to_str(fi))
+    stderr(" op=")
+    stderr(op_name)
+    stderr(" target=")
+    stderr(int_to_str(lb))
+    stderr(" blocks=")
+    var f = mod_get_func(m, fi)
+    var bc = func_block_count(f)
+    var bi = 0
+    while (bi < bc) {
+        if (bi > 0) {
+            stderr(",")
+        }
+        stderr(int_to_str(block_label(func_get_block(f, bi))))
+        bi = bi + 1
+    }
+    stderr(char_to_str(10))
+    return 0
+}
+
+func op_is2(op: int, a: int, b: int): int {
+    if (op == a) { return 1 }
+    if (op == b) { return 1 }
+    return 0
+}
+
+func op_is3(op: int, a: int, b: int, c: int): int {
+    if (op == a) { return 1 }
+    if (op == b) { return 1 }
+    if (op == c) { return 1 }
+    return 0
+}
+
+func stack_disp32(slot: int): int {
+    return 0 - (slot + 1) * 8
+}
+
+// Largest vreg index referenced in |f| (stack slots are vreg indices 0..max).
+// Update maxv with the max vreg referenced by a single instruction.
+// Splits call-arg loop into a helper to keep vreg count low.
+func func_max_vreg_inst(inst: int, maxv: int): int {
+    var ik = inst_op(inst)
+    var res = inst_result(inst)
+    var ia = inst_a(inst)
+    var ibk = inst_b(inst)
+    // Opcodes where res is a vreg (all except ir_br).
+    var has_res = 0
+    if (ik == ir_const()) { has_res = 1 }
+    if (ik == ir_const_str()) { has_res = 1 }
+    if (ik == ir_br_cond()) { has_res = 1 }
+    if (ik == ir_alloca()) { has_res = 1 }
+    if (ik == ir_param()) { has_res = 1 }
+    if (op_is3(ik, ir_add(), ir_sub(), ir_mul()) == 1) { has_res = 1 }
+    if (op_is3(ik, ir_div(), ir_mod(), ir_eq()) == 1) { has_res = 1 }
+    if (op_is3(ik, ir_ne(), ir_lt(), ir_le()) == 1) { has_res = 1 }
+    if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_res = 1 }
+    if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_res = 1 }
+    if (op_is3(ik, ir_load(), ir_store(), ir_copy()) == 1) { has_res = 1 }
+    if (op_is2(ik, ir_neg(), ir_not()) == 1) { has_res = 1 }
+    if (ik == ir_call()) { has_res = 1 }
+    if (has_res == 1) {
+        if (res > maxv) { maxv = res }
+    }
+    // Opcodes with ia as a vreg operand.
+    var has_ia = 0
+    if (op_is3(ik, ir_add(), ir_sub(), ir_mul()) == 1) { has_ia = 1 }
+    if (op_is3(ik, ir_div(), ir_mod(), ir_eq()) == 1) { has_ia = 1 }
+    if (op_is3(ik, ir_ne(), ir_lt(), ir_le()) == 1) { has_ia = 1 }
+    if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_ia = 1 }
+    if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_ia = 1 }
+    if (op_is3(ik, ir_load(), ir_store(), ir_copy()) == 1) { has_ia = 1 }
+    if (op_is2(ik, ir_neg(), ir_not()) == 1) { has_ia = 1 }
+    if (ik == ir_ret()) { has_ia = 1 }
+    if (has_ia == 1) {
+        if (ia > maxv) { maxv = ia }
+    }
+    // Opcodes with ibk as a vreg operand.
+    var has_ibk = 0
+    if (op_is3(ik, ir_add(), ir_sub(), ir_mul()) == 1) { has_ibk = 1 }
+    if (op_is3(ik, ir_div(), ir_mod(), ir_eq()) == 1) { has_ibk = 1 }
+    if (op_is3(ik, ir_ne(), ir_lt(), ir_le()) == 1) { has_ibk = 1 }
+    if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_ibk = 1 }
+    if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_ibk = 1 }
+    if (has_ibk == 1) {
+        if (ibk > maxv) { maxv = ibk }
+    }
+    // ir_call: scan args vector.
+    if (ik == ir_call()) {
+        var ac = ibk
+        var exv = inst_extra(inst)
+        if (ac == 1) {
+            if (exv > maxv) { maxv = exv }
+        } else {
+            var aj = 0
+            while (aj < ac) {
+                var vr = int_vec_get(exv, aj)
+                if (vr > maxv) { maxv = vr }
+                aj = aj + 1
+            }
+        }
+    }
+    return maxv
+}
+
+func func_max_vreg_used(f: int): int {
+    var maxv = 0
+    var bc = func_block_count(f)
+    if (bc > 50000) { bc = 0 }
+    var bi = 0
+    while (bi < bc) {
+        var blk = func_get_block(f, bi)
+        var insts = block_insts(blk)
+        var ic = int_vec_len(insts)
+        if (ic > 10000) { ic = 0 }
+        var ii = 0
+        while (ii < ic) {
+            var inst = int_vec_get(insts, ii)
+            maxv = func_max_vreg_inst(inst, maxv)
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    return maxv
+}
+
+// Returns 1 if the function has at least one ret/ret_void instruction, 0 otherwise.
+func func_has_terminator(f: int): int {
+    var bc = func_block_count(f)
+    if (bc > 50000) { bc = 0 }
+    var bi = 0
+    while (bi < bc) {
+        var blk = func_get_block(f, bi)
+        var insts = block_insts(blk)
+        var ic = int_vec_len(insts)
+        if (ic > 10000) { ic = 0 }
+        var ii = 0
+        while (ii < ic) {
+            var inst = int_vec_get(insts, ii)
+            var op = inst_op(inst)
+            if (op == ir_ret()) | (op == ir_ret_void()) { return 1 }
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    return 0
+}
+
+// Bytes to subtract in the function prologue: (max_vreg+1) slots, 16-byte aligned, min 16.
+func func_prologue_frame_bytes(f: int): int {
+    var mx = func_max_vreg_used(f)
+    var need = (mx + 1) * 8
+    if need < 16 {
+        need = 16
+    }
+    var al = (need + 15) / 16 * 16
+    return al
+}
+
+func emit_mov_stack_to_rax(out: int, slot: int): int {
+    int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 133)
+    emit_i32(out, stack_disp32(slot))
+    return 7
+}
+
+func emit_mov_rax_to_stack(out: int, slot: int): int {
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 133)
+    emit_i32(out, stack_disp32(slot))
+    return 7
+}
+
+func emit_mov_imm32_to_stack(out: int, slot: int, v: int): int {
+    int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 133)
+    emit_i32(out, stack_disp32(slot))
+    emit_i32(out, v)
+    return 11
+}
+
+func emit_arg_move_to_abi_reg(out: int, arg_idx: int, src_slot: int): int {
+    if arg_idx == 0 {
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 189) // rdi
+        emit_i32(out, stack_disp32(src_slot))
+        return 7
+    }
+    if arg_idx == 1 {
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 181) // rsi
+        emit_i32(out, stack_disp32(src_slot))
+        return 7
+    }
+    if arg_idx == 2 {
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 149) // rdx
+        emit_i32(out, stack_disp32(src_slot))
+        return 7
+    }
+    if arg_idx == 3 {
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 141) // rcx
+        emit_i32(out, stack_disp32(src_slot))
+        return 7
+    }
+    if arg_idx == 4 {
+        int_vec_push(out, 76) int_vec_push(out, 139) int_vec_push(out, 133) // r8
+        emit_i32(out, stack_disp32(src_slot))
+        return 7
+    }
+    if arg_idx == 5 {
+        int_vec_push(out, 76) int_vec_push(out, 139) int_vec_push(out, 141) // r9
+        emit_i32(out, stack_disp32(src_slot))
+        return 7
+    }
+    return 0
+}
+
+// Pass-1 per-function: count bytes and fill branch tables.
+// Returns new current_offset, or -1 on a bad branch label.
+// Byte size contributed by one instruction in pass1. Returns size, or -1 on bad branch.
+func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
+    var m = cg_p2fctx_m(p2fctx)
+    var toks = cg_p2fctx_toks(p2fctx)
+    var fi = cg_p2fctx_fi(p2fctx)
+    var main_fi = cg_p2fctx_main_fi(p2fctx)
+    var op = inst_op(inst)
+    var a = inst_a(inst)
+    var bv = inst_b(inst)
+    if op == ir_const() { return 11 }
+    if op == ir_const_str() { return 14 }
+    if op_is2(op, ir_add(), ir_sub()) == 1 { return 21 }
+    if op == ir_mul() { return 22 }
+    if op_is2(op, ir_div(), ir_mod()) == 1 { return 23 }
+    var is_cmp = 0
+    if (op_is3(op, ir_eq(), ir_ne(), ir_lt()) == 1) { is_cmp = 1 }
+    if (op_is3(op, ir_le(), ir_gt(), ir_ge()) == 1) { is_cmp = 1 }
+    if (is_cmp == 1) { return 28 }
+    if op_is2(op, ir_and(), ir_or()) == 1 { return 21 }
+    if op == ir_not() { return 24 }
+    if op == ir_neg() { return 17 }
+    if op_is2(op, ir_shl(), ir_shr()) == 1 { return 24 }
+    if op_is3(op, ir_load(), ir_store(), ir_copy()) == 1 { return 14 }
+    if op == ir_alloca() { return 11 }
+    if op == ir_param() { return 7 }
+    if (op == ir_ret()) & ((fi == main_fi) == 1) { return 18 }
+    if (op == ir_ret()) & ((fi == main_fi) == 0) { return 9 }
+    if (op == ir_ret_void()) & ((fi == main_fi) == 1) { return 11 }
+    if (op == ir_ret_void()) & ((fi == main_fi) == 0) { return 2 }
+    if op == ir_br() {
+        if func_has_block_label(f, a) == 0 {
+            report_bad_branch_label(src, toks, m, fi, "br", a)
+            return 0 - 1
+        }
+        return 5
+    }
+    if op == ir_br_cond() {
+        if func_has_block_label(f, a) == 0 {
+            report_bad_branch_label(src, toks, m, fi, "br_cond_then", a)
+            return 0 - 1
+        }
+        if func_has_block_label(f, bv) == 0 {
+            report_bad_branch_label(src, toks, m, fi, "br_cond_else", bv)
+            return 0 - 1
+        }
+        return 21
+    }
+    if op == ir_call() {
+        var argc = bv
+        var ctok = a
+        return cg_p1_call_sz(m, src, toks, ctok, argc)
+    }
+    return 0
+}
+
+// Compute byte size of an ir_call site in pass1. Returns the byte count.
+func cg_p1_call_sz(m: int, src: str, toks: int, a: int, argc: int): int {
+    var usec = argc
+    if usec > 6 { usec = 6 }
+    var call_sz = 5
+    var tfi = find_func_index_by_tok(m, src, toks, a)
+    if tfi < 0 {
+        var bid = pure_builtin_extern_id(src, toks, a)
+        call_sz = pure_builtin_call_size(bid)
+    }
+    if argc == 1 {
+        return 7 + call_sz + 7
+    } else {
+        return usec * 7 + call_sz + 7
+    }
+}
+
+func cg_p1_func(p2fctx: int, src: str, f: int, brtab: int, offset: int): int {
+    var fi = cg_p2fctx_fi(p2fctx)
+    var main_fi = cg_p2fctx_main_fi(p2fctx)
+    var br_fi = brtab_fi(brtab)
+    var br_lb = brtab_lb(brtab)
+    var br_off = brtab_off(brtab)
+    var result = offset + 11
+    var bc = func_block_count(f)
+    if (bc > 50000) { bc = 0 }
+    var bi = 0
+    while (bi < bc) {
+        var blk = func_get_block(f, bi)
+        int_vec_push(br_fi, fi)
+        int_vec_push(br_lb, block_label(blk))
+        int_vec_push(br_off, result)
+        var insts = block_insts(blk)
+        var ic = int_vec_len(insts)
+        if (ic > 10000) { ic = 0 }
+        var ii = 0
+        while (ii < ic) {
+            var ii_cur = ii
+            var inst = int_vec_get(insts, ii_cur)
+            var op = inst_op(inst)
+            if (op < 1) | (op > 60) {
+                ii = ic
+            } else {
+            var sz = cg_p1_inst_sz(p2fctx, src, f, inst)
+            if (sz < 0) { return 0 - 1 }
+            result = result + sz
+            ii = ii_cur + 1
+            }
+        }
+        bi = bi + 1
+    }
+    if func_has_terminator(f) == 0 {
+        if (fi == main_fi) == 1 {
+            result = result + 11
+        } else {
+            result = result + 2
+        }
+    }
+    return result
+}
+
+// Emit ir_param register saves. Returns 0.
+func cg_p2_param(out: int, a: int, res: int): int {
+    if a == 0 { int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 189) emit_i32(out, stack_disp32(res)) }
+    if a == 1 { int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 181) emit_i32(out, stack_disp32(res)) }
+    if a == 2 { int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 149) emit_i32(out, stack_disp32(res)) }
+    if a == 3 { int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 141) emit_i32(out, stack_disp32(res)) }
+    if a == 4 { int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 133) emit_i32(out, stack_disp32(res)) }
+    if a == 5 { int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 141) emit_i32(out, stack_disp32(res)) }
+    return 0
+}
+
+// Emit bitwise / shift / unary / memory / alloca instructions. Returns 0.
+func cg_p2_bitops(out: int, op: int, res: int, a: int, bv: int): int {
+    if op_is2(op, ir_and(), ir_or()) == 1 {
+        emit_mov_stack_to_rax(out, a)
+        if op == ir_and() { int_vec_push(out, 72) int_vec_push(out, 35) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
+        if op == ir_or() { int_vec_push(out, 72) int_vec_push(out, 11) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
+        emit_mov_rax_to_stack(out, res)
+    }
+    if op_is2(op, ir_shl(), ir_shr()) == 1 {
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 141) emit_i32(out, stack_disp32(bv))
+        emit_mov_stack_to_rax(out, a)
+        if op == ir_shl() { int_vec_push(out, 72) int_vec_push(out, 211) int_vec_push(out, 224) }
+        if op == ir_shr() { int_vec_push(out, 72) int_vec_push(out, 211) int_vec_push(out, 248) }
+        emit_mov_rax_to_stack(out, res)
+    }
+    if op_is2(op, ir_not(), ir_neg()) == 1 {
+        emit_mov_stack_to_rax(out, a)
+        if op == ir_neg() { int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 216) }
+        if op == ir_not() { int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 192) int_vec_push(out, 15) int_vec_push(out, 148) int_vec_push(out, 192) int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 182) int_vec_push(out, 192) }
+        emit_mov_rax_to_stack(out, res)
+    }
+    if op_is3(op, ir_load(), ir_store(), ir_copy()) == 1 {
+        emit_mov_stack_to_rax(out, a)
+        emit_mov_rax_to_stack(out, res)
+    }
+    if op == ir_alloca() { emit_mov_imm32_to_stack(out, res, 0) }
+    if op == ir_param() { cg_p2_param(out, a, res) }
+    return 0
+}
+
+// Emit arithmetic / memory instructions (not param). Returns 0.
+func cg_p2_arith(out: int, op: int, res: int, a: int, bv: int): int {
+    if op == ir_const() { emit_mov_imm32_to_stack(out, res, a) }
+    if op_is3(op, ir_add(), ir_sub(), ir_mul()) == 1 {
+        emit_mov_stack_to_rax(out, a)
+        if op == ir_add() { int_vec_push(out, 72) int_vec_push(out, 3) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
+        if op == ir_sub() { int_vec_push(out, 72) int_vec_push(out, 43) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
+        if op == ir_mul() { int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 175) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
+        emit_mov_rax_to_stack(out, res)
+    }
+    if op_is2(op, ir_div(), ir_mod()) == 1 {
+        emit_mov_stack_to_rax(out, a)
+        int_vec_push(out, 72) int_vec_push(out, 153)
+        int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 189) emit_i32(out, stack_disp32(bv))
+        if op == ir_div() {
+            emit_mov_rax_to_stack(out, res)
+        } else {
+            int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 149) emit_i32(out, stack_disp32(res))
+        }
+    }
+    cg_p2_bitops(out, op, res, a, bv)
+    return 0
+}
+
+// Emit comparison instructions (eq/ne/lt/le/gt/ge). Returns 0.
+func cg_p2_cmp(out: int, op: int, res: int, a: int, bv: int): int {
+    var is_cmp = 0
+    if (op_is3(op, ir_eq(), ir_ne(), ir_lt()) == 1) { is_cmp = 1 }
+    if (op_is3(op, ir_le(), ir_gt(), ir_ge()) == 1) { is_cmp = 1 }
+    if (is_cmp == 1) {
+        emit_mov_stack_to_rax(out, a)
+        int_vec_push(out, 72) int_vec_push(out, 59) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv))
+        if op == ir_eq() { int_vec_push(out, 15) int_vec_push(out, 148) int_vec_push(out, 192) }
+        if op == ir_ne() { int_vec_push(out, 15) int_vec_push(out, 149) int_vec_push(out, 192) }
+        if op == ir_lt() { int_vec_push(out, 15) int_vec_push(out, 156) int_vec_push(out, 192) }
+        if op == ir_le() { int_vec_push(out, 15) int_vec_push(out, 158) int_vec_push(out, 192) }
+        if op == ir_gt() { int_vec_push(out, 15) int_vec_push(out, 159) int_vec_push(out, 192) }
+        if op == ir_ge() { int_vec_push(out, 15) int_vec_push(out, 157) int_vec_push(out, 192) }
+        int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 182) int_vec_push(out, 192)
+        emit_mov_rax_to_stack(out, res)
+    }
+    return 0
+}
+
+// Emit ir_const_str. Returns 0.
+func cg_p2_cstr(out: int, res: int, a: int, str_cum: int, instr_total: int): int {
+    var lea_off = int_vec_len(out)
+    var rel = instr_total + int_vec_get(str_cum, a) - (lea_off + 7)
+    int_vec_push(out, 72) int_vec_push(out, 141) int_vec_push(out, 5)
+    emit_i32(out, rel)
+    emit_mov_rax_to_stack(out, res)
+    return 0
+}
+
+// Emit ir_call. Returns 0.
+func cg_p2_call(p2fctx: int, src: str, p2out_ctx: int, inst: int): int {
+    var m = cg_p2fctx_m(p2fctx)
+    var toks = cg_p2fctx_toks(p2fctx)
+    var out = p2out_out(p2out_ctx)
+    var func_offsets = p2out_func_offsets(p2out_ctx)
+    var a = inst_a(inst)
+    var argc = inst_b(inst)
+    var res = inst_result(inst)
+    if argc == 1 {
+        var only_vr = inst_extra(inst)
+        emit_arg_move_to_abi_reg(out, 0, only_vr)
+    } else {
+        var args_h = inst_extra(inst)
+        var usec = argc
+        if usec > 6 { usec = 6 }
+        var ai = 0
+        while (ai < usec) {
+            var vr = int_vec_get(args_h, ai)
+            emit_arg_move_to_abi_reg(out, ai, vr)
+            ai = ai + 1
+        }
+    }
+    var target_fi = find_func_index_by_tok(m, src, toks, a)
+    var code_ptr2 = int_vec_len(out)
+    if (target_fi < 0) == 0 {
+        var target_off = int_vec_get(func_offsets, target_fi)
+        var rel = target_off - (code_ptr2 + 5)
+        int_vec_push(out, 232)
+        emit_i32(out, rel)
+    } else {
+        var bid2 = pure_builtin_extern_id(src, toks, a)
+        emit_pure_builtin_call(out, bid2)
+    }
+    emit_mov_rax_to_stack(out, res)
+    return 0
+}
+
+// Emit ir_br. Returns 0 on success, -1 on error.
+func cg_p2_br(p2fctx: int, brtab: int, out: int, inst: int, code_ptr: int): int {
+    var fi = cg_p2fctx_fi(p2fctx)
+    var br_fi = brtab_fi(brtab)
+    var br_lb = brtab_lb(brtab)
+    var br_off = brtab_off(brtab)
+    var a = inst_a(inst)
+    var br_start = int_vec_len(out)
+    var target_off = br_tab_lookup(br_fi, br_lb, br_off, fi, a)
+    if (target_off < 0) {
+        stderr("codegen error: unresolved br target fi=")
+        stderr(int_to_str(fi))
+        stderr(" label=")
+        stderr(int_to_str(a))
+        stderr(char_to_str(10))
+        return 0 - 1
+    }
+    var rel = target_off - (code_ptr + 5)
+    int_vec_push(out, 233)
+    emit_i32(out, rel)
+    var br_size = int_vec_len(out) - br_start
+    if (br_size != 5) {
+        stderr("codegen error: ir_br size mismatch expected=5 got=")
+        stderr(int_to_str(br_size))
+        stderr(char_to_str(10))
+        return 0 - 1
+    }
+    return 0
+}
+
+// Emit ir_br_cond. Returns 0 on success, -1 on error.
+func cg_p2_brc(p2fctx: int, brtab: int, out: int, inst: int): int {
+    var fi = cg_p2fctx_fi(p2fctx)
+    var br_fi = brtab_fi(brtab)
+    var br_lb = brtab_lb(brtab)
+    var br_off = brtab_off(brtab)
+    var res = inst_result(inst)
+    var a = inst_a(inst)
+    var bv = inst_b(inst)
+    var brc_start = int_vec_len(out)
+    emit_mov_stack_to_rax(out, res)
+    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 192)
+    var then_off = br_tab_lookup(br_fi, br_lb, br_off, fi, a)
+    var else_off = br_tab_lookup(br_fi, br_lb, br_off, fi, bv)
+    var brc_bad = 0
+    if (then_off < 0) { brc_bad = 1 }
+    if (else_off < 0) { brc_bad = 1 }
+    if (brc_bad == 1) {
+        stderr("codegen error: unresolved br_cond target fi=")
+        stderr(int_to_str(fi))
+        stderr(" then=")
+        stderr(int_to_str(a))
+        stderr(" else=")
+        stderr(int_to_str(bv))
+        stderr(char_to_str(10))
+        return 0 - 1
+    }
+    var l_after_test = int_vec_len(out)
+    var rel_then = then_off - (l_after_test + 6)
+    int_vec_push(out, 15) int_vec_push(out, 133)
+    emit_i32(out, rel_then)
+    var l_after_jcc = int_vec_len(out)
+    var rel_else = else_off - (l_after_jcc + 5)
+    int_vec_push(out, 233)
+    emit_i32(out, rel_else)
+    var brc_size = int_vec_len(out) - brc_start
+    if (brc_size != 21) {
+        stderr("codegen error: ir_br_cond size mismatch expected=21 got=")
+        stderr(int_to_str(brc_size))
+        stderr(char_to_str(10))
+        return 0 - 1
+    }
+    return 0
+}
+
+// Emit ret / ret_void. Returns 0.
+func cg_p2_ret(p2fctx: int, out: int, inst: int): int {
+    var fi = cg_p2fctx_fi(p2fctx)
+    var main_fi = cg_p2fctx_main_fi(p2fctx)
+    var op = inst_op(inst)
+    var a = inst_a(inst)
+    if op == ir_ret() {
+        emit_mov_stack_to_rax(out, a)
+        int_vec_push(out, 201)
+        if (fi == main_fi) == 1 {
+            int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 199)
+            int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+            int_vec_push(out, 15) int_vec_push(out, 5)
+        } else {
+            int_vec_push(out, 195)
+        }
+    }
+    if op == ir_ret_void() {
+        if (fi == main_fi) == 1 {
+            int_vec_push(out, 201)
+            int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 255)
+            int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+            int_vec_push(out, 15) int_vec_push(out, 5)
+        } else {
+            int_vec_push(out, 201) int_vec_push(out, 195)
+        }
+    }
+    return 0
+}
+
+// Emit one instruction. Returns 0 on success, -1 on bad branch.
+func cg_p2_inst(p2fctx: int, src: str, brtab: int, p2out_ctx: int, inst: int): int {
+    var out = p2out_out(p2out_ctx)
+    var str_cum = p2out_str_cum(p2out_ctx)
+    var instr_total = p2out_instr_total(p2out_ctx)
+    var op = inst_op(inst)
+    var res = inst_result(inst)
+    var a = inst_a(inst)
+    var bv = inst_b(inst)
+    var code_ptr = int_vec_len(out)
+    if op == ir_const_str() { cg_p2_cstr(out, res, a, str_cum, instr_total) }
+    cg_p2_arith(out, op, res, a, bv)
+    cg_p2_cmp(out, op, res, a, bv)
+    if op == ir_br() {
+        var br_rc = cg_p2_br(p2fctx, brtab, out, inst, code_ptr)
+        if (br_rc < 0) { return 0 - 1 }
+    }
+    if op == ir_br_cond() {
+        var brc_rc = cg_p2_brc(p2fctx, brtab, out, inst)
+        if (brc_rc < 0) { return 0 - 1 }
+    }
+    if op == ir_call() {
+        cg_p2_call(p2fctx, src, p2out_ctx, inst)
+    }
+    cg_p2_ret(p2fctx, out, inst)
+    return 0
+}
+
+// Emit default terminator if no ret found. Returns 0.
+func cg_p2_term(p2fctx: int, f: int, out: int): int {
+    var fi = cg_p2fctx_fi(p2fctx)
+    var main_fi = cg_p2fctx_main_fi(p2fctx)
+    if func_has_terminator(f) == 0 {
+        if (fi == main_fi) == 1 {
+            int_vec_push(out, 201)
+            int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 255)
+            int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+            int_vec_push(out, 15) int_vec_push(out, 5)
+        } else {
+            int_vec_push(out, 201) int_vec_push(out, 195)
+        }
+    }
+    return 0
+}
+
+// Pass-2 per-function: emit machine code bytes.
+// Returns 0 on success, -1 on bad branch/size mismatch.
+func cg_p2_func(p2fctx: int, src: str, f: int, brtab: int, p2out_ctx: int): int {
+    var out = p2out_out(p2out_ctx)
+    var frame_b2 = func_prologue_frame_bytes(f)
+    int_vec_push(out, 85)
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 229)
+    int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236)
+    emit_i32(out, frame_b2)
+    var bc = func_block_count(f)
+    if (bc > 50000) { bc = 0 }
+    var bi = 0
+    while (bi < bc) {
+        var blk = func_get_block(f, bi)
+        var insts = block_insts(blk)
+        var ic = int_vec_len(insts)
+        if (ic > 10000) { ic = 0 }
+        var ii = 0
+        while (ii < ic) {
+            var ii_cur = ii
+            var inst = int_vec_get(insts, ii_cur)
+            var op = inst_op(inst)
+            if (op < 1) | (op > 60) {
+                ii = ic
+            } else {
+            var rc = cg_p2_inst(p2fctx, src, brtab, p2out_ctx, inst)
+            if (rc < 0) { return 0 - 1 }
+            ii = ii_cur + 1
+            }
+        }
+        bi = bi + 1
+    }
+    cg_p2_term(p2fctx, f, out)
+    return 0
+}
+
+func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int {
     var fc = mod_func_count(m)
     if fc == 0 { return 0 }
-    
+    var main_off = 0
+    // Byte offset in the RX segment where the inline string pool starts (after all insns).
+    var str_cum = int_vec_new()
+    var str_si = 0
+    var str_acc = 0
+    while (str_si < int_vec_len(str_toks)) {
+        int_vec_push(str_cum, str_acc)
+        var stok = int_vec_get(str_toks, str_si)
+        var s = tok_str_value(src, toks, stok)
+        str_acc = str_acc + str_len(s) + 1
+        str_si = str_si + 1
+    }
+    var instr_total = 0
+    var main_fi = 0 - 1
+    var fmj = 0
+    while (fmj < fc) {
+        var ffn = mod_get_func(m, fmj)
+        if str_eq(tok_text(src, toks, func_name_tok(ffn)), "main") == 1 {
+            main_fi = fmj
+        }
+        fmj = fmj + 1
+    }
     // Pass 1: Label resolution
-    var block_offsets = int_vec_new()
-    var current_offset = 0
-    current_offset = current_offset + 12 // Standard prologue: push rbp; mov rbp, rsp; sub rsp, 2048
+    var brtab = brtab_new()
+    var func_offsets = int_vec_new()
+    // Entry stub (8 bytes): mov r15,rsp ; jmp main
+    // Pure host_argc/host_argv builtins read startup stack from r15.
+    var current_offset = 8
 
     var fi = 0
-    while fi < fc {
+    while (fi < fc) {
         var f = mod_get_func(m, fi)
-        var bc = func_block_count(f)
-        var bi = 0
-        while bi < bc {
-            var blk = func_get_block(f, bi)
-            int_vec_push(block_offsets, current_offset)
-            var insts = block_insts(blk)
-            var ic = int_vec_len(insts)
-            var ii = 0
-            while ii < ic {
-                var inst = int_vec_get(insts, ii)
-                var op = inst_op(inst)
-                if op == ir_const() { current_offset = current_offset + 8 }
-                if op == ir_add() | op == ir_sub() | op == ir_mul() { current_offset = current_offset + 15 }
-                if op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() | op == ir_gt() | op == ir_ge() { current_offset = current_offset + 18 }
-                if op == ir_and() | op == ir_or() { current_offset = current_offset + 15 }
-                if op == ir_not() | op == ir_neg() { current_offset = current_offset + 11 }
-                if op == ir_shl() | op == ir_shr() { current_offset = current_offset + 15 }
-                if op == ir_load() | op == ir_store() | op == ir_copy() { current_offset = current_offset + 8 }
-                if op == ir_alloca() { current_offset = current_offset + 8 }
-                if op == ir_param() { current_offset = current_offset + 4 }
-                if op == ir_ret() { current_offset = current_offset + 6 }
-                if op == ir_ret_void() { current_offset = current_offset + 2 }
-                if op == ir_br() { current_offset = current_offset + 5 }
-                if op == ir_br_cond() { current_offset = current_offset + 12 }
-                ii = ii + 1
-            }
-            bi = bi + 1
+        int_vec_push(func_offsets, current_offset)
+        var p1fctx = cg_p2fctx_new(m, toks, main_fi, fi)
+        var new_off = cg_p1_func(p1fctx, src, f, brtab, current_offset)
+        int_vec_free(p1fctx)
+        if (new_off < 0) {
+            brtab_free(brtab)
+            int_vec_free(func_offsets)
+            int_vec_free(str_cum)
+            return 0 - 1
         }
+        current_offset = new_off
         fi = fi + 1
     }
+    var fk = 0
+    while (fk < fc) {
+        var ff = mod_get_func(m, fk)
+        if str_eq(tok_text(src, toks, func_name_tok(ff)), "main") == 1 {
+            main_off = int_vec_get(func_offsets, fk)
+        }
+        fk = fk + 1
+    }
+    instr_total = current_offset
 
     // Pass 2: Code emission
-    int_vec_push(out, 85) // push rbp
-    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 229) // mov rbp, rsp
-    int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236) // sub rsp, 2048
-    int_vec_push(out, 0) int_vec_push(out, 8) int_vec_push(out, 0) int_vec_push(out, 0)
-
+    var p2out_ctx = p2out_new(out, func_offsets, str_cum, instr_total)
+    // Emit entry stub before all functions.
+    // 49 89 E7                mov r15, rsp
+    // E9 rel32               jmp main
+    int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 231)
+    int_vec_push(out, 233)
+    emit_i32(out, main_off - 8)
     fi = 0
-    var code_ptr = 12
-    while fi < fc {
+    while (fi < fc) {
         var f = mod_get_func(m, fi)
-        var bc = func_block_count(f)
-        var bi = 0
-        while bi < bc {
-            var blk = func_get_block(f, bi)
-            var insts = block_insts(blk)
-            var ic = int_vec_len(insts)
-            var ii = 0
-            while ii < ic {
-                var inst = int_vec_get(insts, ii)
-                var op = inst_op(inst)
-                var res = inst_result(inst)
-                var a = inst_a(inst)
-                var bv = inst_b(inst)
-                
-                if op == ir_const() {
-                    var offset = 256 - (res + 1) * 8
-                    int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 69) int_vec_push(out, offset & 255)
-                    emit_i32(out, a)
-                    code_ptr = code_ptr + 8
-                }
-                if op == ir_add() | op == ir_sub() | op == ir_mul() {
-                    var off_a = 256 - (a + 1) * 8
-                    var off_b = 256 - (bv + 1) * 8
-                    var off_res = 256 - (res + 1) * 8
-                    int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, off_a & 255)
-                    if op == ir_add() { int_vec_push(out, 72) int_vec_push(out, 3) int_vec_push(out, 69) int_vec_push(out, off_b & 255) }
-                    if op == ir_sub() { int_vec_push(out, 72) int_vec_push(out, 43) int_vec_push(out, 69) int_vec_push(out, off_b & 255) }
-                    if op == ir_mul() { int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 175) int_vec_push(out, 69) int_vec_push(out, off_b & 255) }
-                    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
-                    code_ptr = code_ptr + 15
-                }
-                if op == ir_eq() | op == ir_ne() | op == ir_lt() | op == ir_le() | op == ir_gt() | op == ir_ge() {
-                    var off_a = 256 - (a + 1) * 8
-                    var off_b = 256 - (bv + 1) * 8
-                    var off_res = 256 - (res + 1) * 8
-                    int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, off_a & 255)
-                    int_vec_push(out, 72) int_vec_push(out, 59) int_vec_push(out, 69) int_vec_push(out, off_b & 255)
-                    if op == ir_eq() { int_vec_push(out, 15) int_vec_push(out, 148) int_vec_push(out, 192) }
-                    if op == ir_ne() { int_vec_push(out, 15) int_vec_push(out, 149) int_vec_push(out, 192) }
-                    if op == ir_lt() { int_vec_push(out, 15) int_vec_push(out, 156) int_vec_push(out, 192) }
-                    if op == ir_le() { int_vec_push(out, 15) int_vec_push(out, 158) int_vec_push(out, 192) }
-                    if op == ir_gt() { int_vec_push(out, 15) int_vec_push(out, 159) int_vec_push(out, 192) }
-                    if op == ir_ge() { int_vec_push(out, 15) int_vec_push(out, 157) int_vec_push(out, 192) }
-                    int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 182) int_vec_push(out, 192)
-                    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
-                    code_ptr = code_ptr + 18
-                }
-                if op == ir_and() | op == ir_or() {
-                    var off_a = 256 - (a + 1) * 8
-                    var off_b = 256 - (bv + 1) * 8
-                    var off_res = 256 - (res + 1) * 8
-                    int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, off_a & 255)
-                    if op == ir_and() { int_vec_push(out, 72) int_vec_push(out, 35) int_vec_push(out, 69) int_vec_push(out, off_b & 255) }
-                    if op == ir_or() { int_vec_push(out, 72) int_vec_push(out, 11) int_vec_push(out, 69) int_vec_push(out, off_b & 255) }
-                    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
-                    code_ptr = code_ptr + 15
-                }
-                if op == ir_not() | op == ir_neg() {
-                    var off_a = 256 - (a + 1) * 8
-                    var off_res = 256 - (res + 1) * 8
-                    int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, off_a & 255)
-                    if op == ir_neg() { int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 216) }
-                    if op == ir_not() { int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 192) int_vec_push(out, 15) int_vec_push(out, 148) int_vec_push(out, 192) int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 182) int_vec_push(out, 192) }
-                    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
-                    code_ptr = code_ptr + 11
-                }
-                if op == ir_load() | op == ir_store() | op == ir_copy() {
-                    var off_a = 256 - (a + 1) * 8
-                    var off_res = 256 - (res + 1) * 8
-                    int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, off_a & 255)
-                    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
-                    code_ptr = code_ptr + 8
-                }
-                if op == ir_alloca() {
-                    var off_res = 256 - (res + 1) * 8
-                    int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 69) int_vec_push(out, off_res & 255)
-                    emit_i32(out, 0)
-                    code_ptr = code_ptr + 8
-                }
-                if op == ir_param() {
-                    var off_res = 256 - (res + 1) * 8
-                    if a == 0 { int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 125) int_vec_push(out, off_res & 255) }
-                    code_ptr = code_ptr + 4
-                }
-                if op == ir_br() {
-                    var target_off = int_vec_get(block_offsets, a)
-                    var rel = target_off - (code_ptr + 5)
-                    int_vec_push(out, 233)
-                    emit_i32(out, rel)
-                    code_ptr = code_ptr + 5
-                }
-                if op == ir_br_cond() {
-                    var off_cond = 256 - (res + 1) * 8
-                    int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, off_cond & 255)
-                    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 192)
-                    var then_off = int_vec_get(block_offsets, a)
-                    var else_off = int_vec_get(block_offsets, bv)
-                    var rel_then = then_off - (code_ptr + 12)
-                    int_vec_push(out, 15) int_vec_push(out, 133)
-                    emit_i32(out, rel_then)
-                    var rel_else = else_off - (code_ptr + 12)
-                    int_vec_push(out, 233)
-                    emit_i32(out, rel_else)
-                    code_ptr = code_ptr + 12
-                }
-                if op == ir_ret() {
-                    var offset = 256 - (a + 1) * 8
-                    int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 69) int_vec_push(out, offset & 255)
-                    int_vec_push(out, 201) int_vec_push(out, 195)
-                    code_ptr = code_ptr + 6
-                }
-                if op == ir_ret_void() {
-                    int_vec_push(out, 201) int_vec_push(out, 195)
-                    code_ptr = code_ptr + 2
-                }
-                ii = ii + 1
-            }
-            bi = bi + 1
+        if (fi == main_fi) == 1 {
+            main_off = int_vec_len(out)
+        }
+        var p2fctx = cg_p2fctx_new(m, toks, main_fi, fi)
+        var p2_rc = cg_p2_func(p2fctx, src, f, brtab, p2out_ctx)
+        int_vec_free(p2fctx)
+        if (p2_rc < 0) {
+            int_vec_free(p2out_ctx)
+            brtab_free(brtab)
+            int_vec_free(func_offsets)
+            int_vec_free(str_cum)
+            return 0 - 1
         }
         fi = fi + 1
     }
-    int_vec_free(block_offsets)
+    int_vec_free(p2out_ctx)
+    var ap = 0
+    while (ap < int_vec_len(str_toks)) {
+        var atok = int_vec_get(str_toks, ap)
+        var s2 = tok_str_value(src, toks, atok)
+        var bi2 = 0
+        var bn2 = str_len(s2)
+        while (bi2 < bn2) {
+            int_vec_push(out, str_byte(s2, bi2))
+            bi2 = bi2 + 1
+        }
+        int_vec_push(out, 0)
+        ap = ap + 1
+    }
+    brtab_free(brtab)
+    int_vec_free(func_offsets)
+    int_vec_free(str_cum)
     return 0
 }
 

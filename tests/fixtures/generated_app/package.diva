@@ -1,0 +1,3 @@
+name = "generated_app_fixture"
+kind = "app"
+entry = "src/main.diva"

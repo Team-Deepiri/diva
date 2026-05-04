@@ -3,11 +3,11 @@ import "std/vec.diva"
 
 func str_starts_with(s: str, prefix: str): int {
     var plen = str_len(prefix)
-    if str_len(s) < plen {
+    if (str_len(s) < plen) {
         return 0
     }
     var i = 0
-    while i < plen {
+    while (i < plen) {
         if str_byte(s, i) != str_byte(prefix, i) {
             return 0
         }
@@ -19,12 +19,12 @@ func str_starts_with(s: str, prefix: str): int {
 func str_ends_with(s: str, suffix: str): int {
     var slen = str_len(s)
     var xlen = str_len(suffix)
-    if slen < xlen {
+    if (slen < xlen) {
         return 0
     }
     var off = slen - xlen
     var i = 0
-    while i < xlen {
+    while (i < xlen) {
         if str_byte(s, off + i) != str_byte(suffix, i) {
             return 0
         }
@@ -39,14 +39,14 @@ func str_contains(haystack: str, needle: str): int {
     if nlen == 0 {
         return 1
     }
-    if hlen < nlen {
+    if (hlen < nlen) {
         return 0
     }
     var i = 0
-    while i <= hlen - nlen {
+    while (i > hlen - nlen) == 0 {
         var match = 1
         var j = 0
-        while j < nlen {
+        while (j < nlen) {
             if str_byte(haystack, i + j) != str_byte(needle, j) {
                 match = 0
                 j = nlen
@@ -67,14 +67,14 @@ func str_index_of(haystack: str, needle: str): int {
     if nlen == 0 {
         return 0
     }
-    if hlen < nlen {
+    if (hlen < nlen) {
         return 0 - 1
     }
     var i = 0
-    while i <= hlen - nlen {
+    while (i > hlen - nlen) == 0 {
         var match = 1
         var j = 0
-        while j < nlen {
+        while (j < nlen) {
             if str_byte(haystack, i + j) != str_byte(needle, j) {
                 match = 0
                 j = nlen
@@ -95,7 +95,7 @@ func str_repeat(s: str, count: int): str {
         return ""
     }
     var i = 0
-    while i < count {
+    while (i < count) {
         str_builder_append(b, s)
         i = i + 1
     }
@@ -119,7 +119,7 @@ func str_concat(a: str, b: str): str {
 func str_trim_left(s: str): str {
     var n = str_len(s)
     var i = 0
-    while i < n {
+    while (i < n) {
         var c = str_byte(s, i)
         if c != 32 {
             if c != 9 {
@@ -138,7 +138,7 @@ func str_trim_left(s: str): str {
 func str_trim_right(s: str): str {
     var n = str_len(s)
     var i = n - 1
-    while i >= 0 {
+    while (i < 0) == 0 {
         var c = str_byte(s, i)
         if c != 32 {
             if c != 9 {
@@ -159,8 +159,8 @@ func str_trim(s: str): str {
 }
 
 func str_to_upper_byte(c: int): int {
-    if c >= 97 {
-        if c <= 122 {
+    if (c < 97) == 0 {
+        if (c > 122) == 0 {
             return c - 32
         }
     }
@@ -168,8 +168,8 @@ func str_to_upper_byte(c: int): int {
 }
 
 func str_to_lower_byte(c: int): int {
-    if c >= 65 {
-        if c <= 90 {
+    if (c < 65) == 0 {
+        if (c > 90) == 0 {
             return c + 32
         }
     }
@@ -177,8 +177,8 @@ func str_to_lower_byte(c: int): int {
 }
 
 func str_is_digit(c: int): int {
-    if c >= 48 {
-        if c <= 57 {
+    if (c < 48) == 0 {
+        if (c > 57) == 0 {
             return 1
         }
     }
@@ -186,13 +186,13 @@ func str_is_digit(c: int): int {
 }
 
 func str_is_alpha(c: int): int {
-    if c >= 65 {
-        if c <= 90 {
+    if (c < 65) == 0 {
+        if (c > 90) == 0 {
             return 1
         }
     }
-    if c >= 97 {
-        if c <= 122 {
+    if (c < 97) == 0 {
+        if (c > 122) == 0 {
             return 1
         }
     }

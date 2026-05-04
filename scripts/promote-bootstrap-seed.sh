@@ -2,13 +2,11 @@
 # Promote a self-built compiler (from `compiler/`) to become the new bootstrap seed
 # `bootstrap/diva-linux-amd64`. Same OS/ABI (Linux x86-64) as documented in bootstrap/README.md.
 #
-# Requires: host `cc` for the LLVM link step when using the current seed; the built driver
-# uses `host_system("cc ...")` for native link, so this script must run in an environment
-# where that succeeds (not a sandbox that blocks fork/exec).
+# Native bootstrap uses Diva ELF emission (no cc/ld on the compiler build path). You still
+# need a normal Linux userland: sh, python3, chmod (used briefly when materializing the ELF).
 #
 # Usage (from repo root):
-#   DI_STDLIB_DIR="$PWD/stdlib" DI_RUNTIME_O="$PWD/bootstrap/runtime-linux-amd64.o" \
-#     ./scripts/promote-bootstrap-seed.sh
+#   DI_STDLIB_DIR="$PWD/stdlib" ./scripts/promote-bootstrap-seed.sh
 #
 # Optional: SEED=/path/to/diva ./scripts/promote-bootstrap-seed.sh
 set -eu
@@ -18,33 +16,41 @@ cd "${ROOT_DIR}"
 
 SEED="${SEED:-${ROOT_DIR}/bootstrap/diva-linux-amd64}"
 DI_STDLIB_DIR="${DI_STDLIB_DIR:-${ROOT_DIR}/stdlib}"
-DI_RUNTIME_O="${DI_RUNTIME_O:-${ROOT_DIR}/bootstrap/runtime-linux-amd64.o}"
-export DI_STDLIB_DIR DI_RUNTIME_O
+export DI_STDLIB_DIR
 
 if [ ! -x "${SEED}" ]; then
   echo "promote-bootstrap-seed: missing or non-executable SEED: ${SEED}" >&2
   exit 1
 fi
-if [ ! -f "${DI_RUNTIME_O}" ]; then
-  echo "promote-bootstrap-seed: set DI_RUNTIME_O to the prebuilt runtime .o (e.g. bootstrap/runtime-linux-amd64.o)" >&2
-  exit 1
-fi
-
 BUILD_LOG="${ROOT_DIR}/build/.promote-seed.log"
 mkdir -p "${ROOT_DIR}/build"
 
 echo "[promote] Building compiler package with seed: ${SEED}"
-if ! "${SEED}" build "${ROOT_DIR}/compiler" >"${BUILD_LOG}" 2>&1
+MERGED_EXE="${ROOT_DIR}/build/diva-driver-promote-candidate"
+if "${SEED}" build "${ROOT_DIR}/compiler" >"${BUILD_LOG}" 2>&1
 then
-  echo "[promote] build failed. Log:" >&2
-  sed -n '1,80p' "${BUILD_LOG}" >&2 || true
-  exit 1
+  DRIVER=$(sed -n 's/^\[native\] built executable at //p' "${BUILD_LOG}" | tail -n 1)
+  if [ -z "${DRIVER}" ]; then
+    DRIVER=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD_LOG}" | tail -n 1)
+  fi
+  if [ -z "${DRIVER}" ] || [ ! -x "${DRIVER}" ]; then
+    echo "[promote] build exited 0 but no executable path in log; falling back to merged Diva build." >&2
+    DRIVER=""
+  fi
+else
+  echo "[promote] seed build failed; falling back to merged Diva build (see ${BUILD_LOG})." >&2
+  sed -n '1,40p' "${BUILD_LOG}" >&2 || true
+  DRIVER=""
 fi
 
-DRIVER=$(sed -n 's/^\[di\] built native executable at //p' "${BUILD_LOG}" | tail -n 1)
 if [ -z "${DRIVER}" ] || [ ! -x "${DRIVER}" ]; then
-  echo "[promote] could not find built executable in log (expected \"[di] built native executable at <path>\")." >&2
-  sed -n '1,40p' "${BUILD_LOG}" >&2 || true
+  echo "[promote] building driver via scripts/build-bootstrap-driver-merged.sh -> ${MERGED_EXE}"
+  sh "${ROOT_DIR}/scripts/build-bootstrap-driver-merged.sh" "${MERGED_EXE}"
+  DRIVER="${MERGED_EXE}"
+fi
+
+if [ ! -x "${DRIVER}" ]; then
+  echo "[promote] could not produce a driver executable." >&2
   exit 1
 fi
 

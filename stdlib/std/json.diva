@@ -135,7 +135,7 @@ func json_escape(s: str): str {
     var b = str_builder_new()
     if b == 0 { return s }
     var i = 0
-    while i < n {
+    while (i < n) {
         var c = str_byte(s, i)
         if c == 34 {
             str_builder_append(b, "\\\"")
@@ -171,8 +171,8 @@ func json_int_array(handle: int): str {
     if b == 0 { return "[]" }
     str_builder_append(b, "[")
     var i = 0
-    while i < n {
-        if i > 0 {
+    while (i < n) {
+        if (i > 0) {
             str_builder_append(b, ", ")
         }
         str_builder_append(b, int_to_str(int_vec_get(handle, i)))

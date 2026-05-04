@@ -8,7 +8,7 @@ func env(name: str): str {
 
 func env_or(name: str, fallback: str): str {
     var val = host_getenv(name)
-    if str_len(val) > 0 {
+    if (str_len(val) > 0) {
         return val
     }
     return fallback
@@ -19,10 +19,10 @@ func run(cmd: str): int {
 }
 
 func arg(index: int): str {
-    if index < 0 {
+    if (index < 0) {
         return ""
     }
-    if index >= host_argc() {
+    if (index >= host_argc()) {
         return ""
     }
     return host_argv(index)
@@ -38,7 +38,7 @@ func file_read(path: str): str {
 
 func file_exists(path: str): int {
     var sz = file_size(path)
-    if sz >= 0 {
+    if (sz >= 0) {
         return 1
     }
     return 0

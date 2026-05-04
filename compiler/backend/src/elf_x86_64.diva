@@ -34,7 +34,7 @@ func link_file(obj_path: str, out_path: str, runtime_o: str): int {
     str_builder_append(cmd, out_path)
     str_builder_append(cmd, " ")
     str_builder_append(cmd, obj_path)
-    if str_len(runtime_o) > 0 {
+    if (str_len(runtime_o) > 0) {
         str_builder_append(cmd, " ")
         str_builder_append(cmd, runtime_o)
     }
@@ -51,7 +51,7 @@ func link_with_gcc(obj_path: str, out_path: str, runtime_o: str): int {
     str_builder_append(cmd, out_path)
     str_builder_append(cmd, " ")
     str_builder_append(cmd, obj_path)
-    if str_len(runtime_o) > 0 {
+    if (str_len(runtime_o) > 0) {
         str_builder_append(cmd, " ")
         str_builder_append(cmd, runtime_o)
     }

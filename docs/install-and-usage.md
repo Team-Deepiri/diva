@@ -132,6 +132,7 @@ Notes:
 - `diva watch .` watches the package entry file from `package.diva`
 - `diva new hello-di` creates an app package
 - `diva new hello-lib --lib` creates a library package
+- `diva new --kernel` creates a kernel scaffold in the native driver. **`diva build` / `diva run`** use pure ELF by default; set **`DIVA_ALLOW_HOSTED_LINK=1`** to use **`cc` + `DI_RUNTIME_O`** when you need the hosted runtime link path.
 
 ## Create A New Project
 

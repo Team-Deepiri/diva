@@ -1,6 +1,10 @@
 # Bootstrap seed compiler
 
-`diva-linux-amd64` is the **Linux x86-64** reference compiler binary. It is the **trust root** for the bootstrap: the in-tree Diva compiler package (`compiler/`) is built with this seed, then used in tests to rebuild itself (see `docs/selfhost-bootstrap.md`).
+`diva-linux-amd64` is the **Linux x86-64** reference compiler binary. It is the **trust root** for the bootstrap: the in-tree Diva compiler package (`compiler/`) is built with this seed; `tests/run.sh` then requires pure rebuild convergence and `scripts/verify-pure-compiler-build.sh` (see repo `README.md`).
+
+## `write_elf_chunk` and promoting the seed
+
+The driver materializes pure ELF output using `write_elf_chunk` (hosted `di_runtime_write_elf_chunk` in `compiler/res/legacy/runtime_extra.s`, pure builtin id 32 in `pure_elf_builtins.diva`). The **pinned** `diva-linux-amd64` may still be an older trust root that does not implement `DIVA_SKIP_NATIVE_EXTERN_CHECK` in `native_require_no_externs`; until you promote a driver built from current sources, `scripts/install.sh`, `scripts/verify-pure-compiler-build.sh`, and `tests/run.sh` (slow path) export that skip for `diva build compiler/`. After a successful promote, clear the skip (empty `DIVA_SKIP_NATIVE_EXTERN_CHECK`) so CI enforces that the seed matches codegen.
 
 ## What is *not* in this repository
 
@@ -13,7 +17,7 @@
 - **LLVM IR** — `runtime/runtime.ll` defines the hosted runtime (I/O, `int_vec`, linking). At install, either:
   - `clang -c runtime/runtime.ll` → `runtime.o`, or
   - copy **`bootstrap/runtime-linux-amd64.o`** (no compiler needed; use `NO_CLANG=1`).
-- **System linker** — user programs are linked with the system **`cc`** as a linker driver (no C sources from this repo).
+- **System linker (optional)** — the native driver links with **`cc` + `runtime.o`** only when **`DIVA_ALLOW_HOSTED_LINK=1`** and a readable runtime object is configured; otherwise user programs use the pure in-process ELF path (no C sources from this repo).
 
 ## Refreshing the seed binary
 
@@ -30,13 +34,19 @@ Options:
      ./scripts/promote-bootstrap-seed.sh
    ```
 
-   The script backs up the old binary to `bootstrap/diva-linux-amd64.bak-<timestamp>`, replaces `bootstrap/diva-linux-amd64`, and runs a **second** `diva build compiler` to verify the new seed. That second step runs the Diva-authored driver, which invokes the system linker (`cc`); run the script on a normal machine (not a restricted sandbox). To only copy without verify: `PROMOTE_SKIP_VERIFY=1 ./scripts/promote-bootstrap-seed.sh`.
+   The script backs up the old binary to `bootstrap/diva-linux-amd64.bak-<timestamp>`, replaces `bootstrap/diva-linux-amd64`, and runs a **second** `diva build compiler` to verify the new seed. That second step runs the Diva-authored driver (typically **pure ELF** unless you export **`DIVA_ALLOW_HOSTED_LINK=1`** and **`DI_RUNTIME_O`**). Run the script on a normal machine (not a restricted sandbox). To only copy without verify: `PROMOTE_SKIP_VERIFY=1 ./scripts/promote-bootstrap-seed.sh`.
 
    After a successful promotion, commit the updated `bootstrap/diva-linux-amd64` so clones pick up the new trust root.
+
+## Why the seed is not “auto-replaced” in git
+
+The repository only updates `bootstrap/diva-linux-amd64` when someone **commits** a new ELF produced by a successful promote (or the historical C bootstrap path). CI and pull requests do not silently overwrite this binary: if `diva-linux-amd64 build compiler` or `./scripts/promote-bootstrap-seed.sh` prints the same `[di:error] …` line thousands of times, the **current seed cannot parse or lower the merged compiler**—fix the in-tree `.diva` sources until a single `build compiler` run finishes, then run promote and commit the new seed so everyone picks it up.
 
 ## Runtime / stdlib resolution
 
 Set `DI_STDLIB_DIR` and `DI_RUNTIME_O` after install, or rely on defaults under `~/.local/share/diva/` (see `scripts/install.sh`).
+
+For **`diva build` / `diva run`**: the driver uses **pure in-process ELF** by default (no `cc` / `runtime.o`). **`DIVA_NO_EXTERNAL=1`** still forces that path. Hosted linking (**`cc`** + **`compiler/res/native_crt.s`** + **`DI_RUNTIME_O`** / `ROOT_DIR/bootstrap/runtime-linux-amd64.o`) runs only when **`DIVA_ALLOW_HOSTED_LINK=1`** (and a readable runtime object is available). The native **`diva` driver** does not delegate normal commands to the seed.
 
 ## Source extension
 

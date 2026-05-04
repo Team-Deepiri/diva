@@ -33,13 +33,13 @@ func ps_set_err(ps: int): int         { return mut_set(int_vec_get(ps, 2), 1) }
 // --- Core helpers ---
 
 func p_cur(ps: int): int {
-    if ps_pos(ps) >= ps_tlen(ps) { return tk_eof() }
+    if (ps_pos(ps) < ps_tlen(ps)) == 0 { return tk_eof() }
     return tok_kind(ps_toks(ps), ps_pos(ps))
 }
 
 func p_advance(ps: int): int {
     var old = ps_pos(ps)
-    if old < ps_tlen(ps) { ps_set_pos(ps, old + 1) }
+    if (old < ps_tlen(ps)) { ps_set_pos(ps, old + 1) }
     return old
 }
 
@@ -48,13 +48,13 @@ func p_text(ps: int, src: str, idx: int): str {
 }
 
 func p_expect(ps: int, src: str, kind: int): int {
-    if p_cur(ps) != kind {
+    if (p_cur(ps) != kind) {
         if ps_quiet(ps) == 0 {
             stderr("parse error: expected ")
             stderr(tk_name(kind))
             stderr(", got ")
             stderr(tk_name(p_cur(ps)))
-            if ps_pos(ps) < ps_tlen(ps) {
+            if (ps_pos(ps) < ps_tlen(ps)) {
                 stderr(" '")
                 stderr(p_text(ps, src, ps_pos(ps)))
                 stderr("'")
@@ -68,7 +68,7 @@ func p_expect(ps: int, src: str, kind: int): int {
 }
 
 func p_match(ps: int, kind: int): int {
-    if p_cur(ps) == kind {
+    if (p_cur(ps) == kind) {
         p_advance(ps)
         return 1
     }
@@ -111,7 +111,7 @@ func parse_type(ps: int, src: str): int {
 }
 
 // --- Expression parsing (precedence climbing) ---
-// parse_primary calls parse_expr (defined later) — seed supports forward refs.
+// parse_primary calls parse_expr (defined later) - seed supports forward refs.
 
 func parse_primary(ps: int, src: str): int {
     var kind = p_cur(ps)
@@ -141,7 +141,26 @@ func parse_primary(ps: int, src: str): int {
         var ident_tok = tok
         p_advance(ps)
         if p_cur(ps) == tk_lbrace() {
-            return parse_struct_lit(ps, src, ident_tok)
+            // Avoid treating stmt blocks as struct lits (if a == b {, while (i < n) {).
+            // Real struct literals start with ident: or empty fields.
+            var save = ps_pos(ps)
+            p_advance(ps)
+            var want_struct = 0
+            if p_cur(ps) == tk_rbrace() {
+                want_struct = 1
+            } else {
+                if p_cur(ps) == tk_ident() {
+                    p_advance(ps)
+                    if p_cur(ps) == tk_colon() {
+                        want_struct = 1
+                    }
+                }
+            }
+            ps_set_pos(ps, save)
+            if want_struct == 1 {
+                return parse_struct_lit(ps, src, ident_tok)
+            }
+            return ast_ident(ident_tok)
         }
         return ast_ident(ident_tok)
     }
@@ -192,10 +211,12 @@ func parse_args(ps: int, src: str): int {
     var args = int_vec_new()
     p_expect(ps, src, tk_lparen())
     if p_cur(ps) != tk_rparen() {
-        int_vec_push(args, parse_expr(ps, src))
+        var a0 = parse_expr(ps, src)
+        int_vec_push(args, a0)
         while p_cur(ps) == tk_comma() {
             p_advance(ps)
-            int_vec_push(args, parse_expr(ps, src))
+            var ai = parse_expr(ps, src)
+            int_vec_push(args, ai)
         }
     }
     p_expect(ps, src, tk_rparen())
@@ -208,16 +229,19 @@ func parse_postfix(ps: int, src: str, left: int): int {
     while more == 1 {
         if p_cur(ps) == tk_lparen() {
             var args = parse_args(ps, src)
-            node = ast_call(node, args)
+            var cnode = ast_call(node, args)
+            node = cnode
         } else {
         if p_cur(ps) == tk_dot() {
             p_advance(ps)
             var ftok = p_expect(ps, src, tk_ident())
             if p_cur(ps) == tk_lparen() {
                 var args = parse_args(ps, src)
-                node = ast_method_call(node, ftok, args)
+                var mnode = ast_method_call(node, ftok, args)
+                node = mnode
             } else {
-                node = ast_field(node, ftok)
+                var fnode = ast_field(node, ftok)
+                node = fnode
             }
         } else {
         if p_cur(ps) == tk_lbrack() {
@@ -229,29 +253,34 @@ func parse_postfix(ps: int, src: str, left: int): int {
                     p_advance(ps)
                     if p_cur(ps) == tk_lparen() {
                         var args = parse_args(ps, src)
-                        node = ast_call(node, args)
+                        var gnode = ast_call(node, args)
+                        node = gnode
                     } else {
                         ps_set_pos(ps, save)
                         var idx = parse_expr(ps, src)
                         p_expect(ps, src, tk_rbrack())
-                        node = ast_index(node, idx)
+                        var inode = ast_index(node, idx)
+                        node = inode
                     }
                 } else {
                     ps_set_pos(ps, save)
                     var idx = parse_expr(ps, src)
                     p_expect(ps, src, tk_rbrack())
-                    node = ast_index(node, idx)
+                    var inode2 = ast_index(node, idx)
+                    node = inode2
                 }
             } else {
                 var idx = parse_expr(ps, src)
                 p_expect(ps, src, tk_rbrack())
-                node = ast_index(node, idx)
+                var inode3 = ast_index(node, idx)
+                node = inode3
             }
         } else {
         if p_cur(ps) == tk_dotdot() {
             p_advance(ps)
             var rhs = parse_expr(ps, src)
-            node = ast_range(node, rhs)
+            var rnode = ast_range(node, rhs)
+            node = rnode
             more = 0
         } else {
             more = 0
@@ -361,9 +390,9 @@ func parse_expr(ps: int, src: str): int {
 }
 
 // --- Statement parsing ---
-// parse_block calls parse_stmt (defined later) — seed supports forward refs.
+// parse_block calls parse_stmt (defined later) - seed supports forward refs.
 
-// add_implicit_void_ret: only for top-level void function bodies — not if/while/else blocks.
+// add_implicit_void_ret: only for top-level void function bodies - not if/while/else blocks.
 func parse_block(ps: int, src: str, add_implicit_void_ret: int): int {
     p_expect(ps, src, tk_lbrace())
     var stmts = int_vec_new()
@@ -374,7 +403,7 @@ func parse_block(ps: int, src: str, add_implicit_void_ret: int): int {
     }
     p_expect(ps, src, tk_rbrace())
     var n = int_vec_len(stmts)
-    if n > 0 & add_implicit_void_ret == 1 {
+    if (n > 0 & add_implicit_void_ret == 1) {
         var last = int_vec_get(stmts, n - 1)
         var last_kind = int_vec_get(last, 0)
         if last_kind != nd_return() {
@@ -412,7 +441,8 @@ func parse_if_stmt(ps: int, src: str): int {
     p_advance(ps)
     var cond = parse_expr(ps, src)
     var then_body = parse_block(ps, src, 0)
-    var else_body = 0 - 1
+    // Use large positive sentinel for no-else; avoids negative-comparison quirks and handle collisions.
+    var else_body = 2147483647
     if p_cur(ps) == tk_else() {
         p_advance(ps)
         if p_cur(ps) == tk_if() {
@@ -427,7 +457,8 @@ func parse_if_stmt(ps: int, src: str): int {
 func parse_while_stmt(ps: int, src: str): int {
     p_advance(ps)
     var cond = parse_expr(ps, src)
-    var update = 0 - 1
+    // Use a positive sentinel for missing update to avoid signed/unsigned pitfalls in seed comparisons.
+    var update = 2147483647
     if p_cur(ps) == tk_fatarrow() {
         p_advance(ps)
         update = parse_expr(ps, src)
@@ -514,7 +545,7 @@ func parse_func_decl(ps: int, src: str): int {
         ret = ast_type_name(0)
     }
     var void_body = 0
-    if ret >= 0 {
+    if (ret < 0) == 0 {
         if ast_kind(ret) == nd_type_name() {
             var rn = p_text(ps, src, ast_child(ret, 0))
             if str_eq(rn, "void") == 1 {
