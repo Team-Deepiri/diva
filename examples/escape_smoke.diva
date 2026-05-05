@@ -1,0 +1,8 @@
+// Regression: C-style escapes in string literals (tok_str_value decodes \n to ASCII 10).
+extern func print_int(x: int): void
+extern func str_len(s: str): int
+
+func main(): int {
+    print_int(str_len("\n"))
+    return 0
+}

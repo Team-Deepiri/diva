@@ -6,6 +6,8 @@
 
 The driver materializes pure ELF output using `write_elf_chunk` (hosted `di_runtime_write_elf_chunk` in `compiler/res/legacy/runtime_extra.s`, pure builtin id 32 in `pure_elf_builtins.diva`). The **pinned** `diva-linux-amd64` may still be an older trust root that does not implement `DIVA_SKIP_NATIVE_EXTERN_CHECK` in `native_require_no_externs`; until you promote a driver built from current sources, `scripts/install.sh`, `scripts/verify-pure-compiler-build.sh`, and `tests/run.sh` (slow path) export that skip for `diva build compiler/`. After a successful promote, clear the skip (empty `DIVA_SKIP_NATIVE_EXTERN_CHECK`) so CI enforces that the seed matches codegen.
 
+Pure ELF smoke vs full pipeline (`ir`/`asm`) is documented in `docs/pure-only-driver.md` (`scripts/verify-pure-only-driver.sh`; use `DIVA_PURE_FULL=1` for the stricter gate).
+
 ## What is *not* in this repository
 
 - **No C or C++ compiler sources** — all language and compiler logic you edit is **`.diva`**. Verification: `scripts/verify-no-c-sources.sh`.
@@ -36,7 +38,7 @@ Options:
 
    The script backs up the old binary to `bootstrap/diva-linux-amd64.bak-<timestamp>`, replaces `bootstrap/diva-linux-amd64`, and runs a **second** `diva build compiler` to verify the new seed. That second step runs the Diva-authored driver (typically **pure ELF** unless you export **`DIVA_ALLOW_HOSTED_LINK=1`** and **`DI_RUNTIME_O`**). Run the script on a normal machine (not a restricted sandbox). To only copy without verify: `PROMOTE_SKIP_VERIFY=1 ./scripts/promote-bootstrap-seed.sh`.
 
-   After a successful promotion, commit the updated `bootstrap/diva-linux-amd64` so clones pick up the new trust root.
+   After a successful promotion, commit the updated `bootstrap/diva-linux-amd64` so clones pick up the new trust root. For the **pure-only** driver check list (no libexec overlay, `DIVA_PURE_DRIVER`, second-stage promote without skip), see `docs/pure-only-driver.md`.
 
 ## Why the seed is not “auto-replaced” in git
 

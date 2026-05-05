@@ -463,6 +463,7 @@ func cg_func(ctx: int, src: str, nl: str, f: int, fi: int): int {
     var frame_b = func_prologue_frame_bytes(f)
     lp_add(lp, "    pushq %rbp") lp_flush_sb(lp, sb, nl)
     lp_add(lp, "    movq %rsp, %rbp") lp_flush_sb(lp, sb, nl)
+    lp_add(lp, "    pushq %r15") lp_flush_sb(lp, sb, nl)
     lp_add(lp, "    subq $")
     lp_add_int(lp, frame_b)
     lp_add(lp, ", %rsp")
@@ -607,20 +608,20 @@ func pure_builtin_call_size_lo(id: int): int {
 
 func pure_builtin_call_size_hi_vec(id: int): int {
     if id == 9 { return 96 }
-    if id == 10 { return 64 }
-    if id == 11 { return 16 }
-    if id == 12 { return 16 }
-    if id == 13 { return 16 }
+    if id == 10 { return 42 }
+    if id == 11 { return 27 }
+    if id == 12 { return 37 }
+    if id == 13 { return 26 }
     if id == 14 { return 96 }
-    if id == 15 { return 128 }
-    if id == 16 { return 16 }
-    if id == 17 { return 128 }
-    if id == 18 { return 16 }
+    if id == 15 { return 115 }
+    if id == 16 { return 27 }
+    if id == 17 { return 97 }
+    if id == 18 { return 26 }
     return 5
 }
 
 func pure_builtin_call_size_hi_misc(id: int): int {
-    if id == 19 { return 96 }
+    if id == 19 { return 108 }
     if id == 20 { return 192 }
     if id == 21 { return 128 }
     if id == 22 { return 104 }
@@ -829,7 +830,8 @@ func op_is3(op: int, a: int, b: int, c: int): int {
 }
 
 func stack_disp32(slot: int): int {
-    return 0 - (slot + 1) * 8
+    // Slot i at rbp-8*(i+2): [rbp-8] holds saved r15 (push r15 after mov rbp,rsp).
+    return 0 - (slot + 2) * 8
 }
 
 // Largest vreg index referenced in |f| (stack slots are vreg indices 0..max).
@@ -1033,10 +1035,10 @@ func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
     if op_is3(op, ir_load(), ir_store(), ir_copy()) == 1 { return 14 }
     if op == ir_alloca() { return 11 }
     if op == ir_param() { return 7 }
-    if (op == ir_ret()) & ((fi == main_fi) == 1) { return 18 }
-    if (op == ir_ret()) & ((fi == main_fi) == 0) { return 9 }
-    if (op == ir_ret_void()) & ((fi == main_fi) == 1) { return 11 }
-    if (op == ir_ret_void()) & ((fi == main_fi) == 0) { return 2 }
+    if (op == ir_ret()) & ((fi == main_fi) == 1) { return 20 }
+    if (op == ir_ret()) & ((fi == main_fi) == 0) { return 11 }
+    if (op == ir_ret_void()) & ((fi == main_fi) == 1) { return 13 }
+    if (op == ir_ret_void()) & ((fi == main_fi) == 0) { return 4 }
     if op == ir_br() {
         if func_has_block_label(f, a) == 0 {
             report_bad_branch_label(src, toks, m, fi, "br", a)
@@ -1086,7 +1088,7 @@ func cg_p1_func(p2fctx: int, src: str, f: int, brtab: int, offset: int): int {
     var br_fi = brtab_fi(brtab)
     var br_lb = brtab_lb(brtab)
     var br_off = brtab_off(brtab)
-    var result = offset + 11
+    var result = offset + 13
     var bc = func_block_count(f)
     if (bc > 50000) { bc = 0 }
     var bi = 0
@@ -1116,9 +1118,9 @@ func cg_p1_func(p2fctx: int, src: str, f: int, brtab: int, offset: int): int {
     }
     if func_has_terminator(f) == 0 {
         if (fi == main_fi) == 1 {
-            result = result + 11
+            result = result + 13
         } else {
-            result = result + 2
+            result = result + 4
         }
     }
     return result
@@ -1341,6 +1343,7 @@ func cg_p2_ret(p2fctx: int, out: int, inst: int): int {
     if op == ir_ret() {
         emit_mov_stack_to_rax(out, a)
         int_vec_push(out, 201)
+        int_vec_push(out, 65) int_vec_push(out, 95)
         if (fi == main_fi) == 1 {
             int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 199)
             int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
@@ -1352,11 +1355,14 @@ func cg_p2_ret(p2fctx: int, out: int, inst: int): int {
     if op == ir_ret_void() {
         if (fi == main_fi) == 1 {
             int_vec_push(out, 201)
+            int_vec_push(out, 65) int_vec_push(out, 95)
             int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 255)
             int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
             int_vec_push(out, 15) int_vec_push(out, 5)
         } else {
-            int_vec_push(out, 201) int_vec_push(out, 195)
+            int_vec_push(out, 201)
+            int_vec_push(out, 65) int_vec_push(out, 95)
+            int_vec_push(out, 195)
         }
     }
     return 0
@@ -1397,11 +1403,14 @@ func cg_p2_term(p2fctx: int, f: int, out: int): int {
     if func_has_terminator(f) == 0 {
         if (fi == main_fi) == 1 {
             int_vec_push(out, 201)
+            int_vec_push(out, 65) int_vec_push(out, 95)
             int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 255)
             int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
             int_vec_push(out, 15) int_vec_push(out, 5)
         } else {
-            int_vec_push(out, 201) int_vec_push(out, 195)
+            int_vec_push(out, 201)
+            int_vec_push(out, 65) int_vec_push(out, 95)
+            int_vec_push(out, 195)
         }
     }
     return 0
@@ -1414,6 +1423,7 @@ func cg_p2_func(p2fctx: int, src: str, f: int, brtab: int, p2out_ctx: int): int 
     var frame_b2 = func_prologue_frame_bytes(f)
     int_vec_push(out, 85)
     int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 229)
+    int_vec_push(out, 65) int_vec_push(out, 87)
     int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236)
     emit_i32(out, frame_b2)
     var bc = func_block_count(f)
@@ -1526,6 +1536,19 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
             return 0 - 1
         }
         fi = fi + 1
+    }
+    var code_len = int_vec_len(out)
+    if code_len != instr_total {
+        stderr("codegen internal error: pass1/pass2 code size mismatch p1=")
+        stderr(int_to_str(instr_total))
+        stderr(" p2=")
+        stderr(int_to_str(code_len))
+        stderr(char_to_str(10))
+        int_vec_free(p2out_ctx)
+        brtab_free(brtab)
+        int_vec_free(func_offsets)
+        int_vec_free(str_cum)
+        return 0 - 1
     }
     int_vec_free(p2out_ctx)
     var ap = 0

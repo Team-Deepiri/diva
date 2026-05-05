@@ -80,10 +80,11 @@ func package_manifest_kind_value(root: str): str {
         return ""
     }
     var text = read_file(mf)
-    if str_len(text) == 0 {
+    var text_len = str_len(text)
+    if text_len == 0 {
         return ""
     }
-    var n = str_len(text)
+    var n = text_len
     var i = 0
     while (i < n) {
         var line_end = i
@@ -135,10 +136,11 @@ func package_is_kernel_dir(root: str): int {
 
 func package_entry_relative(manifest_path: str): str {
     var text = read_file(manifest_path)
-    if str_len(text) == 0 {
+    var text_len = str_len(text)
+    if text_len == 0 {
         return ""
     }
-    var n = str_len(text)
+    var n = text_len
     var i = 0
     while (i < n) {
         var line_end = i
@@ -302,7 +304,8 @@ func merge_emit_file(abs_path: str, done: str, stack: str, stdroot: str, out: in
         pos = le + 1
         if (str_len(dep) > 0) {
             var dr = merge_emit_file(dep, done2, stack2, stdroot, out)
-            if str_len(dr) == 0 {
+            var dr_len = str_len(dr)
+            if dr_len == 0 {
                 return ""
             }
             done2 = dr
@@ -321,7 +324,8 @@ func merge_emit_file(abs_path: str, done: str, stack: str, stdroot: str, out: in
 
 func merge_file_sources(path: str): str {
     var src = read_file(path)
-    if str_len(src) == 0 {
+    var src_len = str_len(src)
+    if src_len == 0 {
         return ""
     }
     var nl = loader_newline()
@@ -329,7 +333,8 @@ func merge_file_sources(path: str): str {
     var b = str_builder_new()
     var done = ""
     var r = merge_emit_file(path, done, "", stdroot, b)
-    if str_len(r) == 0 {
+    var r_len = str_len(r)
+    if r_len == 0 {
         str_builder_free(b)
         return ""
     }
@@ -341,7 +346,8 @@ func merge_file_sources(path: str): str {
 func merge_package_sources(root: str): str {
     var man = path_join_dir(root, "package.diva")
     var ent = package_entry_relative(man)
-    if str_len(ent) == 0 {
+    var ent_len = str_len(ent)
+    if ent_len == 0 {
         stderr("loader: no entry= in package.diva under ")
         stderr(root)
         stderr(loader_newline())
@@ -352,7 +358,8 @@ func merge_package_sources(root: str): str {
     var done = ""
     var stdroot = loader_stdlib_dir()
     var r = merge_emit_file(ep, done, "", stdroot, b)
-    if str_len(r) == 0 {
+    var r_len = str_len(r)
+    if r_len == 0 {
         str_builder_free(b)
         return ""
     }

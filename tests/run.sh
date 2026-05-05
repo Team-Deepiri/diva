@@ -276,6 +276,8 @@ assert_error_contains "${ROOT_DIR}/tests/cases/fail/missing_trait_method.diva" "
 # unknown_package_dep: was "loader: cannot read"; native merge path may no longer fail this package at build time.
 
 assert_output_equals "${ROOT_DIR}/examples/hello.diva" "10"
+assert_output_equals "${ROOT_DIR}/examples/escape_smoke.diva" "$(printf '1\n')"
+assert_output_equals "${ROOT_DIR}/examples/escape_println.diva" "$(printf 'hi\n')"
 assert_output_equals "${ROOT_DIR}/examples/host_argv.diva" "1"
 assert_output_equals "${ROOT_DIR}/examples/vec_demo.diva" "2
 20
@@ -300,7 +302,7 @@ assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.diva" "12
 5
 1
 1"
-assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from diva0x0000000000000014"
+assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "$(printf 'systems io from diva0x0000000000000014\n')"
 assert_output_equals "${ROOT_DIR}/examples/packages/app_with_dep" "42"
 assert_output_equals "${ROOT_DIR}/examples/utils_demo.diva" "1
 6

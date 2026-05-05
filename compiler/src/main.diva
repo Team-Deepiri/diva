@@ -490,7 +490,7 @@ func build_path_is_package_dir(path: str): int {
     return path_is_package_dir(path)
 }
 
-// Real LF byte from file — Diva `"\n"` in source is two chars (backslash + n), not ASCII 10.
+// Real LF byte from file (bootstrap / cwd-agnostic). String literals use `tok_str_value` (`\n` → ASCII 10).
 // Resolve via cwd-relative paths first, then DI_STDLIB_DIR/std/lf.txt, then ROOT_DIR.
 func newline_str(): str {
     var s = read_file("compiler/res/lf.txt")
@@ -791,7 +791,8 @@ func cmd_lex(path: str): int {
 
 func cmd_parse(path: str): int {
     var src = read_source(path)
-    if str_len(src) == 0 { return 1 }
+    var src_len = str_len(src)
+    if src_len == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { err_line("lexer error") return 1 }
     var pr = parse_source(src, stream, 0)
@@ -811,7 +812,8 @@ func cmd_parse(path: str): int {
 
 func cmd_ir(path: str): int {
     var src = merge_file_sources(path)
-    if str_len(src) == 0 { return 1 }
+    var src_len = str_len(src)
+    if src_len == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
     var pr = parse_source(src, stream, 0)
@@ -826,7 +828,8 @@ func cmd_ir(path: str): int {
 
 func cmd_asm(path: str): int {
     var src = merge_file_sources(path)
-    if str_len(src) == 0 { return 1 }
+    var src_len = str_len(src)
+    if src_len == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
     var pr = parse_source(src, stream, 0)
@@ -854,7 +857,8 @@ func cmd_emit_ir(path: str): int {
         }
         src = merge_file_sources(path)
     }
-    if str_len(src) == 0 { return 1 }
+    var src_len = str_len(src)
+    if src_len == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
     var pr = parse_source(src, stream, 1)
@@ -872,7 +876,8 @@ func cmd_emit_ir(path: str): int {
 
 func cmd_build_ast(path: str): int {
     var src = read_source(path)
-    if str_len(src) == 0 { return 1 }
+    var src_len = str_len(src)
+    if src_len == 0 { return 1 }
     var stream = lex_source(src)
     if stream == 0 { return 1 }
     var pr = parse_source(src, stream, 0)
@@ -927,7 +932,8 @@ func cmd_check(): int {
         return 1
     }
     var merged = merge_package_sources(path)
-    if str_len(merged) == 0 {
+    var merged_len = str_len(merged)
+    if merged_len == 0 {
         err_line("check: could not merge package sources (see loader messages above)")
         return 1
     }
@@ -978,7 +984,8 @@ func cmd_build(): int {
     var merged = ""
     if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
-        if str_len(merged) == 0 {
+        var merged_len = str_len(merged)
+        if merged_len == 0 {
             err_line("build: could not merge package sources (see loader messages above)")
             return 1
         }
@@ -989,11 +996,13 @@ func cmd_build(): int {
         }
         // Use merged source to handle imports
         merged = merge_file_sources(path)
-        if str_len(merged) == 0 {
+        var merged_try_len = str_len(merged)
+        if merged_try_len == 0 {
             merged = read_source(path)
         }
     }
-    if str_len(merged) == 0 {
+    var merged_final_len = str_len(merged)
+    if merged_final_len == 0 {
         return 1
     }
     if native_driver_should_delegate(merged) == 1 {
@@ -1013,7 +1022,8 @@ func cmd_run_file(path: str): int {
     var merged = ""
     if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
-        if str_len(merged) == 0 {
+        var merged_len = str_len(merged)
+        if merged_len == 0 {
             err_line("run: could not merge package sources (see loader messages above)")
             return 1
         }
@@ -1024,11 +1034,13 @@ func cmd_run_file(path: str): int {
         }
         // Use merged source to handle imports
         merged = merge_file_sources(path)
-        if str_len(merged) == 0 {
+        var merged_try_len = str_len(merged)
+        if merged_try_len == 0 {
             merged = read_source(path)
         }
     }
-    if str_len(merged) == 0 {
+    var merged_final_len = str_len(merged)
+    if merged_final_len == 0 {
         return 1
     }
     if native_driver_should_delegate(merged) == 1 {

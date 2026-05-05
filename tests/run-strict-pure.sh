@@ -4,9 +4,14 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "${ROOT_DIR}"
 
-DRIVER="${ROOT_DIR}/bootstrap/diva-linux-amd64"
-if [ -x "${ROOT_DIR}/build/diva-compiler-pure-elf" ]; then
-  DRIVER="${ROOT_DIR}/build/diva-compiler-pure-elf"
+# Optional: point at a freshly built pure exe (e.g. DIVA_SKIP_NATIVE_EXTERN_CHECK=1 build/diva-stage2 build compiler/ /tmp/diva-native-exe).
+if [ -n "${DIVA_PURE_DRIVER:-}" ] && [ -x "${DIVA_PURE_DRIVER}" ]; then
+  DRIVER="${DIVA_PURE_DRIVER}"
+else
+  DRIVER="${ROOT_DIR}/bootstrap/diva-linux-amd64"
+  if [ -x "${ROOT_DIR}/build/diva-compiler-pure-elf" ]; then
+    DRIVER="${ROOT_DIR}/build/diva-compiler-pure-elf"
+  fi
 fi
 if [ ! -x "${DRIVER}" ]; then
   echo "[strict-pure] missing driver: ${DRIVER}" >&2
