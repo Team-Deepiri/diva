@@ -32,14 +32,15 @@ func str_to_int(s: str): int {
 
 func char_to_str_ascii_table_path(): str {
     var root = host_getenv("DI_STDLIB_DIR")
-    if str_len(root) == 0 {
-        root = "stdlib"
+    var root_use = root
+    if str_len(root_use) == 0 {
+        root_use = "stdlib"
     }
     var b = str_builder_new()
     if b == 0 {
         return ""
     }
-    str_builder_append(b, root)
+    str_builder_append(b, root_use)
     str_builder_append(b, "/std/char_to_str_table.bin")
     var p = str_builder_to_str(b)
     str_builder_free(b)

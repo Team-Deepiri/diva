@@ -302,7 +302,8 @@ assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.diva" "12
 5
 1
 1"
-assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "$(printf 'systems io from diva0x0000000000000014\n')"
+assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from diva0x0000000000000014
+"
 assert_output_equals "${ROOT_DIR}/examples/packages/app_with_dep" "42"
 assert_output_equals "${ROOT_DIR}/examples/utils_demo.diva" "1
 6

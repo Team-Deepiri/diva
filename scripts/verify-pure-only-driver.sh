@@ -42,6 +42,21 @@ run_one() {
   fi
 }
 
+# Negative test: expect a specific non-zero exit (e.g. sema error), not a crash.
+run_one_expect_rc() {
+  label=$1
+  want=$2
+  shift 2
+  echo "[verify-pure-only-driver] ${label} (expect rc=${want}): $*"
+  set +e
+  "$@"
+  rc=$?
+  set -e
+  if [ "${rc}" -ne "${want}" ]; then
+    fail "${label} expected rc=${want} got rc=${rc}"
+  fi
+}
+
 echo "[verify-pure-only-driver] DRIVER=${DRIVER}"
 
 tiny=$(mktemp)
@@ -59,7 +74,7 @@ if [ "${DIVA_PURE_FULL:-0}" = "1" ]; then
   run_one "asm tiny" "${DRIVER}" asm "${tiny}"
 
   if [ -f "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva" ]; then
-    run_one "ir duplicate_decl" "${DRIVER}" ir "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva"
+    run_one_expect_rc "ir duplicate_decl" 1 "${DRIVER}" ir "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva"
   fi
 
   if [ -f "${ROOT_DIR}/examples/ret0.diva" ]; then

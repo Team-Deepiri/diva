@@ -13,7 +13,8 @@ import "cell.diva"
 
 func ib_trace_on(): int {
     var v = host_getenv("DIVA_IR_TRACE")
-    if str_eq(v, "1") == 1 { return 1 }
+    var v_hold = v
+    if str_eq(v_hold, "1") == 1 { return 1 }
     return 0
 }
 

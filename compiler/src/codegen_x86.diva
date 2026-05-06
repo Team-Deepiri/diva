@@ -413,12 +413,16 @@ func cg_inst_flow(ctx: int, nl: str, inst: int): int {
     var bv = inst_b(inst)
     if op == ir_ret() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
-        lp_add(lp, "    leave") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    leaq -8(%rbp), %rsp") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    popq %r15") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    popq %rbp") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    ret") lp_flush_sb(lp, sb, nl)
         return 0
     }
     if op == ir_ret_void() {
-        lp_add(lp, "    leave") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    leaq -8(%rbp), %rsp") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    popq %r15") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    popq %rbp") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    ret") lp_flush_sb(lp, sb, nl)
         return 0
     }
@@ -624,12 +628,12 @@ func pure_builtin_call_size_hi_misc(id: int): int {
     if id == 19 { return 108 }
     if id == 20 { return 192 }
     if id == 21 { return 128 }
-    if id == 22 { return 104 }
-    if id == 23 { return 161 }
+    if id == 22 { return 108 }
+    if id == 23 { return 165 }
     if id == 24 { return 3 }
     if id == 25 { return 16 }
-    if id == 26 { return 135 }
-    if id == 27 { return 214 }
+    if id == 26 { return 136 }
+    if id == 27 { return 216 }
     if id == 28 { return 40 }
     if id == 29 { return 129 }
     if id == 30 { return 33 }
@@ -1035,10 +1039,10 @@ func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
     if op_is3(op, ir_load(), ir_store(), ir_copy()) == 1 { return 14 }
     if op == ir_alloca() { return 11 }
     if op == ir_param() { return 7 }
-    if (op == ir_ret()) & ((fi == main_fi) == 1) { return 20 }
-    if (op == ir_ret()) & ((fi == main_fi) == 0) { return 11 }
-    if (op == ir_ret_void()) & ((fi == main_fi) == 1) { return 13 }
-    if (op == ir_ret_void()) & ((fi == main_fi) == 0) { return 4 }
+    if (op == ir_ret()) & ((fi == main_fi) == 1) { return 24 }
+    if (op == ir_ret()) & ((fi == main_fi) == 0) { return 15 }
+    if (op == ir_ret_void()) & ((fi == main_fi) == 1) { return 17 }
+    if (op == ir_ret_void()) & ((fi == main_fi) == 0) { return 8 }
     if op == ir_br() {
         if func_has_block_label(f, a) == 0 {
             report_bad_branch_label(src, toks, m, fi, "br", a)
@@ -1118,9 +1122,9 @@ func cg_p1_func(p2fctx: int, src: str, f: int, brtab: int, offset: int): int {
     }
     if func_has_terminator(f) == 0 {
         if (fi == main_fi) == 1 {
-            result = result + 13
+            result = result + 17
         } else {
-            result = result + 4
+            result = result + 8
         }
     }
     return result
@@ -1342,8 +1346,9 @@ func cg_p2_ret(p2fctx: int, out: int, inst: int): int {
     var a = inst_a(inst)
     if op == ir_ret() {
         emit_mov_stack_to_rax(out, a)
-        int_vec_push(out, 201)
+        int_vec_push(out, 72) int_vec_push(out, 141) int_vec_push(out, 101) int_vec_push(out, 248)
         int_vec_push(out, 65) int_vec_push(out, 95)
+        int_vec_push(out, 93)
         if (fi == main_fi) == 1 {
             int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 199)
             int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
@@ -1353,15 +1358,14 @@ func cg_p2_ret(p2fctx: int, out: int, inst: int): int {
         }
     }
     if op == ir_ret_void() {
+        int_vec_push(out, 72) int_vec_push(out, 141) int_vec_push(out, 101) int_vec_push(out, 248)
+        int_vec_push(out, 65) int_vec_push(out, 95)
+        int_vec_push(out, 93)
         if (fi == main_fi) == 1 {
-            int_vec_push(out, 201)
-            int_vec_push(out, 65) int_vec_push(out, 95)
             int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 255)
             int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
             int_vec_push(out, 15) int_vec_push(out, 5)
         } else {
-            int_vec_push(out, 201)
-            int_vec_push(out, 65) int_vec_push(out, 95)
             int_vec_push(out, 195)
         }
     }
@@ -1401,15 +1405,14 @@ func cg_p2_term(p2fctx: int, f: int, out: int): int {
     var fi = cg_p2fctx_fi(p2fctx)
     var main_fi = cg_p2fctx_main_fi(p2fctx)
     if func_has_terminator(f) == 0 {
+        int_vec_push(out, 72) int_vec_push(out, 141) int_vec_push(out, 101) int_vec_push(out, 248)
+        int_vec_push(out, 65) int_vec_push(out, 95)
+        int_vec_push(out, 93)
         if (fi == main_fi) == 1 {
-            int_vec_push(out, 201)
-            int_vec_push(out, 65) int_vec_push(out, 95)
             int_vec_push(out, 72) int_vec_push(out, 49) int_vec_push(out, 255)
             int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
             int_vec_push(out, 15) int_vec_push(out, 5)
         } else {
-            int_vec_push(out, 201)
-            int_vec_push(out, 65) int_vec_push(out, 95)
             int_vec_push(out, 195)
         }
     }
@@ -1481,9 +1484,10 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
     // Pass 1: Label resolution
     var brtab = brtab_new()
     var func_offsets = int_vec_new()
-    // Entry stub (8 bytes): mov r15,rsp ; jmp main
-    // Pure host_argc/host_argv builtins read startup stack from r15.
-    var current_offset = 8
+    // Entry stub (18 bytes): mov r15,rsp ; call main ; mov rdi,rax ; mov eax,60 ; syscall
+    // — call pushes a return address to the exit trampoline so a mistaken `ret` from main
+    // (jmp entry had none) cannot pop garbage → RIP 0. Pure host_* builtins still use r15.
+    var current_offset = 18
 
     var fi = 0
     while (fi < fc) {
@@ -1515,10 +1519,16 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
     var p2out_ctx = p2out_new(out, func_offsets, str_cum, instr_total)
     // Emit entry stub before all functions.
     // 49 89 E7                mov r15, rsp
-    // E9 rel32               jmp main
+    // E8 rel32               call main
+    // 48 89 C7               mov rdi, rax
+    // B8 3C 00 00 00         mov eax, 60
+    // 0F 05                  syscall
     int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 231)
-    int_vec_push(out, 233)
+    int_vec_push(out, 232)
     emit_i32(out, main_off - 8)
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 199)
+    int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 15) int_vec_push(out, 5)
     fi = 0
     while (fi < fc) {
         var f = mod_get_func(m, fi)
