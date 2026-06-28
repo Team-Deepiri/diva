@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+jobs:
+  test:
+    name: Fast test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run fast test suite
+        run: sh tests/run.sh
+        env:
+          DIVA_TEST_FAST: "1"
+
+  strict-pure:
+    name: Strict pure build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run strict pure tests
+        run: sh tests/run-strict-pure.sh
