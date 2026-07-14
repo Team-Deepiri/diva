@@ -57,6 +57,14 @@ mkdir -p "${LIBEXEC_DIR}"
   echo "===== diva install session $(ts) pid=$$ ====="
 } >>"${TRACE_LOG}"
 
+# Git Hooks Setup
+if [ -d "${ROOT_DIR}/.git-hooks" ]; then
+    git config core.hooksPath .git-hooks
+    log "Git hooks configured (core.hooksPath = .git-hooks)"
+else
+    log "No .git-hooks directory found, skipping hooks setup"
+fi
+
 hr "start"
 log "ROOT_DIR=${ROOT_DIR}"
 log "DIVA_SHARE=${DIVA_SHARE}"
