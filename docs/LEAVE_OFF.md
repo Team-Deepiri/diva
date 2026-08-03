@@ -25,22 +25,23 @@ Hosted `build/diva-stage2-from-cc` compiles **source** (including the new imm32s
 # 1) math
 python3 scripts/check-pure-mmap-math.py
 
-# 2) pure driver from hosted stage2
+# 2) pure driver from hosted stage2 — ALWAYS under build/ (never /tmp)
 DIVA_SKIP_NATIVE_EXTERN_CHECK=1 DIVA_NO_EXTERNAL=1 \
-  ./build/diva-stage2-from-cc build compiler/ /tmp/diva-native-exe
+  ./build/diva-stage2-from-cc build compiler/ "$PWD/build/diva-compiler-pure-elf"
 
 # 3) smoke + package check
-DIVA_PURE_DRIVER=/tmp/diva-native-exe ./scripts/verify-pure-only-driver.sh
-ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" /tmp/diva-native-exe check compiler/
+DIVA_PURE_DRIVER="$PWD/build/diva-compiler-pure-elf" ./scripts/verify-pure-only-driver.sh
+ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" ./build/diva-compiler-pure-elf check compiler/
 
-# 4) second-stage: pure rebuilds itself (the real gate)
+# 4) second-stage: pure rebuilds itself (the real gate) — persistent path
 DIVA_SKIP_NATIVE_EXTERN_CHECK=1 DIVA_NO_EXTERNAL=1 \
-  /tmp/diva-native-exe build compiler/ /tmp/diva-native-exe-stage2
+  ./build/diva-compiler-pure-elf build compiler/ "$PWD/build/diva-compiler-pure-elf-stage2"
 
-# 5) promote converged binary
-cp -a /tmp/diva-native-exe-stage2 bootstrap/diva-linux-amd64
-# or: ./scripts/promote-bootstrap-seed.sh
+# 5) promote the latest successful pure binary (stage2 when green)
+cp -a build/diva-compiler-pure-elf-stage2 bootstrap/diva-linux-amd64
 ```
+
+See `docs/NEXT_STEPS.md` for SIGSEGV brainstorm and promote policy.
 
 ## Follow-ups
 

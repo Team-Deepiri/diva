@@ -2,11 +2,11 @@
 # Pure-built driver smoke / gate (see docs/pure-only-driver.md).
 #
 # Usage (from repo root):
-#   DIVA_SKIP_NATIVE_EXTERN_CHECK=1 build/diva-stage2 build compiler/ /tmp/diva-native-exe
+#   DIVA_SKIP_NATIVE_EXTERN_CHECK=1 build/diva-stage2-from-cc build compiler/ "$PWD/build/diva-compiler-pure-elf"
 #   ./scripts/verify-pure-only-driver.sh
 #
 # Env:
-#   DIVA_PURE_DRIVER   — path to pure ELF driver (default /tmp/diva-native-exe)
+#   DIVA_PURE_DRIVER   — path to pure ELF driver (default build/diva-compiler-pure-elf; do not use /tmp)
 #   DIVA_PURE_FULL=1   — also require `ir` + `asm` on a tiny file (fails until ret-to-0 bug fixed)
 #
 set -eu
@@ -14,10 +14,10 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "${ROOT_DIR}"
 
-DRIVER="${DIVA_PURE_DRIVER:-/tmp/diva-native-exe}"
+DRIVER="${DIVA_PURE_DRIVER:-${ROOT_DIR}/build/diva-compiler-pure-elf}"
 if [ ! -x "${DRIVER}" ]; then
   echo "[verify-pure-only-driver] not executable: ${DRIVER}" >&2
-  echo "  Build with: DIVA_SKIP_NATIVE_EXTERN_CHECK=1 build/diva-stage2 build compiler/ /tmp/diva-native-exe" >&2
+  echo "  Build with: DIVA_SKIP_NATIVE_EXTERN_CHECK=1 build/diva-stage2-from-cc build compiler/ \"\$PWD/build/diva-compiler-pure-elf\"" >&2
   exit 1
 fi
 
