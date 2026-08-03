@@ -352,14 +352,14 @@ func emit_pure_host_system(out: int): int {
 }
 
 func emit_pure_unlink(out: int): int {
-    // compiler/res/pure_unlink.s — unlink(2); ENOENT -> 0 ok
-    int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 87) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, 0) int_vec_push(out, 124) int_vec_push(out, 3) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 195) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, 254) int_vec_push(out, 116) int_vec_push(out, 6) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 195) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 195)
-    return 33
+    // compiler/res/pure_unlink.s — unlink(2); ENOENT -> 0 ok. Inlined: NO ret.
+    int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 87) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 201) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, 0) int_vec_push(out, 125) int_vec_push(out, 11) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, 254) int_vec_push(out, 116) int_vec_push(out, 5) int_vec_push(out, 185) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 137) int_vec_push(out, 200)
+    return 30
 }
 
 func emit_pure_chmod_executable(out: int): int {
-    // compiler/res/pure_chmod_exec.s — chmod(path, 0755)
-    int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 90) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 198) int_vec_push(out, 237) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, 0) int_vec_push(out, 124) int_vec_push(out, 3) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 195) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 195)
+    // compiler/res/pure_chmod_exec.s — chmod(path, 0755). Inlined: NO ret.
+    int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 90) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 198) int_vec_push(out, 237) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 201) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, 0) int_vec_push(out, 125) int_vec_push(out, 5) int_vec_push(out, 185) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 137) int_vec_push(out, 200)
     return 31
 }
 
