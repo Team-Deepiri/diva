@@ -178,7 +178,7 @@ func tok_int_value(src: str, stream: int, index: int): int {
     return result
 }
 
-// Single-byte strings for escape decoding (tok_str_value). Multiline = one LF; tab = literal ASCII 9.
+// Single-byte strings for escape decoding (tok_str_value). Multiline = one LF; tab = literal ASCII 9; CR = literal ASCII 13.
 func tok_esc_lf(): str {
     return "
 "
@@ -189,8 +189,7 @@ func tok_esc_tab(): str {
 }
 
 func tok_esc_cr(): str {
-    return "
-"
+    return ""
 }
 
 
