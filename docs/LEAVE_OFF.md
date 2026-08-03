@@ -1,50 +1,76 @@
-# Leave-off: pure-only driver and full self-host bootstrap
+# Leave-off — pure ELF self-host (2026-08-03)
 
-## What was wrong
+## Done (pick up after this)
 
-1. **64 KiB mmap** for pure `int_vec` / `str_builder` — silent overflow on merged `compiler/` (~285 KiB).
-2. **4 MiB still too small for self-build** — codegen stores **one machine-code byte per int_vec slot**. Full compiler pure ELF is ~700 KiB+ of code → needs >700k slots. At 4 MiB, qword cap is only `0x7fffd` (~524k); `int_vec_push` fails silently → `ir_br_cond size mismatch expected=21 got=0`.
-3. Brief **str_builder** mis-encode: cap `0x3ffff8` (= mmap−8) instead of mmap−24.
+Second-stage **and** third-stage pure self-host are green. Seed promoted.
 
-## What changed
+| Gate | Result |
+|------|--------|
+| Tiny pure `build` | green (no SIGSEGV) |
+| Stage2 → pure | `build/diva-compiler-pure-elf` ~708KiB |
+| Pure → pure | `build/diva-compiler-pure-elf-stage2` ~708KiB ELF |
+| Stage3 (stage2→itself) | `build/diva-compiler-pure-elf-stage3` — **bit-identical** to stage2 (`md5 455fe3e8…`) |
+| Without `DIVA_SKIP_NATIVE_EXTERN_CHECK` | `check compiler/`, tiny `build`, full `build compiler/` all green on promoted seed |
+| `verify-pure-only-driver.sh` | OK |
+| `DIVA_PURE_FULL=1` verify | OK |
+| Promoted seed | `bootstrap/diva-linux-amd64` ← stage2 pure |
 
-Raised pure mmap to **16 MiB** (`0x1000000`) in `emit_pure_int_vec_new_*` / `emit_pure_str_builder_new_*`:
+## Three bugs that blocked self-host (all fixed)
 
-| Buffer | Cap | Exact fit |
-|--------|-----|-----------|
-| `int_vec` | `(0x1000000−24)/8 = 0x1ffffd` qwords | `H + 8·cap = mmap` |
-| `str_builder` | `0x1000000−24 = 0xffffe8` bytes | `H + cap = mmap` |
+1. **Inlined `ret` in unlink/chmod** → RIP=`0xff` SIGSEGV after writeout.
+2. **`build` hardcoded `/tmp/diva-native-exe`** → lost good artifacts; now CLI out / `DIVA_NATIVE_EXE_OUT` / `$ROOT_DIR/build/diva-native-exe`.
+3. **`write_elf_chunk` clobbered `is_first` (`r8`)** via mmap → every chunk `O_TRUNC` → only last chunk (`n % 64000`, often 4608 bytes of junk). Save `is_first` on stack; blob **224→234**.
 
-Blob size for builtins **9** / **14** still **96** bytes. Static check: `python3 scripts/check-pure-mmap-math.py`.
+Also earlier: **16 MiB** pure mmap caps (4 MiB too small for ~700KiB codegen slots).
 
-## Rebuild + promote (self-sustainable seed)
+## Artifact paths
 
-Hosted `build/diva-stage2-from-cc` compiles **source** (including the new imm32s) into the pure ELF — no need to re-cc-link stage2 after mmap-only edits.
+| Role | Path |
+|------|------|
+| Hosted cc-link stage2 | `build/diva-stage2-from-cc` |
+| Stage2 → pure | `build/diva-compiler-pure-elf` |
+| Pure → pure | `build/diva-compiler-pure-elf-stage2` |
+| Third stage | `build/diva-compiler-pure-elf-stage3` |
+| Trust root | `bootstrap/diva-linux-amd64` |
+
+**Never** depend on `/tmp` for keepers.
+
+## Rebuild (after emit_* / size edits)
+
+Update **both** `emit_pure_*` and `pure_builtin_call_size` **before** cc-link (race once caused pass1/pass2 +10 mismatch).
 
 ```sh
-# 1) math
-python3 scripts/check-pure-mmap-math.py
+# Hosted stage2 — use bak SEED if current stage2 SIGSEGVs on full `asm`
+SEED="$PWD/build/diva-stage2-from-cc.bak-before-retfix-20260803163133" \
+  ASM_TIMEOUT_SECS=7200 \
+  sh scripts/legacy/build-compiler-cc-link.sh build/diva-stage2-from-cc-new
+mv -f build/diva-stage2-from-cc-new build/diva-stage2-from-cc
 
-# 2) pure driver from hosted stage2 — ALWAYS under build/ (never /tmp)
-DIVA_SKIP_NATIVE_EXTERN_CHECK=1 DIVA_NO_EXTERNAL=1 \
+set -o pipefail
+ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" DIVA_NO_EXTERNAL=1 \
   ./build/diva-stage2-from-cc build compiler/ "$PWD/build/diva-compiler-pure-elf"
-
-# 3) smoke + package check
-DIVA_PURE_DRIVER="$PWD/build/diva-compiler-pure-elf" ./scripts/verify-pure-only-driver.sh
-ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" ./build/diva-compiler-pure-elf check compiler/
-
-# 4) second-stage: pure rebuilds itself (the real gate) — persistent path
-DIVA_SKIP_NATIVE_EXTERN_CHECK=1 DIVA_NO_EXTERNAL=1 \
-  ./build/diva-compiler-pure-elf build compiler/ "$PWD/build/diva-compiler-pure-elf-stage2"
-
-# 5) promote the latest successful pure binary (stage2 when green)
+./build/diva-compiler-pure-elf build compiler/ "$PWD/build/diva-compiler-pure-elf-stage2"
+# optional identity: stage2 build again → stage3; md5 should match stage2
 cp -a build/diva-compiler-pure-elf-stage2 bootstrap/diva-linux-amd64
 ```
 
-See `docs/NEXT_STEPS.md` for SIGSEGV brainstorm and promote policy.
+Skip is no longer required for current seed externs; keep `DIVA_SKIP_NATIVE_EXTERN_CHECK=1` only when the pin lags new builtins.
 
-## Follow-ups
+## Do next (remaining work)
 
-- Real **reallocation** in push/append (stop fixed mmap caps).
-- Clear `DIVA_SKIP_NATIVE_EXTERN_CHECK` once seed lists every pure extern.
-- `DIVA_PURE_FULL=1 ./scripts/verify-pure-only-driver.sh` when ret-to-0 / ir pipeline is green.
+1. **Real realloc** for pure `int_vec` / `str_builder` (still fixed 16 MiB mmap; silent full at cap).
+2. **Hosted stage2 full-`asm` SEGV** — ret-fixed stage2 can die on `asm` of merged.diva; bak SEED works. Root-cause or keep bak as documented SEED.
+3. **`tests/run-strict-pure.sh` / fuller CI** on promoted seed (lex/parse/ir/asm already covered by `DIVA_PURE_FULL=1`).
+4. Cleanup: `./scripts/cleanup-dev-artifacts.sh` — **keep** `bootstrap/*.bak-*` and `build/*bak*` seeds needed for cc-link.
+
+## Footguns
+
+| Symptom | Cause |
+|---------|--------|
+| Tiny `build` SIGSEGV RIP≈`0xff` | Inlined `ret` in pure builtin |
+| ~4608-byte non-ELF “success” | `is_first` / always `O_TRUNC` |
+| pass1/pass2 mismatch by blob Δ | Size table ≠ emit (or edit/rebuild race) |
+| Pure seed `asm` wants `tokens.diva` beside merge | Use hosted bak SEED for cc-link |
+| `cmd \| tee; echo $?` lies | `set -o pipefail` / `${PIPESTATUS[0]}` |
+
+See also `docs/NEXT_STEPS.md` (same handoff, shorter checklist).
