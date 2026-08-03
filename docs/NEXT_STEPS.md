@@ -3,6 +3,7 @@
 ## Artifact rule (do not break this)
 
 **Never** rely on `/tmp/diva-native-exe`. `/tmp` gets wiped; we already lost a good build that way.
+Canonical outs: `diva build <src> <out>` (second positional), or `DIVA_NATIVE_EXE_OUT`, else `$ROOT_DIR/build/diva-native-exe`.
 
 | Role | Persistent path |
 |------|-----------------|
@@ -27,7 +28,7 @@ ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" \
 
 1. **Stage2 refresh** (cc-link with **16 MiB** mmap fix) — **done**
 2. **Stage2 → pure ELF** (`build/diva-compiler-pure-elf`) — **done** (lex/parse + `check compiler/` green)
-3. **Second stage** (pure rebuilds itself) — **blocked**: SIGSEGV ~100s into `build compiler/` (past mmap; `RIP≈0` class — `docs/pure-only-driver.md`)
+3. **Second stage** (pure rebuilds itself) — **blocked**: pure **`build`** SIGSEGV. Evidence: tiny `ir`/`asm` OK; **tiny `build` also SIGSEGV** (so emit/ELF-write path, not package size). Full `compiler/` dies ~100s in (long front-end then same class). See applied-math section.
 4. **Promote + push** — first-stage pure is in `bootstrap/diva-linux-amd64` (`a8ac9ae` / status `70f8c28`). Re-promote **after** second-stage produces `build/diva-compiler-pure-elf-stage2`.
 
 ## Applied-math model of the crash (discovery mode)
@@ -109,15 +110,19 @@ ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" \
 
 Expect: classify RIP≈0 vs other. Full-package ~100s crash is likely the same emit/write failure after a long front-end.
 
-### B. Likely root causes (updated priors)
+### B. Root cause (confirmed 2026-08-03) + remaining
 
-| Suspect | Prior now | What to try |
-|---------|-----------|-------------|
-| **`cg_module_to_bin` / entry / ret** | **High** — only `build` hits this | Audit stub, `cg_p2_ret`, call emission |
-| **`write_elf_chunk` / ELF writer** | **High** | Breadcrumb before/after write; compare hosted |
-| **`r15` clobber in emit path** | Medium | Preserve across syscalls in write path |
-| **`str_len` transient** | Lower for tiny `return 0` | Still audit merge paths for full package |
-| **int_vec silent full** | Low at 16 MiB (`φ≈0.34`) | Keep abort-on-full as safety |
+**Confirmed:** inlined pure `unlink` / `chmod_executable` blobs contained **`ret` (`0xc3`)**. After ELF writeout's `unlink`, `ret` popped stack garbage → RIP=`0xff` → SIGSEGV. Tiny `ir`/`asm` OK; tiny `build` dies on write path.
+
+**Fix in tree:** `.s` + `emit_pure_*` fall-through (no `ret`); sizes unlink **33→30**, chmod **31**. Must re-cc-link stage2 (use **hosted** `SEED=build/diva-stage2-from-cc` — pure bootstrap seed cannot `asm` merged.diva: looks for `tokens.diva` beside it).
+
+**Also fixed:** `build` now writes to CLI out path / `DIVA_NATIVE_EXE_OUT` / `$ROOT_DIR/build/diva-native-exe` (no longer hardcodes `/tmp/diva-native-exe`).
+| Suspect | Status |
+|---------|--------|
+| **Inlined `ret` in unlink/chmod** | **Fixed in sources** — rebuild/verify in progress |
+| **`write_elf_chunk` clobbers `is_first` (`r8`)** | Secondary — always O_TRUNC path; fix after self-host green |
+| **Other inlined builtins with `ret`** | Audit if more SEGV after unlink fix |
+| **int_vec silent full** | Mitigated at 16 MiB |
 
 ### C. Definition of “past the SIGSEGV”
 

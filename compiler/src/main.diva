@@ -38,8 +38,18 @@ func cmd_print_usage(): int {
     return 1
 }
 
+// Default write target when `build` has no second path and DIVA_NATIVE_EXE_OUT is unset.
+// Prefer ROOT_DIR/build/ — never /tmp (wiped; we already lost good builds that way).
+func native_default_exe_out(): str {
+    var root = host_getenv("ROOT_DIR")
+    if str_len(root) > 0 {
+        return path_join_dir(root, "build/diva-native-exe")
+    }
+    return "build/diva-native-exe"
+}
+
 func native_tmp_exe(): str {
-    return "/tmp/diva-native-exe"
+    return native_default_exe_out()
 }
 
 func system_exit_code(rc: int): int {
@@ -430,7 +440,7 @@ func native_emit_pure_elf(code: int, main_ent: int, exe_out: str, quiet: int): i
 }
 
 // quiet: when 1, omit stderr on failure (caller may fall back to bootstrap).
-func native_compile_and_link(merged_src: str, quiet: int): int {
+func native_compile_and_link(merged_src: str, quiet: int, exe_out: str): int {
     var stream = lex_source(merged_src)
     if stream == 0 {
         if quiet == 0 { err_line("lexer error") }
@@ -450,7 +460,6 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     var ir_result = build_ir(merged_src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     var strv = int_vec_get(ir_result, 1)
-    var exe_out = native_tmp_exe()
     if native_require_no_externs(m, merged_src, stream) != 0 { return 1 }
     var code = int_vec_new()
     var main_ent = cg_module_to_bin(m, merged_src, stream, strv, code)
@@ -934,6 +943,34 @@ func pick_build_path(): str {
     return path
 }
 
+// Second positional after source: `diva build <src> <out>`. Else DIVA_NATIVE_EXE_OUT, else build/diva-native-exe.
+func pick_build_out_path(): str {
+    var first = ""
+    var second = ""
+    var i = 2
+    while (i < host_argc()) {
+        var a = host_argv(i)
+        if str_byte(a, 0) != 45 {
+            if str_len(first) == 0 {
+                first = a
+            } else {
+                if str_len(second) == 0 {
+                    second = a
+                }
+            }
+        }
+        i = i + 1
+    }
+    if str_len(second) > 0 {
+        return second
+    }
+    var envp = host_getenv("DIVA_NATIVE_EXE_OUT")
+    if str_len(envp) > 0 {
+        return envp
+    }
+    return native_default_exe_out()
+}
+
 func build_wants_ast(): int {
     var i = 2
     while (i < host_argc()) {
@@ -1057,10 +1094,11 @@ func cmd_build(): int {
         err_line("build: native driver cannot handle this source surface yet")
         return 1
     }
-    if native_compile_and_link(merged_out_hold, 0) != 0 {
+    var exe_out = pick_build_out_path()
+    if native_compile_and_link(merged_out_hold, 0, exe_out) != 0 {
         return 1
     }
-    var built_msg = str_concat("[native] built executable at ", native_tmp_exe())
+    var built_msg = str_concat("[native] built executable at ", exe_out)
     print_str(built_msg)
     stdout(newline_str())
     return 0
@@ -1099,10 +1137,11 @@ func cmd_run_file(path: str): int {
         err_line("run: native driver cannot handle this source surface yet")
         return 1
     }
-    if native_compile_and_link(merged_out_hold, 0) != 0 {
+    var exe_out = native_default_exe_out()
+    if native_compile_and_link(merged_out_hold, 0, exe_out) != 0 {
         return 1
     }
-    var rc = host_system(native_tmp_exe())
+    var rc = host_system(exe_out)
     return system_exit_code(rc)
 }
 
