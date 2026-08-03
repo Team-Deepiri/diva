@@ -26,10 +26,11 @@ ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" \
 
 ## Where we are right now
 
-1. **Stage2 refresh** (cc-link with **16 MiB** mmap fix) — **done**
-2. **Stage2 → pure ELF** (`build/diva-compiler-pure-elf`) — **done** (lex/parse + `check compiler/` green)
-3. **Second stage** (pure rebuilds itself) — **blocked**: pure **`build`** SIGSEGV. Evidence: tiny `ir`/`asm` OK; **tiny `build` also SIGSEGV** (so emit/ELF-write path, not package size). Full `compiler/` dies ~100s in (long front-end then same class). See applied-math section.
-4. **Promote + push** — first-stage pure is in `bootstrap/diva-linux-amd64` (`a8ac9ae` / status `70f8c28`). Re-promote **after** second-stage produces `build/diva-compiler-pure-elf-stage2`.
+1. **Stage2 refresh** (cc-link; ret-fix unlink/chmod + out-path) — **done** (`build/diva-stage2-from-cc`; rebake with **bak seed** if current stage2 SIGSEGVs on full `asm`)
+2. **Stage2 → pure ELF** (`build/diva-compiler-pure-elf`) — **done**; writes to CLI out (not `/tmp`)
+3. **Tiny pure `build`** — **green** (SIGSEGV was inlined `ret` in unlink/chmod; fixed)
+4. **Promote** — **done** from `build/diva-compiler-pure-elf` → `bootstrap/diva-linux-amd64` (ret-fix + out-path); seed tiny `build` green
+5. **Second stage** (pure → `build/diva-compiler-pure-elf-stage2`) — **blocked**: claims success in ~1m but writes **~4608-byte non-ELF** (ASCII string-pool garbage, not `\\x7fELF`). Hosted stage2→pure still produces good ~708KiB. Next: find why pure full-package emit/write yields tiny corrupt outs.
 
 ## Applied-math model of the crash (discovery mode)
 
@@ -112,16 +113,17 @@ Expect: classify RIP≈0 vs other. Full-package ~100s crash is likely the same e
 
 ### B. Root cause (confirmed 2026-08-03) + remaining
 
-**Confirmed:** inlined pure `unlink` / `chmod_executable` blobs contained **`ret` (`0xc3`)**. After ELF writeout's `unlink`, `ret` popped stack garbage → RIP=`0xff` → SIGSEGV. Tiny `ir`/`asm` OK; tiny `build` dies on write path.
+**Confirmed:** inlined pure `unlink` / `chmod_executable` blobs contained **`ret` (`0xc3`)**. After ELF writeout's `unlink`, `ret` popped stack garbage → RIP=`0xff` → SIGSEGV.
 
-**Fix in tree:** `.s` + `emit_pure_*` fall-through (no `ret`); sizes unlink **33→30**, chmod **31**. Must re-cc-link stage2 (use **hosted** `SEED=build/diva-stage2-from-cc` — pure bootstrap seed cannot `asm` merged.diva: looks for `tokens.diva` beside it).
+**Fixed + verified:** fall-through blobs; tiny `build` rc=0; CLI out path; promoted seed.
 
-**Also fixed:** `build` now writes to CLI out path / `DIVA_NATIVE_EXE_OUT` / `$ROOT_DIR/build/diva-native-exe` (no longer hardcodes `/tmp/diva-native-exe`).
 | Suspect | Status |
 |---------|--------|
-| **Inlined `ret` in unlink/chmod** | **Fixed in sources** — rebuild/verify in progress |
-| **`write_elf_chunk` clobbers `is_first` (`r8`)** | Secondary — always O_TRUNC path; fix after self-host green |
-| **Other inlined builtins with `ret`** | Audit if more SEGV after unlink fix |
+| **Inlined `ret` in unlink/chmod** | **Fixed + verified** |
+| **`/tmp` hardcode** | **Fixed** |
+| **Pure full-package → 4608-byte non-ELF** | **Open** — blocks second-stage self-host |
+| **`write_elf_chunk` clobbers `is_first` (`r8`)** | Secondary candidate for write bugs |
+| **Hosted stage2 full-`asm` SEGV** | Workaround: bak `SEED=` |
 | **int_vec silent full** | Mitigated at 16 MiB |
 
 ### C. Definition of “past the SIGSEGV”
@@ -134,13 +136,12 @@ cp -a build/diva-compiler-pure-elf-stage2 bootstrap/diva-linux-amd64
 
 ## Do next (priority)
 
-1. **Execute brainstorm §A–C** — land a fix for pure `build` / `ir` SIGSEGV; keep artifacts under `build/`.
-2. **Second-stage → `build/diva-compiler-pure-elf-stage2`** — prove pure rebuilds pure.
-3. **Promote that latest binary** to `bootstrap/diva-linux-amd64` (not an old `/tmp` copy); commit + push.
-4. **Drop `DIVA_SKIP_NATIVE_EXTERN_CHECK`** when seed lists all pure externs.
-5. **`DIVA_PURE_FULL=1`** verify green.
-6. **Real realloc** for pure push/append.
-7. Cleanup: `./scripts/cleanup-dev-artifacts.sh` (`--all` clears stale `/tmp/diva-*` leftovers only).
+1. **Debug pure full-package `build`** — why ~4608-byte ASCII junk instead of ~708KiB ELF (compare hosted stage2→pure).
+2. **Second-stage → `build/diva-compiler-pure-elf-stage2`** — then re-promote from stage2.
+3. **Drop `DIVA_SKIP_NATIVE_EXTERN_CHECK`** when seed lists all pure externs.
+4. **`DIVA_PURE_FULL=1`** verify green.
+5. **Real realloc** for pure push/append; fix `write_elf_chunk` `is_first`/`r8`.
+6. Cleanup: `./scripts/cleanup-dev-artifacts.sh` (do not delete `bootstrap/*.bak-*` you still need).
 
 ## Rebuild recipe (emit_* / mmap blob edits)
 
