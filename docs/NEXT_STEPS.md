@@ -1,5 +1,12 @@
 # Next steps — pure ELF bootstrap (2026-08-03)
 
+## Where we are right now
+
+1. **Stage2 refresh** (cc-link with **16 MiB** mmap fix) — **done**
+2. **Stage2 → pure ELF** (`build/diva-compiler-pure-elf` / formerly `/tmp/diva-native-exe`) — **done** (~12–15 min; lex/parse + `check compiler/` green)
+3. **Second stage** (pure rebuilds itself) — **blocked**: `pure build compiler/` **SIGSEGV** ~100s in (past mmap; known pure `RIP≈0` / codegen path — see `docs/pure-only-driver.md`). This remains the real self-host gate.
+4. **Copy binary → `bootstrap/diva-linux-amd64`, commit, push** — **done** for the *first-stage* pure ELF (`a8ac9ae` on `joe_black/feature/superman_fixes_2`). Re-do step 4 after step 3 is green so the seed is a *converged* self-build.
+
 ## Done this session
 
 - Fixed pure `int_vec` / `str_builder` mmap math: **16 MiB** exact-fit caps (`0x1000000`), after 4 MiB proved too small for full-compiler codegen (1 int slot per machine byte → `ir_br_cond expected=21 got=0`).
@@ -11,9 +18,7 @@
 
 ## Blocked — not yet self-sustaining
 
-**Second-stage** (`pure build compiler/` → new pure ELF) still **SIGSEGV** ~100s in. That is past the mmap/capacity bug; it matches the known pure codegen / `RIP≈0` failure mode in `docs/pure-only-driver.md` (full `ir`/`build` path).
-
-Until that is fixed, the seed **cannot** rebuild itself. Day-to-day: lex/parse/check work; `diva build compiler/` on the pure seed does not.
+Until second-stage works, the seed **cannot** rebuild itself. Day-to-day: lex/parse/check work; `diva build compiler/` on the pure seed does not.
 
 ## Do next (priority)
 
