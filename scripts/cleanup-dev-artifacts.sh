@@ -64,6 +64,8 @@ BUILD_TARGETS=(
   "${BUILD_DIR}/diva-stage2"
   "${BUILD_DIR}/diva-stage2-from-cc"
   "${BUILD_DIR}/diva-compiler-pure-elf"
+  "${BUILD_DIR}/diva-compiler-pure-elf-stage2"
+  "${BUILD_DIR}/diva-compiler-pure-elf-stage3"
   "${BUILD_DIR}/diva-stage3"
   "${BUILD_DIR}/diva-stage3-native"
   "${BUILD_DIR}/diva-stage3-cc"
