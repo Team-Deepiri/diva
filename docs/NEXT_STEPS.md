@@ -30,55 +30,101 @@ ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" \
 3. **Second stage** (pure rebuilds itself) — **blocked**: SIGSEGV ~100s into `build compiler/` (past mmap; `RIP≈0` class — `docs/pure-only-driver.md`)
 4. **Promote + push** — first-stage pure is in `bootstrap/diva-linux-amd64` (`a8ac9ae` / status `70f8c28`). Re-promote **after** second-stage produces `build/diva-compiler-pure-elf-stage2`.
 
+## Applied-math model of the crash (discovery mode)
+
+### System (plain language)
+
+A program turns source text into a list of machine bytes, wraps them in a file header, and writes that file. Sometimes, when asked to produce that file using only its own machinery (no outside linker), the machine jumps to address zero and dies. Reading and checking source is fine; printing an intermediate text form of the program is fine; writing the final executable is not.
+
+### Inventory
+
+| Kind | Items |
+|------|--------|
+| Entities | source bytes; token/int slots; IR ops; code-byte stream (`out`); entry trampoline; function offsets; string pool; ELF header; on-disk exe |
+| Actions | lex → parse → merge → IR → **pass1 size walk** → **pass2 emit** → ELF header → `write_elf_chunk` |
+| Measurables | code length (bytes); slot cap (qwords); stub size (=18); `ir_br_cond` size (=21); wall time to crash (s); RIP/RSP/[RSP]/R15 |
+| Constraints | push is silent at cap; pass1 size must equal pass2 length; `call` rel32 = `main_off - 8`; never depend on `/tmp` |
+
+### Representations
+
+1. **Diagram:** stub(18) → funcs… → string pool → ELF hdr → write  
+2. **Time series:** tiny `build` dies in **\<2s**; full `compiler/` ~**100s** then dies — consistent with “long front-end, crash at emit/write”  
+3. **Hand example (entry stub):**  
+   `mov r15,rsp`(3) + `call`(5) + `mov rdi,rax`(3) + `mov eax,60`(5) + `syscall`(2) = **18**. Rel32 uses `main_off - 8` because call opcode starts at offset 3. **Checks out in source.**  
+4. **Hand example (`ir_br_cond`):** mov-stack→rax(7) + `testq`(3) + jcc+imm32(6) + jmp+imm32(5) = **21**. `got=0` previously meant **no bytes appended** (full int_vec), not wrong formula.
+
+### Invariants (and break attempts)
+
+| Candidate | Status |
+|-----------|--------|
+| `pass1_len == pass2_len` | Conserved when emit succeeds; **does not protect** a wrong control-flow graph that still has matching sizes |
+| `stub_len == 18` | Holds in emitter; break attempt: wrong `main_off-8` → call into junk (would not usually be RIP 0 unless target is null) |
+| `H + 8·cap == mmap` for int_vec | Holds at 16 MiB; **adversarial:** 4 MiB broke it (`got=0`); fit ratio now ~0.34 for ~700 KiB out |
+| “lex/parse/check OK ⇒ build OK” | **Broken** — empirically false |
+| “ir/asm OK ⇒ build OK” | **Broken** — tiny `ir`/`asm` **rc=0**, tiny `build` **SIGSEGV 139** (2026-08-03 probe on `build/diva-compiler-pure-elf`) |
+
+### Symmetries / dimensionless groups
+
+- **Scale symmetry fails for mmap** (fixed cap): dimensionless fill `φ = code_bytes / qword_cap` must stay `< 1`. At 16 MiB, `φ≈0.34` for current compiler ELF — capacity not the active killer.  
+- **Path symmetry:** `ir`/`asm` vs `build` are **not** interchangeable; only `build` takes `cg_module_to_bin` + ELF write. That rules out “general frontend corruption” as the primary model.
+
+### State variables (Markov)
+
+Knowing “last command was check and it passed” does **not** predict build survival. Missing state: **whether the pure emit/write path runs**. Sufficient summary: phase ∈ {front-end, codegen-bin, elf-write}. Instrument to make phase observable.
+
+### Conceptual model
+
+Not an epidemic / not a queue — a **pipeline with a hard absorbing failure** at the binary-materialization stage. Failure mode consistent with **control transfer to null** (ret-to-0 / bad call target / clobbered return), not with capacity exhaustion (that class already observed as `size mismatch got=0`).
+
+### Experiments before “fix” (ordered)
+
+1. gdb/ptrace on **tiny** `build` (fast repro) — record RIP/RSP/[RSP]/R15.  
+2. Binary-search: does crash happen before or after `cg_module_to_bin` returns / during `write_elf_chunk`? (stderr breadcrumbs).  
+3. Compare hosted stage2 `build` of same tiny file (control).  
+4. Only then re-run full `compiler/` second-stage into `build/diva-compiler-pure-elf-stage2`.
+
+### Domain of validity
+
+- Mmap/capacity math: validated for current ~700 KiB outs; will fail again if `φ→1` without realloc.  
+- “Tiny ir green” does **not** imply self-host; only tiny+full **`build`** green does.
+
+### Failed guesses
+
+| Guess | Outcome |
+|-------|---------|
+| 4 MiB enough for self-host | False — `ir_br_cond got=0` |
+| Source mmap edit without stage2 refresh updates pure runtime blobs | False — must cc-link stage2 |
+| Crash is “compiler package too big / ir pipeline” | **Weakened** — tiny `build` also SIGSEGV; `ir`/`asm` tiny OK |
+
 ## Brainstorm — how to get past the SIGSEGV
 
-Hypothesis stack (attack in this order; each is falsifiable):
-
-### A. Confirm the crash class (30–60 min)
-
-1. Reproduce with the **persistent** driver only:
-   ```sh
-   ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" \
-     DIVA_SKIP_NATIVE_EXTERN_CHECK=1 DIVA_NO_EXTERNAL=1 \
-     gdb -batch -ex run -ex bt --args \
-       ./build/diva-compiler-pure-elf build compiler/ "$PWD/build/diva-compiler-pure-elf-stage2"
-   ```
-2. Record **RIP, RSP, `[RSP]`, R15**. If `RIP==0` and `[RSP]==0`, this is the documented ret-to-null path, not mmap.
-3. Also try the smaller gate first (isolates merge/codegen without full package):
-   ```sh
-   DIVA_PURE_DRIVER="$PWD/build/diva-compiler-pure-elf" DIVA_PURE_FULL=1 \
-     ./scripts/verify-pure-only-driver.sh   # ir/asm on tiny file
-   ```
-   - If **tiny `ir`/`asm` SIGSEGV**: bug is in general pure codegen / entry / call, not “compiler package too big”.
-   - If **tiny OK but `build compiler/` SIGSEGV**: bug is scale/merge/package-specific (ordering, a hot function, or a late builtin).
-
-### B. Likely root causes (from in-tree notes)
-
-| Suspect | Why | What to try |
-|---------|-----|-------------|
-| **Stray `ret` → RIP 0** | Entry stub was fixed to `call main`+exit trampoline, but some path still `ret`s with empty/null return addr | Audit `cg_p2_ret` / non-main funcs; ensure every call site pushes a real return; re-check stub size vs pass1 |
-| **`r15` clobber** | Environ / stack anchor; `read_file`/`file_size` must preserve `r15` | Grep emit blobs for `r15`; any new builtin that touches syscall args without save/restore |
-| **`str_len` on transient regs** | Known pure mis-schedule | Audit `build`/`merge` paths for missing `_hold` bindings (`docs/seed-codegen-workarounds.md`) |
-| **Pass1/pass2 size drift on one opcode** | Global check can pass while a single site emits wrong size → bad branch | Add per-opcode asserts; bisect last emitted func before crash |
-| **`write_elf_chunk` / host_system** | Materializing ELF mid-build | Confirm id 32 blob + path; segfault during write vs during compile |
-| **Still-silent int_vec full** | Unlikely at 16 MiB, but push still fails quiet | Temporary: abort/print on push when `len==cap` instead of no-op |
-
-### C. Debug tactics that scale
-
-1. **Shrink the input** — `build` a single `compiler/src/*.diva` (or merged subset) until SIGSEGV disappears; binary-search which file/function triggers it.
-2. **Ptrace helper** — if gdb symbols are thin, use the rip/[rsp] peek from `docs/pure-only-driver.md`.
-3. **Compare hosted vs pure on same IR** — stage2 `ir`/`asm` on the failing unit vs pure; where pure diverges is the smoking gun.
-4. **Instrument** — print to stderr at start of `native_compile_and_link`, after merge, after `cg_module_to_bin`, before `write_elf_chunk` so we know the last live phase (~100s timing suggests deep into compile, not instant entry).
-
-### D. Definition of “past the SIGSEGV”
+### A. Confirm the crash class (use tiny `build` first)
 
 ```sh
-# must all succeed using persistent paths only
+ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" \
+  DIVA_SKIP_NATIVE_EXTERN_CHECK=1 DIVA_NO_EXTERNAL=1 \
+  gdb -batch -ex run -ex bt --args \
+    ./build/diva-compiler-pure-elf build /tmp/tiny.diva "$PWD/build/diva-tiny-out"
+```
+
+Expect: classify RIP≈0 vs other. Full-package ~100s crash is likely the same emit/write failure after a long front-end.
+
+### B. Likely root causes (updated priors)
+
+| Suspect | Prior now | What to try |
+|---------|-----------|-------------|
+| **`cg_module_to_bin` / entry / ret** | **High** — only `build` hits this | Audit stub, `cg_p2_ret`, call emission |
+| **`write_elf_chunk` / ELF writer** | **High** | Breadcrumb before/after write; compare hosted |
+| **`r15` clobber in emit path** | Medium | Preserve across syscalls in write path |
+| **`str_len` transient** | Lower for tiny `return 0` | Still audit merge paths for full package |
+| **int_vec silent full** | Low at 16 MiB (`φ≈0.34`) | Keep abort-on-full as safety |
+
+### C. Definition of “past the SIGSEGV”
+
+```sh
 ./build/diva-compiler-pure-elf build compiler/ "$PWD/build/diva-compiler-pure-elf-stage2"
 ./build/diva-compiler-pure-elf-stage2 check compiler/
-./build/diva-compiler-pure-elf-stage2 build compiler/ "$PWD/build/diva-compiler-pure-elf-stage3"
-# then promote the latest converged binary:
-cp -a build/diva-compiler-pure-elf-stage2 bootstrap/diva-linux-amd64   # or stage3 if bit-identical / accepted
+cp -a build/diva-compiler-pure-elf-stage2 bootstrap/diva-linux-amd64
 ```
 
 ## Do next (priority)
