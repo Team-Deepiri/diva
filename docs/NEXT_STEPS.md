@@ -1,168 +1,78 @@
-# Next steps — pure ELF bootstrap (2026-08-03)
+# Next steps — pure ELF bootstrap (2026-08-03 evening)
+
+## Status: second-stage self-host is green
+
+| Step | Result |
+|------|--------|
+| Tiny pure `build` | green (no SIGSEGV) |
+| Stage2 → pure (`build/diva-compiler-pure-elf`) | green ~708KiB ELF, CLI out path |
+| Pure → pure (`build/diva-compiler-pure-elf-stage2`) | **green** ~708KiB ELF (`\\x7fELF`) |
+| Stage2 `check compiler/` + tiny `build` | green |
+| Promoted seed | `bootstrap/diva-linux-amd64` ← stage2 pure |
 
 ## Artifact rule (do not break this)
 
-**Never** rely on `/tmp/diva-native-exe`. `/tmp` gets wiped; we already lost a good build that way.
-Canonical outs: `diva build <src> <out>` (second positional), or `DIVA_NATIVE_EXE_OUT`, else `$ROOT_DIR/build/diva-native-exe`.
+**Never** rely on `/tmp/diva-native-exe`. Canonical outs:
 
-| Role | Persistent path |
-|------|-----------------|
+- `diva build <src> <out>` (second positional)
+- else `DIVA_NATIVE_EXE_OUT`
+- else `$ROOT_DIR/build/diva-native-exe`
+
+| Role | Path |
+|------|------|
 | Hosted stage2 (cc-link) | `build/diva-stage2-from-cc` |
-| Latest pure driver (stage2 → pure) | `build/diva-compiler-pure-elf` |
-| Second-stage pure (pure → pure) | `build/diva-compiler-pure-elf-stage2` |
-| Promoted trust root | `bootstrap/diva-linux-amd64` |
+| Stage2 → pure | `build/diva-compiler-pure-elf` |
+| Pure → pure | `build/diva-compiler-pure-elf-stage2` |
+| Trust root | `bootstrap/diva-linux-amd64` |
 
-**Promote only from the latest successful persistent binary** — prefer `build/diva-compiler-pure-elf-stage2` once that exists; until then `build/diva-compiler-pure-elf`. Always `cp -a` that file → `bootstrap/diva-linux-amd64` after verifying it.
+## Fixes landed this session (need all three)
 
-```sh
-# canonical build outs (no /tmp)
-DIVA_SKIP_NATIVE_EXTERN_CHECK=1 DIVA_NO_EXTERNAL=1 \
-  ./build/diva-stage2-from-cc build compiler/ "$PWD/build/diva-compiler-pure-elf"
+1. **Inlined `ret` in unlink/chmod** — caused RIP=`0xff` SIGSEGV after ELF writeout. Fall-through only; unlink size 33→30.
+2. **`/tmp` hardcode** — `build` ignored CLI out path. Now honors out / env / `build/diva-native-exe`.
+3. **`write_elf_chunk` clobbered `is_first` (`r8`)** — mmap set `r8=-1`, so every chunk used `O_TRUNC`; only last chunk survived (`708608 % 64000 = 4608` bytes of ASCII junk). **Save `is_first` on stack across mmap**; blob size 224→234.
 
-DIVA_PURE_DRIVER="$PWD/build/diva-compiler-pure-elf" ./scripts/verify-pure-only-driver.sh
-ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" \
-  ./build/diva-compiler-pure-elf check compiler/
-```
+## Rebuild recipe (after emit_* / size edits)
 
-## Where we are right now
-
-1. **Stage2 refresh** (cc-link; ret-fix unlink/chmod + out-path) — **done** (`build/diva-stage2-from-cc`; rebake with **bak seed** if current stage2 SIGSEGVs on full `asm`)
-2. **Stage2 → pure ELF** (`build/diva-compiler-pure-elf`) — **done**; writes to CLI out (not `/tmp`)
-3. **Tiny pure `build`** — **green** (SIGSEGV was inlined `ret` in unlink/chmod; fixed)
-4. **Promote** — **done** from `build/diva-compiler-pure-elf` → `bootstrap/diva-linux-amd64` (ret-fix + out-path); seed tiny `build` green
-5. **Second stage** (pure → `build/diva-compiler-pure-elf-stage2`) — **blocked**: claims success in ~1m but writes **~4608-byte non-ELF** (ASCII string-pool garbage, not `\\x7fELF`). Hosted stage2→pure still produces good ~708KiB. Next: find why pure full-package emit/write yields tiny corrupt outs.
-
-## Applied-math model of the crash (discovery mode)
-
-### System (plain language)
-
-A program turns source text into a list of machine bytes, wraps them in a file header, and writes that file. Sometimes, when asked to produce that file using only its own machinery (no outside linker), the machine jumps to address zero and dies. Reading and checking source is fine; printing an intermediate text form of the program is fine; writing the final executable is not.
-
-### Inventory
-
-| Kind | Items |
-|------|--------|
-| Entities | source bytes; token/int slots; IR ops; code-byte stream (`out`); entry trampoline; function offsets; string pool; ELF header; on-disk exe |
-| Actions | lex → parse → merge → IR → **pass1 size walk** → **pass2 emit** → ELF header → `write_elf_chunk` |
-| Measurables | code length (bytes); slot cap (qwords); stub size (=18); `ir_br_cond` size (=21); wall time to crash (s); RIP/RSP/[RSP]/R15 |
-| Constraints | push is silent at cap; pass1 size must equal pass2 length; `call` rel32 = `main_off - 8`; never depend on `/tmp` |
-
-### Representations
-
-1. **Diagram:** stub(18) → funcs… → string pool → ELF hdr → write  
-2. **Time series:** tiny `build` dies in **\<2s**; full `compiler/` ~**100s** then dies — consistent with “long front-end, crash at emit/write”  
-3. **Hand example (entry stub):**  
-   `mov r15,rsp`(3) + `call`(5) + `mov rdi,rax`(3) + `mov eax,60`(5) + `syscall`(2) = **18**. Rel32 uses `main_off - 8` because call opcode starts at offset 3. **Checks out in source.**  
-4. **Hand example (`ir_br_cond`):** mov-stack→rax(7) + `testq`(3) + jcc+imm32(6) + jmp+imm32(5) = **21**. `got=0` previously meant **no bytes appended** (full int_vec), not wrong formula.
-
-### Invariants (and break attempts)
-
-| Candidate | Status |
-|-----------|--------|
-| `pass1_len == pass2_len` | Conserved when emit succeeds; **does not protect** a wrong control-flow graph that still has matching sizes |
-| `stub_len == 18` | Holds in emitter; break attempt: wrong `main_off-8` → call into junk (would not usually be RIP 0 unless target is null) |
-| `H + 8·cap == mmap` for int_vec | Holds at 16 MiB; **adversarial:** 4 MiB broke it (`got=0`); fit ratio now ~0.34 for ~700 KiB out |
-| “lex/parse/check OK ⇒ build OK” | **Broken** — empirically false |
-| “ir/asm OK ⇒ build OK” | **Broken** — tiny `ir`/`asm` **rc=0**, tiny `build` **SIGSEGV 139** (2026-08-03 probe on `build/diva-compiler-pure-elf`) |
-
-### Symmetries / dimensionless groups
-
-- **Scale symmetry fails for mmap** (fixed cap): dimensionless fill `φ = code_bytes / qword_cap` must stay `< 1`. At 16 MiB, `φ≈0.34` for current compiler ELF — capacity not the active killer.  
-- **Path symmetry:** `ir`/`asm` vs `build` are **not** interchangeable; only `build` takes `cg_module_to_bin` + ELF write. That rules out “general frontend corruption” as the primary model.
-
-### State variables (Markov)
-
-Knowing “last command was check and it passed” does **not** predict build survival. Missing state: **whether the pure emit/write path runs**. Sufficient summary: phase ∈ {front-end, codegen-bin, elf-write}. Instrument to make phase observable.
-
-### Conceptual model
-
-Not an epidemic / not a queue — a **pipeline with a hard absorbing failure** at the binary-materialization stage. Failure mode consistent with **control transfer to null** (ret-to-0 / bad call target / clobbered return), not with capacity exhaustion (that class already observed as `size mismatch got=0`).
-
-### Experiments before “fix” (ordered)
-
-1. gdb/ptrace on **tiny** `build` (fast repro) — record RIP/RSP/[RSP]/R15.  
-2. Binary-search: does crash happen before or after `cg_module_to_bin` returns / during `write_elf_chunk`? (stderr breadcrumbs).  
-3. Compare hosted stage2 `build` of same tiny file (control).  
-4. Only then re-run full `compiler/` second-stage into `build/diva-compiler-pure-elf-stage2`.
-
-### Domain of validity
-
-- Mmap/capacity math: validated for current ~700 KiB outs; will fail again if `φ→1` without realloc.  
-- “Tiny ir green” does **not** imply self-host; only tiny+full **`build`** green does.
-
-### Failed guesses
-
-| Guess | Outcome |
-|-------|---------|
-| 4 MiB enough for self-host | False — `ir_br_cond got=0` |
-| Source mmap edit without stage2 refresh updates pure runtime blobs | False — must cc-link stage2 |
-| Crash is “compiler package too big / ir pipeline” | **Weakened** — tiny `build` also SIGSEGV; `ir`/`asm` tiny OK |
-
-## Brainstorm — how to get past the SIGSEGV
-
-### A. Confirm the crash class (use tiny `build` first)
+**Critical:** update `emit_pure_*` **and** `pure_builtin_call_size` **before** starting cc-link (parallel edit+rebuild raced once → pass1/pass2 mismatch +10).
 
 ```sh
+# 1) Hosted stage2 — use bak SEED if current stage2 SIGSEGVs on full `asm`
+SEED="$PWD/build/diva-stage2-from-cc.bak-before-retfix-20260803163133" \
+  ASM_TIMEOUT_SECS=7200 \
+  sh scripts/legacy/build-compiler-cc-link.sh build/diva-stage2-from-cc-new
+mv -f build/diva-stage2-from-cc-new build/diva-stage2-from-cc
+
+# 2) Stage2 → pure (pipefail so tee doesn't mask failures)
+set -o pipefail
 ROOT_DIR="$PWD" DI_STDLIB_DIR="$PWD/stdlib" \
   DIVA_SKIP_NATIVE_EXTERN_CHECK=1 DIVA_NO_EXTERNAL=1 \
-  gdb -batch -ex run -ex bt --args \
-    ./build/diva-compiler-pure-elf build /tmp/tiny.diva "$PWD/build/diva-tiny-out"
-```
-
-Expect: classify RIP≈0 vs other. Full-package ~100s crash is likely the same emit/write failure after a long front-end.
-
-### B. Root cause (confirmed 2026-08-03) + remaining
-
-**Confirmed:** inlined pure `unlink` / `chmod_executable` blobs contained **`ret` (`0xc3`)**. After ELF writeout's `unlink`, `ret` popped stack garbage → RIP=`0xff` → SIGSEGV.
-
-**Fixed + verified:** fall-through blobs; tiny `build` rc=0; CLI out path; promoted seed.
-
-| Suspect | Status |
-|---------|--------|
-| **Inlined `ret` in unlink/chmod** | **Fixed + verified** |
-| **`/tmp` hardcode** | **Fixed** |
-| **Pure full-package → 4608-byte non-ELF** | **Open** — blocks second-stage self-host |
-| **`write_elf_chunk` clobbers `is_first` (`r8`)** | Secondary candidate for write bugs |
-| **Hosted stage2 full-`asm` SEGV** | Workaround: bak `SEED=` |
-| **int_vec silent full** | Mitigated at 16 MiB |
-
-### C. Definition of “past the SIGSEGV”
-
-```sh
-./build/diva-compiler-pure-elf build compiler/ "$PWD/build/diva-compiler-pure-elf-stage2"
-./build/diva-compiler-pure-elf-stage2 check compiler/
-cp -a build/diva-compiler-pure-elf-stage2 bootstrap/diva-linux-amd64
-```
-
-## Do next (priority)
-
-1. **Debug pure full-package `build`** — why ~4608-byte ASCII junk instead of ~708KiB ELF (compare hosted stage2→pure).
-2. **Second-stage → `build/diva-compiler-pure-elf-stage2`** — then re-promote from stage2.
-3. **Drop `DIVA_SKIP_NATIVE_EXTERN_CHECK`** when seed lists all pure externs.
-4. **`DIVA_PURE_FULL=1`** verify green.
-5. **Real realloc** for pure push/append; fix `write_elf_chunk` `is_first`/`r8`.
-6. Cleanup: `./scripts/cleanup-dev-artifacts.sh` (do not delete `bootstrap/*.bak-*` you still need).
-
-## Rebuild recipe (emit_* / mmap blob edits)
-
-```sh
-# 1) bake emitters into hosted stage2 (required after pure_elf_builtins.diva blob edits)
-ASM_TIMEOUT_SECS=7200 ./scripts/legacy/build-compiler-cc-link.sh build/diva-stage2-from-cc
-
-# 2) latest pure — ALWAYS under build/
-DIVA_SKIP_NATIVE_EXTERN_CHECK=1 DIVA_NO_EXTERNAL=1 \
   ./build/diva-stage2-from-cc build compiler/ "$PWD/build/diva-compiler-pure-elf"
 
-# 3) self-host gate — latest second stage under build/
-DIVA_SKIP_NATIVE_EXTERN_CHECK=1 DIVA_NO_EXTERNAL=1 \
-  ./build/diva-compiler-pure-elf build compiler/ "$PWD/build/diva-compiler-pure-elf-stage2"
+# 3) Pure → pure (second stage)
+./build/diva-compiler-pure-elf build compiler/ "$PWD/build/diva-compiler-pure-elf-stage2"
+file build/diva-compiler-pure-elf-stage2   # must be ELF, ~708KiB
+./build/diva-compiler-pure-elf-stage2 check compiler/
+./build/diva-compiler-pure-elf-stage2 build build/tiny-ret0.diva "$PWD/build/diva-tiny-s2"
 
-# 4) promote the newest successful pure binary
+# 4) Promote
 cp -a build/diva-compiler-pure-elf-stage2 bootstrap/diva-linux-amd64
 ```
 
-## Done this session
+## Do next (pick up here)
 
-- 16 MiB exact-fit mmap caps; math check script.
-- Stage2 refresh + first-stage pure; promoted to seed.
-- Cleanup script; this status / brainstorm / artifact policy.
+1. **Drop `DIVA_SKIP_NATIVE_EXTERN_CHECK`** when seed lists all pure externs; confirm `check`/`build` still green.
+2. **`DIVA_PURE_FULL=1`** / `scripts/verify-pure-compiler-build.sh` / `tests/run-strict-pure.sh` — end-to-end CI green on promoted seed.
+3. **Hosted stage2 full-`asm` SEGV** — current ret-fixed stage2 can die on `asm` of merged.diva; bak seed works. Root-cause or always document bak SEED.
+4. **Real realloc** for pure `int_vec`/`str_builder` push/append (still fixed mmap, silent full).
+5. **Optional:** third-stage identity check (`stage2` build of compiler ≈ bit-identical or run-identical to itself).
+6. Cleanup: `./scripts/cleanup-dev-artifacts.sh` — do **not** delete bak seeds you still need for cc-link.
+
+## Known footguns
+
+| Symptom | Cause |
+|---------|--------|
+| Tiny `build` SIGSEGV, RIP≈`0xff` | Inlined `ret` in pure builtin |
+| Success but ~4608-byte non-ELF | `is_first` clobber → always `O_TRUNC` |
+| `pass1/pass2` mismatch by blob delta | Size table out of sync with `emit_pure_*` (or rebuild race) |
+| Seed `asm` looks for `tokens.diva` beside merged file | Pure seed can’t drive cc-link; use hosted bak SEED |
+| `cmd \| tee; echo $?` is 0 on failure | Use `set -o pipefail` / `${PIPESTATUS[0]}` |
