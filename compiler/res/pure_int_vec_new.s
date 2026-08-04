@@ -2,8 +2,8 @@
    Inlined at ir_call sites: NO ret.
    Layout at object: [len][cap][map_bytes][data...]; map starts at INIT_BYTES, grows via push. */
 .equ HT_BASE, 0x500000000000
-.equ HT_BYTES, 0x80000
-.equ HT_MAX, 65535
+.equ HT_BYTES, 0x800000
+.equ HT_MAX, 1048575
 .equ INIT_BYTES, 0x100000
 .equ MAP_FIXED_NOREPLACE, 0x100000
 .equ MAP_PRIVATE_ANON_FIXED_NR, 0x100032

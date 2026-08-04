@@ -20,7 +20,7 @@ pure_write_elf_chunk_impl:
 	/* rsi = int_vec handle (table index) — resolve to object pointer */
 	testq	%rsi, %rsi
 	je	.Lpw_fail
-	cmpq	$65535, %rsi
+	cmpq	$1048575, %rsi
 	ja	.Lpw_fail
 	movabs	$0x500000000000, %rax
 	movq	(%rax,%rsi,8), %rbx	/* vec object */

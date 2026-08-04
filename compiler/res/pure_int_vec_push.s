@@ -1,6 +1,6 @@
 /* Pure ELF int_vec_push — handle is table index. Grows with mremap(MAYMOVE). NO ret. */
 .equ HT_BASE, 0x500000000000
-.equ HT_MAX, 65535
+.equ HT_MAX, 1048575
 .equ MREMAP_MAYMOVE, 1
 
 .section .note.GNU-stack,"",@progbits

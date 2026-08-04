@@ -1,6 +1,6 @@
 /* Pure ELF str_builder_free — handle index; clear slot + munmap. NO ret. */
 .equ HT_BASE, 0x500000000000
-.equ HT_MAX, 65535
+.equ HT_MAX, 1048575
 
 .section .note.GNU-stack,"",@progbits
 .text

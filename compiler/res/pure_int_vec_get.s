@@ -1,6 +1,6 @@
 /* Pure ELF int_vec_get — handle is table index. NO ret. */
 .equ HT_BASE, 0x500000000000
-.equ HT_MAX, 65535
+.equ HT_MAX, 1048575
 
 .section .note.GNU-stack,"",@progbits
 .text

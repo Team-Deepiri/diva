@@ -1,7 +1,7 @@
 /* Pure ELF str_builder_append — handle index; grow via mremap(MAYMOVE). NO ret.
    rsi remains a raw C string pointer (not a handle). */
 .equ HT_BASE, 0x500000000000
-.equ HT_MAX, 65535
+.equ HT_MAX, 1048575
 .equ MREMAP_MAYMOVE, 1
 
 .section .note.GNU-stack,"",@progbits
