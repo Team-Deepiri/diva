@@ -8,10 +8,9 @@ Self-host (stage2≡stage3), noskip seed builds, `DIVA_PURE_FULL`, **strict-pure
 
 ## Do next
 
-1. **Rebuild stage2→pure→promote** — land abort-on-full push/append (sizes 54 / 127) in seed.  
-2. Fix hosted stage2 **`asm` SEGV** (`int_to_str` → snprintf on large `cg_module_to_str`).  
-3. **Handle-table realloc** (moving mmap unsafe with raw handles).  
-4. More CI beyond `tests/strict-pure.list`.
+1. Fix hosted stage2 **`asm` SEGV** (`int_to_str` → snprintf on large `cg_module_to_str`).  
+2. **Handle-table realloc** (moving mmap unsafe with raw handles).  
+3. More CI beyond `tests/strict-pure.list`.
 
 ## Footguns
 
