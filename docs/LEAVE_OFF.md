@@ -9,6 +9,7 @@
 | `verify-pure-only` + `DIVA_PURE_FULL=1` | OK |
 | `tests/run-strict-pure.sh` on seed | **21/21 OK** (outs under `build/`, not `/tmp`) |
 | Seed | `bootstrap/diva-linux-amd64` ← stage2 pure (**abort-on-full** landed; ~750KiB) |
+| Hosted full-package `asm` | **fixed** — ring-buffer `di_runtime_int_to_str` (no malloc, no snprintf) |
 
 
 ## Fixes this arc
@@ -17,13 +18,15 @@
 2. CLI out path (no `/tmp` keepers)  
 3. `write_elf_chunk` save `is_first` across mmap (was 4608-byte junk)  
 4. **strict-pure** writes/runs via `build/strict-pure-exe`  
-5. **cc-link** default SEED → hosted `bak-before-retfix-*` (avoids full-asm SEGV)  
-6. **abort-on-full** for pure `int_vec_push` / `str_builder_append` (`exit_group(2)`) — sizes **42→54**, **115→127** — **in seed** after 2026-08-04 promote
+5. **cc-link** default SEED → hosted `bak-before-retfix-*` (safe seed while rebuilding)  
+6. **abort-on-full** for pure `int_vec_push` / `str_builder_append` (`exit_group(2)`) — sizes **42→54**, **115→127** — **in seed** after 2026-08-04 promote  
+7. **Hosted `int_to_str` leak** — stock `runtime.o` malloc'd 32B/`%d` per call and never freed; millions of calls in `cg_module_to_str` died in glibc snprintf. Fix: `compiler/res/legacy/runtime_int_to_str.c` (8×32 ring, hand digit convert) + `objcopy --weaken-symbol` in `build-compiler-cc-link.sh`. Verified: stage2 `asm merged.diva` → ~2.2MiB `.s`, exit 0.
 
 
-## Hosted stage2 full-`asm` SEGV (root-caused)
+## Hosted stage2 full-`asm` SEGV (fixed)
 
-`build/diva-stage2-from-cc asm merged.diva` dies in glibc **`__vsnprintf_internal`** via `di_runtime_int_to_str` during `cg_module_to_str` / `cmd_asm` (large module). Not a pure-ELF bug. **Workaround:** bak SEED (now default in `scripts/legacy/build-compiler-cc-link.sh`). Fix later in hosted `int_to_str` / buffer sizing.
+Was: `di_runtime_int_to_str` → malloc leak + snprintf crash mid-`cmd_asm`.  
+Now: link override wins over weakened stock symbol. Asm-only BSS override still hit snprintf; C digit path is the keeper.
 
 ## Realloc note
 
@@ -33,9 +36,9 @@ Moving `mremap` is **unsafe** while handles are raw mmap pointers (stale refs af
 
 ```sh
 # sizes + emits must both be saved before starting
-SEED=…bak-before-retfix… ASM_TIMEOUT_SECS=7200 \
-  sh scripts/legacy/build-compiler-cc-link.sh build/diva-stage2-from-cc-new
-# (SEED now auto-picks bak if unset)
+ASM_TIMEOUT_SECS=7200 \
+  sh scripts/legacy/build-compiler-cc-link.sh build/diva-stage2-from-cc
+# (SEED auto-picks bak if unset; new link includes int_to_str override)
 set -o pipefail
 ROOT_DIR=$PWD DI_STDLIB_DIR=$PWD/stdlib DIVA_NO_EXTERNAL=1 \
   ./build/diva-stage2-from-cc build compiler/ $PWD/build/diva-compiler-pure-elf
@@ -45,6 +48,6 @@ cp -a build/diva-compiler-pure-elf-stage2 bootstrap/diva-linux-amd64
 
 ## Do next
 
-1. Fix hosted stage2 **`asm` SEGV** (`int_to_str` → snprintf on large `cg_module_to_str`).  
+1. ~~Fix hosted stage2 `asm` SEGV~~ — done on this branch.  
 2. **Handle-table realloc** for pure vec/builder (real grow).  
 3. More CI beyond `tests/strict-pure.list`.

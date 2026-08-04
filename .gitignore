@@ -2,5 +2,6 @@ build/
 compiler/src/_bootstrap_merged.diva
 *.ll
 *.c
+!compiler/res/legacy/runtime_int_to_str.c
 *.exe
 .cursor
