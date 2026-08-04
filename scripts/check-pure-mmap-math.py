@@ -19,7 +19,7 @@ def extract_fn(name):
 def u32(bs, i):
     return bs[i] | (bs[i+1]<<8) | (bs[i+2]<<16) | (bs[i+3]<<24)
 
-S, H = 0x100000, 24  # 1 MiB initial — grow via mremap in push/append
+S, H = 0x10000, 24  # 64 KiB initial — grow via mremap in push/append (cuts compile RSS)
 payload = S - H
 errors = []
 
@@ -59,7 +59,7 @@ else:
 
 src_bytes = sum(f.stat().st_size for f in (ROOT/"compiler").rglob("*.diva"))
 print(f"compiler .diva bytes={src_bytes}; initial str cap {payload}; grow required for large builds")
-# With 1MiB initial, full-compiler out vec (~700KiB slots) must grow — that is intentional.
+# Full-compiler out vec (~700KiB slots) must grow from 64KiB init — intentional.
 qcap0 = payload // 8
 print(f"initial qword cap={qcap0}; full codegen needs grow? {700*1024 > qcap0}")
 

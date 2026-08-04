@@ -1,29 +1,28 @@
-# Leave-off — pure ELF self-host (2026-08-04)
+# Leave-off — grow INIT RSS (2026-08-04)
 
-## Done
+**Parent:** PR #12 handle-table grow seed.
 
-| Gate | Result |
+## Goal
+
+Cut ~28 GiB peak RSS on full `build compiler/` by shrinking initial object mmap **1 MiB → 64 KiB** (still doubles via mremap).
+
+## Status
+
+| Step | Result |
 |------|--------|
-| Handle-table grow + 1 048 575 slots | green |
-| Pure parse merged `compiler/` | **694 decls** |
-| Pure second≡third stage | **md5 `69f0fbea…`** |
-| `tests/run-strict-pure.sh` | **31/31** on pure stage2 |
-| Seed | `bootstrap/diva-linux-amd64` ← grow stage2 (~1.2 MiB) |
+| INIT_BYTES = `0x10000` in `pure_*_new.s` | done |
+| emit + `check-pure-mmap-math` | green |
+| smoke grow | green |
+| stage2 rebuild / stage2≡stage3 / RSS | in progress |
+| seed promote | pending verify |
 
+## Rebuild
 
-## Grow design
-
-- Handle table @ `0x500000000000`, **8 MiB / 1 048 575 slots** (64K exhausted mid-parse)
-- Objects start **1 MiB**, double via `mremap(MAYMOVE)`
-- FIXED_NOREPLACE fail ⇒ table ready (`-EEXIST` = **-17**)
-- `write_elf_chunk` resolves handles
-- Smoke: `scripts/smoke-pure-handle-grow.sh`
-
-## Footgun
-
-Full `build compiler/` under grow can peak **~28 GiB RSS** (many live 1 MiB maps). Consider smaller initial mmap next.
-
-## Do next
-
-1. Shrink initial object mmap (e.g. 64–256 KiB) to cut RSS.  
-2. More CI (fail cases / packages).
+```sh
+ASM_TIMEOUT_SECS=7200 sh scripts/legacy/build-compiler-cc-link.sh build/diva-stage2-grow
+ROOT_DIR=$PWD DI_STDLIB_DIR=$PWD/stdlib DIVA_NO_EXTERNAL=1 \
+  ./build/diva-stage2-grow build compiler/ $PWD/build/diva-compiler-pure-elf-grow
+./build/diva-compiler-pure-elf-grow build compiler/ $PWD/build/diva-compiler-pure-elf-grow-stage2
+# compare md5; /usr/bin/time -v for Max RSS
+cp -a build/diva-compiler-pure-elf-grow-stage2 bootstrap/diva-linux-amd64
+```
