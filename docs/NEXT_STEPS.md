@@ -1,16 +1,16 @@
 # Next steps — grow INIT RSS
 
-**Leave-off:** `docs/LEAVE_OFF.md` (INIT 64 KiB).
+**Leave-off:** `docs/LEAVE_OFF.md` (INIT 4 KiB).
 
 ## Do next
 
-1. Finish verify on this branch: stage2≡stage3, Max RSS ≪ 28 GiB, promote seed.  
-2. Broader CI (fail cases / packages).
+1. Finish 4 KiB verify: RSS, stage2≡stage3, promote seed on this branch.  
+2. Longer term: bump-pointer arena for tiny AST nodes (avoid mmap-per-node).  
+3. Broader CI.
 
 ## Footguns
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| 28 GiB RSS | 1 MiB init × many live objects — use 64 KiB init |
-| Handle table full @ 64K | 1 048 575 slots (PR #12) |
-| `-EEXIST` check | raw errno **-17** |
+| ~27 GiB RSS @ 64 KiB init | #live vecs × INIT — use **4 KiB** page |
+| Handle table @ 64K | 1 048 575 slots (PR #12) |

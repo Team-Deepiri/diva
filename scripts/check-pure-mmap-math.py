@@ -19,7 +19,7 @@ def extract_fn(name):
 def u32(bs, i):
     return bs[i] | (bs[i+1]<<8) | (bs[i+2]<<16) | (bs[i+3]<<24)
 
-S, H = 0x10000, 24  # 64 KiB initial — grow via mremap in push/append (cuts compile RSS)
+S, H = 0x1000, 24  # 4 KiB page initial — many tiny AST vecs
 payload = S - H
 errors = []
 
