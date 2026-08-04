@@ -8,7 +8,8 @@
 | No `DIVA_SKIP_NATIVE_EXTERN_CHECK` on seed | `check` / tiny / full `build compiler/` green |
 | `verify-pure-only` + `DIVA_PURE_FULL=1` | OK |
 | `tests/run-strict-pure.sh` on seed | **21/21 OK** (outs under `build/`, not `/tmp`) |
-| Seed | `bootstrap/diva-linux-amd64` ← stage2 pure |
+| Seed | `bootstrap/diva-linux-amd64` ← stage2 pure (**abort-on-full** landed; ~750KiB) |
+
 
 ## Fixes this arc
 
@@ -17,7 +18,8 @@
 3. `write_elf_chunk` save `is_first` across mmap (was 4608-byte junk)  
 4. **strict-pure** writes/runs via `build/strict-pure-exe`  
 5. **cc-link** default SEED → hosted `bak-before-retfix-*` (avoids full-asm SEGV)  
-6. **abort-on-full** for pure `int_vec_push` / `str_builder_append` (`exit_group(2)`) — sizes **42→54**, **115→127** (needs stage2→pure rebuild to land in seed)
+6. **abort-on-full** for pure `int_vec_push` / `str_builder_append` (`exit_group(2)`) — sizes **42→54**, **115→127** — **in seed** after 2026-08-04 promote
+
 
 ## Hosted stage2 full-`asm` SEGV (root-caused)
 
@@ -43,7 +45,6 @@ cp -a build/diva-compiler-pure-elf-stage2 bootstrap/diva-linux-amd64
 
 ## Do next
 
-1. **Rebuild + promote** so abort-on-full (54/127) is in the seed.  
-2. Fix hosted **`di_runtime_int_to_str` / asm SEGV** on large modules.  
-3. **Handle-table realloc** for pure vec/builder (real grow).  
-4. Broader CI beyond strict-pure list.
+1. Fix hosted stage2 **`asm` SEGV** (`int_to_str` → snprintf on large `cg_module_to_str`).  
+2. **Handle-table realloc** for pure vec/builder (real grow).  
+3. More CI beyond `tests/strict-pure.list`.
