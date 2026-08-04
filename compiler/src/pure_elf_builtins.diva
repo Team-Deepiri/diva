@@ -27,13 +27,14 @@ func emit_pure_int_vec_new(out: int): int {
 }
 
 func emit_pure_int_vec_push(out: int): int {
-    // compiler/res/pure_int_vec_push.s — null / small-handle guard + push (no ret).
-    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 34) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 16)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 25) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 79)
+    // compiler/res/pure_int_vec_push.s — push; exit_group(2) on full (no ret).
+    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 46) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 16)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 37) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 79)
     int_vec_push(out, 8) int_vec_push(out, 72) int_vec_push(out, 57) int_vec_push(out, 200) int_vec_push(out, 125) int_vec_push(out, 13) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 116) int_vec_push(out, 199)
-    int_vec_push(out, 24) int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 192) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 7) int_vec_push(out, 235) int_vec_push(out, 2) int_vec_push(out, 49)
-    int_vec_push(out, 192) int_vec_push(out, 144)
-    return 42
+    int_vec_push(out, 24) int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 192) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 7) int_vec_push(out, 235) int_vec_push(out, 14) int_vec_push(out, 184)
+    int_vec_push(out, 231) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 191) int_vec_push(out, 2) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15)
+    int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 144)
+    return 54
 }
 
 func emit_pure_int_vec_len(out: int): int {
@@ -85,20 +86,21 @@ func emit_pure_str_builder_new(out: int): int {
 }
 
 func emit_pure_str_builder_append(out: int): int {
-    // compiler/res/pure_str_builder_append.s — guard rdi + rsi (mmap ptrs vs host handles).
+    // compiler/res/pure_str_builder_append.s — append; exit_group(2) on full (no ret).
     int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 25) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 16)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 16) int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 246) int_vec_push(out, 116) int_vec_push(out, 11) int_vec_push(out, 72)
     int_vec_push(out, 129) int_vec_push(out, 254) int_vec_push(out, 0) int_vec_push(out, 16) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 2) int_vec_push(out, 235) int_vec_push(out, 4)
-    int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 235) int_vec_push(out, 80) int_vec_push(out, 83) int_vec_push(out, 65) int_vec_push(out, 84) int_vec_push(out, 65) int_vec_push(out, 85) int_vec_push(out, 65)
+    int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 235) int_vec_push(out, 92) int_vec_push(out, 83) int_vec_push(out, 65) int_vec_push(out, 84) int_vec_push(out, 65) int_vec_push(out, 85) int_vec_push(out, 65)
     int_vec_push(out, 86) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 251) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 244) int_vec_push(out, 49) int_vec_push(out, 201) int_vec_push(out, 65)
     int_vec_push(out, 128) int_vec_push(out, 60) int_vec_push(out, 12) int_vec_push(out, 0) int_vec_push(out, 116) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 193) int_vec_push(out, 235)
-    int_vec_push(out, 244) int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 201) int_vec_push(out, 116) int_vec_push(out, 39) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 3) int_vec_push(out, 76)
+    int_vec_push(out, 244) int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 201) int_vec_push(out, 116) int_vec_push(out, 51) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 3) int_vec_push(out, 76)
     int_vec_push(out, 139) int_vec_push(out, 67) int_vec_push(out, 8) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 197) int_vec_push(out, 73) int_vec_push(out, 1) int_vec_push(out, 205) int_vec_push(out, 77)
     int_vec_push(out, 57) int_vec_push(out, 197) int_vec_push(out, 119) int_vec_push(out, 21) int_vec_push(out, 76) int_vec_push(out, 141) int_vec_push(out, 116) int_vec_push(out, 3) int_vec_push(out, 24) int_vec_push(out, 76)
     int_vec_push(out, 137) int_vec_push(out, 247) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 230) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 201) int_vec_push(out, 243) int_vec_push(out, 164)
-    int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 43) int_vec_push(out, 235) int_vec_push(out, 2) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 65) int_vec_push(out, 94) int_vec_push(out, 65)
-    int_vec_push(out, 93) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 91) int_vec_push(out, 144)
-    return 115
+    int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 43) int_vec_push(out, 235) int_vec_push(out, 14) int_vec_push(out, 184) int_vec_push(out, 231) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 191) int_vec_push(out, 2) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 65)
+    int_vec_push(out, 94) int_vec_push(out, 65) int_vec_push(out, 93) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 91) int_vec_push(out, 144)
+    return 127
 }
 
 func emit_pure_str_builder_len(out: int): int {

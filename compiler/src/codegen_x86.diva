@@ -612,12 +612,12 @@ func pure_builtin_call_size_lo(id: int): int {
 
 func pure_builtin_call_size_hi_vec(id: int): int {
     if id == 9 { return 96 }
-    if id == 10 { return 42 }
+    if id == 10 { return 54 }
     if id == 11 { return 27 }
     if id == 12 { return 37 }
     if id == 13 { return 26 }
     if id == 14 { return 96 }
-    if id == 15 { return 115 }
+    if id == 15 { return 127 }
     if id == 16 { return 27 }
     if id == 17 { return 97 }
     if id == 18 { return 26 }

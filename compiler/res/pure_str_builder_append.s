@@ -37,7 +37,7 @@ pure_str_builder_append:
 	movq	%rax, %r13
 	addq	%rcx, %r13
 	cmpq	%r8, %r13
-	ja	3f
+	ja	.Lfull
 	leaq	0x18(%rbx,%rax,1), %r14
 	movq	%r14, %rdi
 	movq	%r12, %rsi
@@ -45,6 +45,11 @@ pure_str_builder_append:
 	rep movsb
 	movq	%r13, (%rbx)
 	jmp	4f
+.Lfull:
+	/* capacity full — exit_group(2); silent skip is unsafe */
+	movl	$231, %eax
+	movl	$2, %edi
+	syscall
 3:
 	xorl	%eax, %eax
 4:
@@ -54,4 +59,5 @@ pure_str_builder_append:
 	popq	%rbx
 .Ltail:
 	nop
+	/* fall through — no ret */
 .size pure_str_builder_append, .-pure_str_builder_append

@@ -8,7 +8,21 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "${ROOT_DIR}"
 
-SEED="${SEED:-${ROOT_DIR}/bootstrap/diva-linux-amd64}"
+# Default SEED: pure bootstrap cannot `asm` a merged.diva (loader looks for sibling
+# tokens.diva). Prefer a known-good hosted bak; current build/diva-stage2-from-cc may
+# SIGSEGV on full-package `asm` (see docs/LEAVE_OFF.md).
+if [ -z "${SEED:-}" ]; then
+  BAK=$(ls -1t "${ROOT_DIR}"/build/diva-stage2-from-cc.bak-before-retfix-* 2>/dev/null | head -1 || true)
+  if [ -n "${BAK}" ] && [ -x "${BAK}" ]; then
+    SEED="${BAK}"
+    echo "[build-compiler-cc-link] SEED default -> ${SEED} (hosted bak; avoids full-asm SEGV)"
+  elif [ -x "${ROOT_DIR}/build/diva-stage2-from-cc" ]; then
+    SEED="${ROOT_DIR}/build/diva-stage2-from-cc"
+    echo "[build-compiler-cc-link] SEED default -> ${SEED} (may SEGV on full asm)"
+  else
+    SEED="${ROOT_DIR}/bootstrap/diva-linux-amd64"
+  fi
+fi
 DI_STDLIB_DIR="${DI_STDLIB_DIR:-${ROOT_DIR}/stdlib}"
 RT_O="${DI_RUNTIME_O:-${ROOT_DIR}/bootstrap/runtime-linux-amd64.o}"
 CRT_SRC="${ROOT_DIR}/compiler/res/legacy/native_crt.s"

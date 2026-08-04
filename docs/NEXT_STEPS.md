@@ -1,29 +1,23 @@
 # Next steps — pure ELF bootstrap
 
-**Leave-off detail:** `docs/LEAVE_OFF.md` (2026-08-03 evening).
+**Leave-off:** `docs/LEAVE_OFF.md` (2026-08-04).
 
-## Status (green)
+## Green
 
-| Gate | Result |
-|------|--------|
-| Tiny / package `build` (pure) | green |
-| Second-stage pure→pure | green ~708KiB |
-| Third-stage | **bit-identical** to stage2 |
-| No `DIVA_SKIP_NATIVE_EXTERN_CHECK` | `check` + tiny + full `build compiler/` green on seed |
-| `verify-pure-only-driver.sh` + `DIVA_PURE_FULL=1` | OK |
-| Seed | `bootstrap/diva-linux-amd64` ← stage2 |
+Self-host (stage2≡stage3), noskip seed builds, `DIVA_PURE_FULL`, **strict-pure 21/21**.
 
 ## Do next
 
-1. Real **realloc** for pure `int_vec` / `str_builder` (fixed 16 MiB mmap today).
-2. Root-cause **hosted stage2 full-`asm` SEGV** (workaround: `build/diva-stage2-from-cc.bak-before-retfix-*` as `SEED=`).
-3. Broader CI: `tests/run-strict-pure.sh` on promoted seed.
-4. Cleanup junk under `build/` / `/tmp`; **keep** bak seeds for cc-link.
+1. **Rebuild stage2→pure→promote** — land abort-on-full push/append (sizes 54 / 127) in seed.  
+2. Fix hosted stage2 **`asm` SEGV** (`int_to_str` → snprintf on large `cg_module_to_str`).  
+3. **Handle-table realloc** (moving mmap unsafe with raw handles).  
+4. More CI beyond `tests/strict-pure.list`.
 
-## Artifact rule
+## Footguns
 
-`diva build <src> <out>` · or `DIVA_NATIVE_EXE_OUT` · or `$ROOT_DIR/build/diva-native-exe` — **never** keep outputs only in `/tmp`.
-
-## Rebuild after emit/size edits
-
-Sync `emit_pure_*` **and** `pure_builtin_call_size` before cc-link; use bak `SEED=` if stage2 `asm` SEGV; `set -o pipefail` on long builds. Full recipe in `docs/LEAVE_OFF.md`.
+| Symptom | Cause / fix |
+|---------|-------------|
+| Full-asm SEGV in stage2 | `int_to_str`/snprintf; use bak SEED (cc-link default) |
+| Silent capacity full | Now `exit_group(2)` in pure push/append |
+| `/tmp` lost builds | CLI out / `build/` only |
+| pass1/pass2 Δ | Sync emit + size before cc-link |

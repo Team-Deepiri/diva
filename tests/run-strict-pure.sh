@@ -24,11 +24,13 @@ if [ ! -f "${LIST}" ]; then
   exit 1
 fi
 
-tmp_log="/tmp/diva-strict-pure.log"
-tmp_sym="/tmp/diva-strict-pure.symbols"
-tmp_fail="/tmp/diva-strict-pure.failures"
-tmp_run="/tmp/diva-strict-pure.run.log"
-rm -f "${tmp_log}" "${tmp_sym}" "${tmp_fail}" "${tmp_run}"
+tmp_log="${ROOT_DIR}/build/strict-pure.log"
+tmp_sym="${ROOT_DIR}/build/strict-pure.symbols"
+tmp_fail="${ROOT_DIR}/build/strict-pure.failures"
+tmp_run="${ROOT_DIR}/build/strict-pure.run.log"
+tmp_exe="${ROOT_DIR}/build/strict-pure-exe"
+mkdir -p "${ROOT_DIR}/build"
+rm -f "${tmp_log}" "${tmp_sym}" "${tmp_fail}" "${tmp_run}" "${tmp_exe}"
 
 echo "[strict-pure] DRIVER=${DRIVER}"
 echo "[strict-pure] checking listed examples (tests/strict-pure.list) (pure ELF)"
@@ -50,7 +52,7 @@ while IFS= read -r rel || [ -n "${rel}" ]; do
   total=$((total + 1))
   ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
     DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
-    timeout 30 "${DRIVER}" build "${f}" >"${tmp_log}" 2>&1 || rc=$?
+    timeout 30 "${DRIVER}" build "${f}" "${tmp_exe}" >"${tmp_log}" 2>&1 || rc=$?
   rc=${rc:-0}
   if [ "${rc}" -eq 0 ]; then
     run_mode=0
@@ -60,7 +62,15 @@ while IFS= read -r rel || [ -n "${rel}" ]; do
         ;;
     esac
     if [ "${run_mode}" -eq 1 ]; then
-      timeout 10 /tmp/diva-native-exe >"${tmp_run}" 2>&1 || rrun=$?
+      # Prefer CLI out; fall back for older drivers that still wrote /tmp.
+      exe="${tmp_exe}"
+      if [ ! -x "${exe}" ] && [ -x /tmp/diva-native-exe ]; then
+        exe=/tmp/diva-native-exe
+      fi
+      if [ ! -x "${exe}" ] && [ -x "${ROOT_DIR}/build/diva-native-exe" ]; then
+        exe="${ROOT_DIR}/build/diva-native-exe"
+      fi
+      timeout 10 "${exe}" >"${tmp_run}" 2>&1 || rrun=$?
       rrun=${rrun:-0}
       if [ "${rrun}" -eq 0 ]; then
         echo "[strict-pure] OK   ${rel} (ran)"
