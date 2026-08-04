@@ -1,16 +1,18 @@
-# Next steps — grow INIT RSS
+# Next steps — after string arena
 
-**Leave-off:** `docs/LEAVE_OFF.md` (INIT 4 KiB).
+**Leave-off:** `docs/LEAVE_OFF.md` (RSS ~567 MiB; seed promoted).
 
 ## Do next
 
-1. Finish 4 KiB verify: RSS, stage2≡stage3, promote seed on this branch.  
-2. Longer term: bump-pointer arena for tiny AST nodes (avoid mmap-per-node).  
-3. Broader CI.
+1. Bump arena for tiny AST `int_vec` objects (cut remaining ~0.5 GiB page tax).
+2. Broader CI beyond `tests/strict-pure.list`.
+3. Optional: skip per-call `FIXED_NOREPLACE` probes once arena/HT are live (micro-opt).
 
 ## Footguns
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| ~27 GiB RSS @ 64 KiB init | #live vecs × INIT — use **4 KiB** page |
-| Handle table @ 64K | 1 048 575 slots (PR #12) |
+| ~28 GiB RSS | page-rounded string `mmap` — STRA arena |
+| Emit size drift | sync return + `pure_builtin_call_size` |
+| `0xc3` in pure blob | NO ret on inlined builtins |
+| Don’t commit | `bootstrap/*.bak-*` |

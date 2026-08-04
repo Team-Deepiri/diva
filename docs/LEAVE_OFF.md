@@ -1,25 +1,27 @@
-# Leave-off — grow INIT RSS (2026-08-04)
+# Leave-off — string arena RSS (2026-08-04)
 
 **Parent:** PR #12. **This PR:** #13.
 
+**Self-host:** yes — seed is pure ELF grow (`bootstrap/diva-linux-amd64`).
+
 ## Finding
 
-64 KiB init still ~**27 GiB** RSS — hundreds of thousands of live tiny AST `int_vec`s each own a full mmap. Need **page-sized (4 KiB)** init: ~400k × 4 KiB ≈ 1.6 GiB upper bound if all stay small.
+INIT shrink did not move ~28 GiB Max RSS. Cost was **page-rounded** `mmap(len+1)` in `str_builder_to_str`, `int_to_str`, and `str_slice`.
 
-## Status
+## Fix
 
-| Step | Result |
-|------|--------|
-| INIT 1 MiB → 64 KiB | verified stage2≡stage3; RSS still ~27 GiB |
-| INIT → **4 KiB** (`0x1000`) | sources + math + smoke green |
-| stage2 rebuild / RSS / seed | in progress |
+Packed bump arena at `0x520000000000` (2 GiB) for those three builtins.
 
-## Rebuild
+## Result
 
-```sh
-ASM_TIMEOUT_SECS=7200 sh scripts/legacy/build-compiler-cc-link.sh build/diva-stage2-grow
-ROOT_DIR=$PWD DI_STDLIB_DIR=$PWD/stdlib DIVA_NO_EXTERNAL=1 \
-  ./build/diva-stage2-grow build compiler/ $PWD/build/diva-compiler-pure-elf-grow
-/usr/bin/time -v ./build/diva-compiler-pure-elf-grow build compiler/ $PWD/build/diva-compiler-pure-elf-grow-stage2
-# Max RSS should be ≪ 28GiB; md5 stage2≡stage3; promote seed
-```
+| Metric | Before | After |
+|--------|--------|-------|
+| Max RSS full `build compiler/` | ~28 GiB | **~567 MiB** |
+| stage2≡stage3 | — | `c9913062…` |
+| tiny `<4096` mmaps | ~1M+ | **0** |
+
+Seed promoted to fixed-point pure binary.
+
+## Residual
+
+~135k live 4 KiB `int_vec` pages ≈ RSS floor. Next: AST bump arena.
