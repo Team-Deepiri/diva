@@ -72,6 +72,7 @@ expected_output() {
     examples/loop.diva)             printf '10\n' ;;
     examples/shadow.diva)           printf '99\n5\n' ;;
     examples/structs.diva)          printf '18\n7\n' ;;
+    examples/struct_fields.diva)    printf '3\n4\n99\n4\n' ;;
     examples/struct_mutation.diva)  printf '10\n' ;;
     examples/arrays.diva)           printf '9\n' ;;
     examples/array_mutation.diva)   printf '16\n' ;;

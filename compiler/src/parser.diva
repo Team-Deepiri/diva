@@ -83,6 +83,17 @@ func p_skip_semi(ps: int): int {
     return 0
 }
 
+// Class/struct members may be separated by ';' or ','. Skipping only ';'
+// (p_skip_semi) makes a comma-separated member list loop forever.
+func p_skip_member_sep(ps: int): int {
+    var n = 0
+    while p_cur(ps) == tk_semi() | p_cur(ps) == tk_comma() {
+        p_advance(ps)
+        n = n + 1
+    }
+    return n
+}
+
 // --- Type parsing ---
 
 func parse_type(ps: int, src: str): int {
@@ -580,21 +591,21 @@ func parse_class_decl(ps: int, src: str): int {
             p_expect(ps, src, tk_colon())
             var ftype = parse_type(ps, src)
             int_vec_push(members, ast_class_field(fname, ftype))
-            p_skip_semi(ps)
+            p_skip_member_sep(ps)
         } else {
             if p_cur(ps) == tk_func() {
                 int_vec_push(members, parse_func_decl(ps, src))
             } else {
                 if p_cur(ps) == tk_ident() {
-                    var fname = p_cur(ps)
+                    var fname = ps_pos(ps)
                     p_advance(ps)
                     if p_cur(ps) == tk_colon() {
                         p_advance(ps)
                         var ftype = parse_type(ps, src)
                         int_vec_push(members, ast_class_field(fname, ftype))
-                        p_skip_semi(ps)
-                    } else { p_skip_semi(ps) }
-                } else { p_skip_semi(ps) }
+                        p_skip_member_sep(ps)
+                    } else { p_skip_member_sep(ps) }
+                } else { p_skip_member_sep(ps) }
             }
         }
     }

@@ -25,6 +25,7 @@ examples/random_demo.diva
 examples/ret0.diva
 examples/shadow.diva
 examples/stdlib_demo.diva
+examples/struct_fields.diva
 examples/struct_mutation.diva
 examples/structs.diva
 examples/systems_hosted.diva

@@ -1,0 +1,16 @@
+extern func print_int(x: int): void
+
+struct Point {
+    x: int,
+    y: int,
+}
+
+func main(): int {
+    var p: Point = Point { x: 3, y: 4 }
+    print_int(p.x)
+    print_int(p.y)
+    p.x = 99
+    print_int(p.x)
+    print_int(p.y)
+    return 0
+}
