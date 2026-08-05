@@ -39,12 +39,12 @@ LOG="${WORK}/build.log"
 PKG="${ROOT_DIR}/compiler"
 # Full compiler package can take 12–20+ minutes on slower hosts; override with BUILD_TIMEOUT_SECS.
 BUILD_TIMEOUT_SECS="${BUILD_TIMEOUT_SECS:-1800}"
-echo "[pure-elf-compiler] ${DRIVER} build ${PKG} (DIVA_NO_EXTERNAL=1, DI_RUNTIME_O=${DI_RUNTIME_O}, timeout=${BUILD_TIMEOUT_SECS}s)"
+echo "[pure-elf-compiler] ${DRIVER} build ${PKG} ${OUT_EXE} (DIVA_NO_EXTERNAL=1, DI_RUNTIME_O=${DI_RUNTIME_O}, timeout=${BUILD_TIMEOUT_SECS}s)"
 set +e
 if command -v stdbuf >/dev/null 2>&1; then
-  timeout "${BUILD_TIMEOUT_SECS}" stdbuf -o0 -e0 "${DRIVER}" build "${PKG}" >"${LOG}" 2>&1
+  timeout "${BUILD_TIMEOUT_SECS}" stdbuf -o0 -e0 "${DRIVER}" build "${PKG}" "${OUT_EXE}" >"${LOG}" 2>&1
 else
-  timeout "${BUILD_TIMEOUT_SECS}" "${DRIVER}" build "${PKG}" >"${LOG}" 2>&1
+  timeout "${BUILD_TIMEOUT_SECS}" "${DRIVER}" build "${PKG}" "${OUT_EXE}" >"${LOG}" 2>&1
 fi
 RC=$?
 set -e
@@ -58,12 +58,22 @@ if [[ "${RC}" -ne 0 ]]; then
   exit 1
 fi
 
-CAND="/tmp/diva-native-exe"
+# Drivers that still hardcode /tmp: rescue. Prefer OUT_EXE when the CLI path is honored.
+CAND="${OUT_EXE}"
 if [[ ! -x "${CAND}" ]]; then
-  echo "[pure-elf-compiler] missing ${CAND} after build" >&2
-  exit 1
+  if [[ -x /tmp/diva-native-exe ]]; then
+    cp -f /tmp/diva-native-exe "${OUT_EXE}"
+    chmod +x "${OUT_EXE}"
+    CAND="${OUT_EXE}"
+  elif [[ -x "${ROOT_DIR}/build/diva-native-exe" ]]; then
+    cp -f "${ROOT_DIR}/build/diva-native-exe" "${OUT_EXE}"
+    chmod +x "${OUT_EXE}"
+    CAND="${OUT_EXE}"
+  else
+    echo "[pure-elf-compiler] missing executable after build (tried ${OUT_EXE}, build/diva-native-exe, /tmp/diva-native-exe)" >&2
+    exit 1
+  fi
 fi
 
-cp -f "${CAND}" "${OUT_EXE}"
 chmod +x "${OUT_EXE}"
 echo "[pure-elf-compiler] OK -> ${OUT_EXE}"

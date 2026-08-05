@@ -298,11 +298,12 @@ func lex_source(src: str): int {
 }
 
 func lex_file_to_stdout(path: str): int {
-    if file_size(path) < 0 {
+    var path_p = path
+    if file_size(path_p) < 0 {
         print_str("diva lex: cannot read file")
         return 1
     }
-    var src = read_file(path)
+    var src = read_file(path_p)
     var stream = lex_source(src)
     if stream == 0 {
         print_str("diva lex: tokenization error")

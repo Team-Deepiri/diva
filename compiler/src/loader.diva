@@ -5,19 +5,33 @@ import "std/io.diva"
 import "std/vec.diva"
 import "std/str.diva"
 
+// When DIVA_CHECK_TRACE is set, merge/check prints stderr milestones (pure-driver debugging).
+func loader_check_trace(): int {
+    var v = host_getenv("DIVA_CHECK_TRACE")
+    var v_hold = v
+    if str_len(v_hold) > 0 {
+        return 1
+    }
+    return 0
+}
+
 func loader_stdlib_dir(): str {
     var p = host_getenv("DI_STDLIB_DIR")
-    if (str_len(p) > 0) {
-        return p
+    var p_hold = p
+    if (str_len(p_hold) > 0) {
+        return p_hold
     }
     return "stdlib"
 }
 
 func loader_newline(): str {
-    var p = path_join_dir(loader_stdlib_dir(), "std/lf.txt")
+    var std = loader_stdlib_dir()
+    var std_hold = std
+    var p = path_join_dir(std_hold, "std/lf.txt")
     var s = read_file(p)
-    if (!(str_len(s) < 1)) {
-        return str_slice(s, 0, 1)
+    var s_hold = s
+    if (!(str_len(s_hold) < 1)) {
+        return str_slice(s_hold, 0, 1)
     }
     return ""
 }
@@ -68,7 +82,7 @@ func path_is_package_dir(root: str): int {
         }
     }
     var msz = file_size(path_join_dir(root, "package.diva"))
-    if str_eq(int_to_str(msz), "-1") == 1 {
+    if msz < 0 {
         return 0
     }
     return 1
@@ -80,10 +94,12 @@ func package_manifest_kind_value(root: str): str {
         return ""
     }
     var text = read_file(mf)
-    if str_len(text) == 0 {
+    var text_hold = text
+    var text_len = str_len(text_hold)
+    if text_len == 0 {
         return ""
     }
-    var n = str_len(text)
+    var n = text_len
     var i = 0
     while (i < n) {
         var line_end = i
@@ -135,10 +151,12 @@ func package_is_kernel_dir(root: str): int {
 
 func package_entry_relative(manifest_path: str): str {
     var text = read_file(manifest_path)
-    if str_len(text) == 0 {
+    var text_hold = text
+    var text_len = str_len(text_hold)
+    if text_len == 0 {
         return ""
     }
-    var n = str_len(text)
+    var n = text_len
     var i = 0
     while (i < n) {
         var line_end = i
@@ -185,12 +203,15 @@ func package_entry_relative(manifest_path: str): str {
 }
 
 func resolve_import_path(cur_file: str, imp: str, stdroot: str): str {
-    if !((str_len(imp)) < 4) {
-        if str_eq(str_slice(imp, 0, 4), "std/") == 1 {
-            return path_join_dir(stdroot, imp)
+    var imp_p = imp
+    var cur_p = cur_file
+    var std_p = stdroot
+    if !((str_len(imp_p)) < 4) {
+        if str_eq(str_slice(imp_p, 0, 4), "std/") == 1 {
+            return path_join_dir(std_p, imp_p)
         }
     }
-    return path_join_dir(dirname_of_file(cur_file), imp)
+    return path_join_dir(dirname_of_file(cur_p), imp_p)
 }
 
 func import_kw_match(src: str, i: int): int {
@@ -206,30 +227,34 @@ func import_kw_match(src: str, i: int): int {
 }
 
 func list_resolved_imports(src: str, cur_abs: str, stdroot: str, nl: str): str {
+    var src_p = src
+    var cur_p = cur_abs
+    var std_p = stdroot
+    var nl_p = nl
     var b = str_builder_new()
-    var n = str_len(src)
+    var n = str_len(src_p)
     var i = 0
     while (i < n) {
         if !((i + 8) > n) {
-            if import_kw_match(src, i) == 1 {
+            if import_kw_match(src_p, i) == 1 {
                 var at_sol = 0
                 if i == 0 {
                     at_sol = 1
                 } else {
-                    if str_byte(src, i - 1) == 10 {
+                    if str_byte(src_p, i - 1) == 10 {
                         at_sol = 1
                     }
                 }
                 if at_sol == 1 {
                     var q = i + 8
-                    while (q < n & str_byte(src, q) != 34) {
+                    while (q < n & str_byte(src_p, q) != 34) {
                         q = q + 1
                     }
                     if (q < n) {
-                        var inner = str_slice(src, i + 8, q - i - 8)
-                        var rp = resolve_import_path(cur_abs, inner, stdroot)
+                        var inner = str_slice(src_p, i + 8, q - i - 8)
+                        var rp = resolve_import_path(cur_p, inner, std_p)
                         str_builder_append(b, rp)
-                        str_builder_append(b, nl)
+                        str_builder_append(b, nl_p)
                     }
                     i = q + 1
                 } else {
@@ -266,53 +291,62 @@ func path_in_done(done: str, p: str, nl: str): int {
 }
 
 func merge_emit_file(abs_path: str, done: str, stack: str, stdroot: str, out: int): str {
+    var abs_p = abs_path
+    var done_p = done
+    var stack_p = stack
+    var std_p = stdroot
     var nl = loader_newline()
-    if path_in_done(done, abs_path, nl) == 1 {
-        return done
+    if path_in_done(done_p, abs_p, nl) == 1 {
+        return done_p
     }
-    if path_in_done(stack, abs_path, nl) == 1 {
+    if path_in_done(stack_p, abs_p, nl) == 1 {
         stderr("loader: import cycle at ")
-        stderr(abs_path)
+        stderr(abs_p)
         stderr(nl)
         return ""
     }
-    if (file_size(abs_path) < 0) {
+    if (file_size(abs_p) < 0) {
         stderr("loader: cannot read ")
-        stderr(abs_path)
+        stderr(abs_p)
         stderr(nl)
         return ""
     }
-    var src = read_file(abs_path)
-    var deps = list_resolved_imports(src, abs_path, stdroot, nl)
-    var done2 = done
+    var src = read_file(abs_p)
+    var src_hold = src
+    var deps = list_resolved_imports(src_hold, abs_p, std_p, nl)
+    var deps_hold = deps
+    var done2 = done_p
     var b_stack = str_builder_new()
-    str_builder_append(b_stack, stack)
-    str_builder_append(b_stack, abs_path)
+    str_builder_append(b_stack, stack_p)
+    str_builder_append(b_stack, abs_p)
     str_builder_append(b_stack, nl)
     var stack2 = str_builder_to_str(b_stack)
     str_builder_free(b_stack)
     var pos = 0
-    var dn = str_len(deps)
+    var dn = str_len(deps_hold)
     while (pos < dn) {
         var le = pos
-        while (le < dn & str_byte(deps, le) != 10) {
+        while (le < dn & str_byte(deps_hold, le) != 10) {
             le = le + 1
         }
-        var dep = str_slice(deps, pos, le - pos)
+        var dep = str_slice(deps_hold, pos, le - pos)
         pos = le + 1
-        if (str_len(dep) > 0) {
-            var dr = merge_emit_file(dep, done2, stack2, stdroot, out)
-            if str_len(dr) == 0 {
+        var dep_hold = dep
+        if (str_len(dep_hold) > 0) {
+            var dr = merge_emit_file(dep_hold, done2, stack2, std_p, out)
+            var dr_hold = dr
+            var dr_len = str_len(dr_hold)
+            if dr_len == 0 {
                 return ""
             }
-            done2 = dr
+            done2 = dr_hold
         }
     }
-    str_builder_append(out, src)
+    str_builder_append(out, src_hold)
     str_builder_append(out, nl)
     var b_done = str_builder_new()
     str_builder_append(b_done, done2)
-    str_builder_append(b_done, abs_path)
+    str_builder_append(b_done, abs_p)
     str_builder_append(b_done, nl)
     var new_done = str_builder_to_str(b_done)
     str_builder_free(b_done)
@@ -320,16 +354,24 @@ func merge_emit_file(abs_path: str, done: str, stack: str, stdroot: str, out: in
 }
 
 func merge_file_sources(path: str): str {
-    var src = read_file(path)
-    if str_len(src) == 0 {
+    // Resolve stdlib + newline before read_file(path): pure builtins must leave r15 (environ
+    // anchor for host_getenv) valid across IO builtins (see pure_elf_builtins.diva).
+    var path_p = path
+    var stdroot = loader_stdlib_dir()
+    var std_hold = stdroot
+    var nl = loader_newline()
+    var src = read_file(path_p)
+    var src_hold = src
+    var src_len = str_len(src_hold)
+    if src_len == 0 {
         return ""
     }
-    var nl = loader_newline()
-    var stdroot = loader_stdlib_dir()
     var b = str_builder_new()
     var done = ""
-    var r = merge_emit_file(path, done, "", stdroot, b)
-    if str_len(r) == 0 {
+    var r = merge_emit_file(path_p, done, "", std_hold, b)
+    var r_hold = r
+    var r_len = str_len(r_hold)
+    if r_len == 0 {
         str_builder_free(b)
         return ""
     }
@@ -339,20 +381,35 @@ func merge_file_sources(path: str): str {
 }
 
 func merge_package_sources(root: str): str {
-    var man = path_join_dir(root, "package.diva")
+    var root_p = root
+    var stdroot = loader_stdlib_dir()
+    var std_hold = stdroot
+    if loader_check_trace() == 1 {
+        stderr("[check-trace] merge_package_sources: after loader_stdlib_dir\n")
+    }
+    var man = path_join_dir(root_p, "package.diva")
     var ent = package_entry_relative(man)
-    if str_len(ent) == 0 {
+    if loader_check_trace() == 1 {
+        stderr("[check-trace] merge_package_sources: after package_entry_relative\n")
+    }
+    var ent_hold = ent
+    var ent_len = str_len(ent_hold)
+    if ent_len == 0 {
         stderr("loader: no entry= in package.diva under ")
-        stderr(root)
+        stderr(root_p)
         stderr(loader_newline())
         return ""
     }
-    var ep = path_join_dir(root, ent)
+    var ep = path_join_dir(root_p, ent_hold)
+    if loader_check_trace() == 1 {
+        stderr("[check-trace] merge_package_sources: before merge_emit_file\n")
+    }
     var b = str_builder_new()
     var done = ""
-    var stdroot = loader_stdlib_dir()
-    var r = merge_emit_file(ep, done, "", stdroot, b)
-    if str_len(r) == 0 {
+    var r = merge_emit_file(ep, done, "", std_hold, b)
+    var r_hold = r
+    var r_len = str_len(r_hold)
+    if r_len == 0 {
         str_builder_free(b)
         return ""
     }

@@ -1,6 +1,8 @@
 /* Pure ELF inline blob: write one ELF byte chunk via mmap + open + write.
    SysV: rdi=path, rsi=vec ptr, rdx=pos, rcx=take, r8=is_first (nonzero => O_TRUNC).
-   Preserves r15 (push/pop). No RET — inlined into caller. */
+   Preserves r15 (push/pop). No RET — inlined into caller.
+   CRITICAL: save is_first before mmap (mmap sets r8=-1); else every chunk O_TRUNC
+   and only the last chunk (~n%64000 bytes) survives. */
 .section .note.GNU-stack,"",@progbits
 .text
 .globl pure_write_elf_chunk_impl
@@ -12,8 +14,9 @@ pure_write_elf_chunk_impl:
 	pushq	%r13
 	pushq	%r14
 	pushq	%r15
+	pushq	%r8			/* is_first — mmap clobbers r8 */
 
-	movq	%rdi, %r15		/* path (save; mmap clobbers arg regs) */
+	movq	%rdi, %r15		/* path */
 	movq	%rsi, %rbx		/* vec */
 	movq	%rdx, %r12		/* pos */
 	movq	%rcx, %r13		/* take */
@@ -24,7 +27,7 @@ pure_write_elf_chunk_impl:
 	movl	$3, %edx
 	movl	$0x22, %r10d
 	movq	$-1, %r8
-	xorq	%r9, %r9		/* offset 0 — full 64-bit clear */
+	xorq	%r9, %r9
 	movl	$9, %eax
 	syscall
 	cmpq	$0, %rax
@@ -44,19 +47,20 @@ pure_write_elf_chunk_impl:
 .Lpw_fill_done:
 
 	movq	%r15, %rdi
+	movq	(%rsp), %r8		/* restore is_first */
 	testq	%r8, %r8
 	jz	.Lpw_append
-	movl	$577, %esi
+	movl	$577, %esi		/* O_CREAT|O_TRUNC|O_WRONLY */
 	jmp	.Lpw_open
 .Lpw_append:
-	movl	$1089, %esi
+	movl	$1089, %esi		/* O_CREAT|O_APPEND|O_WRONLY */
 .Lpw_open:
 	movl	$420, %edx
 	movl	$2, %eax
 	syscall
 	cmpq	$0, %rax
 	js	.Lpw_unmap_fail
-	movl	%eax, %r12d		/* fd (pos no longer needed) */
+	movl	%eax, %r12d		/* fd */
 
 	movl	%r12d, %edi
 	movq	%rbp, %rsi
@@ -90,6 +94,7 @@ pure_write_elf_chunk_impl:
 .Lpw_fail:
 	movl	$1, %eax
 .Lpw_done:
+	addq	$8, %rsp		/* drop saved is_first */
 	popq	%r15
 	popq	%r14
 	popq	%r13

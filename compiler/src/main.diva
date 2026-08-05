@@ -19,6 +19,14 @@ import "ast_dump.diva"
 import "sema.diva"
 import "loader.diva"
 
+// When DIVA_NATIVE_CMD_IR_DEBUG is non-empty, cmd_ir prints stderr milestones (native-driver bring-up).
+func native_cmd_ir_debug(): int {
+    var v = host_getenv("DIVA_NATIVE_CMD_IR_DEBUG")
+    var v_hold = v
+    if str_len(v_hold) > 0 { return 1 }
+    return 0
+}
+
 func cmd_print_usage(): int {
     stderr("usage: diva <command> [args]\n")
     stderr("  lex <file.diva> | parse <file.diva> | ir <file.diva> | asm <file.diva>\n")
@@ -30,8 +38,18 @@ func cmd_print_usage(): int {
     return 1
 }
 
+// Default write target when `build` has no second path and DIVA_NATIVE_EXE_OUT is unset.
+// Prefer ROOT_DIR/build/ — never /tmp (wiped; we already lost good builds that way).
+func native_default_exe_out(): str {
+    var root = host_getenv("ROOT_DIR")
+    if str_len(root) > 0 {
+        return path_join_dir(root, "build/diva-native-exe")
+    }
+    return "build/diva-native-exe"
+}
+
 func native_tmp_exe(): str {
-    return "/tmp/diva-native-exe"
+    return native_default_exe_out()
 }
 
 func system_exit_code(rc: int): int {
@@ -311,7 +329,8 @@ func native_require_no_externs(m: int, src: str, toks: int): int {
     // Pinned seed may lag codegen (new pure builtins). One-shot bootstrap: set
     // DIVA_SKIP_NATIVE_EXTERN_CHECK=1 when rebuilding the driver from sources.
     var skip = host_getenv("DIVA_SKIP_NATIVE_EXTERN_CHECK")
-    if (!(str_len(skip) < 1)) {
+    var skip_hold = skip
+    if (!(str_len(skip_hold) < 1)) {
         return 0
     }
     var ec = mod_extern_count(m)
@@ -421,7 +440,7 @@ func native_emit_pure_elf(code: int, main_ent: int, exe_out: str, quiet: int): i
 }
 
 // quiet: when 1, omit stderr on failure (caller may fall back to bootstrap).
-func native_compile_and_link(merged_src: str, quiet: int): int {
+func native_compile_and_link(merged_src: str, quiet: int, exe_out: str): int {
     var stream = lex_source(merged_src)
     if stream == 0 {
         if quiet == 0 { err_line("lexer error") }
@@ -441,7 +460,6 @@ func native_compile_and_link(merged_src: str, quiet: int): int {
     var ir_result = build_ir(merged_src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     var strv = int_vec_get(ir_result, 1)
-    var exe_out = native_tmp_exe()
     if native_require_no_externs(m, merged_src, stream) != 0 { return 1 }
     var code = int_vec_new()
     var main_ent = cg_module_to_bin(m, merged_src, stream, strv, code)
@@ -465,13 +483,14 @@ func err_line(msg: str): int {
 }
 
 func read_source(path: str): str {
-    if (file_size(path) < 0) {
+    var path_p = path
+    if (file_size(path_p) < 0) {
         stderr("error: cannot read file: ")
-        stderr(path)
+        stderr(path_p)
         stderr(char_to_str(10))
         return ""
     }
-    return read_file(path)
+    return read_file(path_p)
 }
 
 func path_is_diva_file(p: str): int {
@@ -490,27 +509,32 @@ func build_path_is_package_dir(path: str): int {
     return path_is_package_dir(path)
 }
 
-// Real LF byte from file — Diva `"\n"` in source is two chars (backslash + n), not ASCII 10.
+// Real LF byte from file (bootstrap / cwd-agnostic). String literals use `tok_str_value` (`\n` → ASCII 10).
 // Resolve via cwd-relative paths first, then DI_STDLIB_DIR/std/lf.txt, then ROOT_DIR.
 func newline_str(): str {
     var s = read_file("compiler/res/lf.txt")
-    if (!(str_len(s) < 1)) {
-        return str_slice(s, 0, 1)
+    var s_hold = s
+    if (!(str_len(s_hold) < 1)) {
+        return str_slice(s_hold, 0, 1)
     }
     s = read_file("res/lf.txt")
-    if (!(str_len(s) < 1)) {
-        return str_slice(s, 0, 1)
+    s_hold = s
+    if (!(str_len(s_hold) < 1)) {
+        return str_slice(s_hold, 0, 1)
     }
     var stdroot = loader_stdlib_dir()
     s = read_file(path_join_dir(stdroot, "std/lf.txt"))
-    if (!(str_len(s) < 1)) {
-        return str_slice(s, 0, 1)
+    s_hold = s
+    if (!(str_len(s_hold) < 1)) {
+        return str_slice(s_hold, 0, 1)
     }
     var root = host_getenv("ROOT_DIR")
-    if str_len(root) > 0 {
-        s = read_file(path_join_dir(root, "compiler/res/lf.txt"))
-        if (!(str_len(s) < 1)) {
-            return str_slice(s, 0, 1)
+    var root_hold = root
+    if str_len(root_hold) > 0 {
+        s = read_file(path_join_dir(root_hold, "compiler/res/lf.txt"))
+        s_hold = s
+        if (!(str_len(s_hold) < 1)) {
+            return str_slice(s_hold, 0, 1)
         }
     }
     var empty = ""
@@ -791,10 +815,12 @@ func cmd_lex(path: str): int {
 
 func cmd_parse(path: str): int {
     var src = read_source(path)
-    if str_len(src) == 0 { return 1 }
-    var stream = lex_source(src)
+    var src_hold = src
+    var src_len = str_len(src_hold)
+    if src_len == 0 { return 1 }
+    var stream = lex_source(src_hold)
     if stream == 0 { err_line("lexer error") return 1 }
-    var pr = parse_source(src, stream, 0)
+    var pr = parse_source(src_hold, stream, 0)
     var ast = int_vec_get(pr, 0)
     var had_err = int_vec_get(pr, 1)
     if had_err != 0 { err_line("parse failed") return 1 }
@@ -810,32 +836,45 @@ func cmd_parse(path: str): int {
 }
 
 func cmd_ir(path: str): int {
-    var src = merge_file_sources(path)
-    if str_len(src) == 0 { return 1 }
-    var stream = lex_source(src)
+    var path_p = path
+    var dbg = native_cmd_ir_debug()
+    var src = merge_file_sources(path_p)
+    // Pin merged source: downstream calls (including debug printing) may reuse the same slot as `src`.
+    var src_hold = src
+    var src_len = str_len(src_hold)
+    if src_len == 0 { return 1 }
+    if dbg == 1 { err_line("native cmd_ir: merged") }
+    var stream = lex_source(src_hold)
     if stream == 0 { return 1 }
-    var pr = parse_source(src, stream, 0)
+    if dbg == 1 { err_line("native cmd_ir: lexed") }
+    var pr = parse_source(src_hold, stream, 0)
     var ast = int_vec_get(pr, 0)
     if int_vec_get(pr, 1) != 0 { err_line("parse failed") return 1 }
-    if sema_check_file(src, stream, ast) != 0 { return 1 }
-    var ir_result = build_ir(src, stream, ast)
+    if dbg == 1 { err_line("native cmd_ir: parsed") }
+    if sema_check_file(src_hold, stream, ast) != 0 { return 1 }
+    if dbg == 1 { err_line("native cmd_ir: sema ok") }
+    var ir_result = build_ir(src_hold, stream, ast)
+    if dbg == 1 { err_line("native cmd_ir: build_ir ok") }
     var m = int_vec_get(ir_result, 0)
-    dump_module(m, src, stream)
+    dump_module(m, src_hold, stream)
     return 0
 }
 
 func cmd_asm(path: str): int {
-    var src = merge_file_sources(path)
-    if str_len(src) == 0 { return 1 }
-    var stream = lex_source(src)
+    var path_p = path
+    var src = merge_file_sources(path_p)
+    var src_hold = src
+    var src_len = str_len(src_hold)
+    if src_len == 0 { return 1 }
+    var stream = lex_source(src_hold)
     if stream == 0 { return 1 }
-    var pr = parse_source(src, stream, 0)
+    var pr = parse_source(src_hold, stream, 0)
     var ast = int_vec_get(pr, 0)
     if int_vec_get(pr, 1) != 0 { print_str("parse failed") return 1 }
-    if sema_check_file(src, stream, ast) != 0 { return 1 }
-    var ir_result = build_ir(src, stream, ast)
+    if sema_check_file(src_hold, stream, ast) != 0 { return 1 }
+    var ir_result = build_ir(src_hold, stream, ast)
     var m = int_vec_get(ir_result, 0)
-    cg_module_print(m, src, stream, int_vec_get(ir_result, 1), newline_str())
+    cg_module_print(m, src_hold, stream, int_vec_get(ir_result, 1), newline_str())
     return 0
 }
 
@@ -854,34 +893,38 @@ func cmd_emit_ir(path: str): int {
         }
         src = merge_file_sources(path)
     }
-    if str_len(src) == 0 { return 1 }
-    var stream = lex_source(src)
+    var src_hold = src
+    var src_len = str_len(src_hold)
+    if src_len == 0 { return 1 }
+    var stream = lex_source(src_hold)
     if stream == 0 { return 1 }
-    var pr = parse_source(src, stream, 1)
+    var pr = parse_source(src_hold, stream, 1)
     if int_vec_get(pr, 1) != 0 {
         err_line("emit-ir: parse failed")
         return 1
     }
     var ast = int_vec_get(pr, 0)
-    if sema_check_file(src, stream, ast) != 0 { return 1 }
-    var ir_result = build_ir(src, stream, ast)
+    if sema_check_file(src_hold, stream, ast) != 0 { return 1 }
+    var ir_result = build_ir(src_hold, stream, ast)
     var m = int_vec_get(ir_result, 0)
-    dump_module(m, src, stream)
+    dump_module(m, src_hold, stream)
     return 0
 }
 
 func cmd_build_ast(path: str): int {
     var src = read_source(path)
-    if str_len(src) == 0 { return 1 }
-    var stream = lex_source(src)
+    var src_hold = src
+    var src_len = str_len(src_hold)
+    if src_len == 0 { return 1 }
+    var stream = lex_source(src_hold)
     if stream == 0 { return 1 }
-    var pr = parse_source(src, stream, 0)
+    var pr = parse_source(src_hold, stream, 0)
     var ast = int_vec_get(pr, 0)
     if int_vec_get(pr, 1) != 0 {
         err_line("parse failed")
         return 1
     }
-    ast_dump_program(path, src, stream, ast, newline_str())
+    ast_dump_program(path, src_hold, stream, ast, newline_str())
     return 0
 }
 
@@ -898,6 +941,34 @@ func pick_build_path(): str {
         i = i + 1
     }
     return path
+}
+
+// Second positional after source: `diva build <src> <out>`. Else DIVA_NATIVE_EXE_OUT, else build/diva-native-exe.
+func pick_build_out_path(): str {
+    var first = ""
+    var second = ""
+    var i = 2
+    while (i < host_argc()) {
+        var a = host_argv(i)
+        if str_byte(a, 0) != 45 {
+            if str_len(first) == 0 {
+                first = a
+            } else {
+                if str_len(second) == 0 {
+                    second = a
+                }
+            }
+        }
+        i = i + 1
+    }
+    if str_len(second) > 0 {
+        return second
+    }
+    var envp = host_getenv("DIVA_NATIVE_EXE_OUT")
+    if str_len(envp) > 0 {
+        return envp
+    }
+    return native_default_exe_out()
 }
 
 func build_wants_ast(): int {
@@ -918,35 +989,51 @@ func cmd_check(): int {
         return 1
     }
     var path = host_argv(2)
-    if path_is_package_dir(path) == 0 {
+    var path_h = path
+    if path_is_package_dir(path_h) == 0 {
         err_line("check: expected a package directory (with package.diva)")
         return 1
     }
-    if package_is_kernel_dir(path) == 1 {
+    if package_is_kernel_dir(path_h) == 1 {
         err_line("check: kernel packages are not supported in the native driver")
         return 1
     }
-    var merged = merge_package_sources(path)
-    if str_len(merged) == 0 {
+    var merged = merge_package_sources(path_h)
+    // Pin before loader_check_trace / err_line (getenv + IO may clobber `merged`'s slot).
+    var merged_hold = merged
+    if loader_check_trace() == 1 {
+        err_line("check-trace: after merge_package_sources")
+    }
+    var merged_len = str_len(merged_hold)
+    if merged_len == 0 {
         err_line("check: could not merge package sources (see loader messages above)")
         return 1
     }
-    if native_driver_should_delegate(merged) == 1 {
+    if native_driver_should_delegate(merged_hold) == 1 {
         err_line("check: native driver cannot handle this source surface yet")
         return 1
     }
-    var stream = lex_source(merged)
+    if loader_check_trace() == 1 {
+        err_line("check-trace: before lex_source")
+    }
+    var stream = lex_source(merged_hold)
     if stream == 0 {
         err_line("lexer error")
         return 1
     }
-    var pr = parse_source(merged, stream, 0)
+    if loader_check_trace() == 1 {
+        err_line("check-trace: before parse_source")
+    }
+    var pr = parse_source(merged_hold, stream, 0)
     if int_vec_get(pr, 1) != 0 {
         err_line("check: parse failed")
         return 1
     }
+    if loader_check_trace() == 1 {
+        err_line("check-trace: before sema_check_file")
+    }
     var ast = int_vec_get(pr, 0)
-    if sema_check_file(merged, stream, ast) != 0 {
+    if sema_check_file(merged_hold, stream, ast) != 0 {
         return 1
     }
     return 0
@@ -978,7 +1065,9 @@ func cmd_build(): int {
     var merged = ""
     if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
-        if str_len(merged) == 0 {
+        var merged_hold = merged
+        var merged_len = str_len(merged_hold)
+        if merged_len == 0 {
             err_line("build: could not merge package sources (see loader messages above)")
             return 1
         }
@@ -989,21 +1078,27 @@ func cmd_build(): int {
         }
         // Use merged source to handle imports
         merged = merge_file_sources(path)
-        if str_len(merged) == 0 {
+        var merged_try = merged
+        var merged_try_len = str_len(merged_try)
+        if merged_try_len == 0 {
             merged = read_source(path)
         }
     }
-    if str_len(merged) == 0 {
+    var merged_out = merged
+    var merged_out_hold = merged_out
+    var merged_final_len = str_len(merged_out_hold)
+    if merged_final_len == 0 {
         return 1
     }
-    if native_driver_should_delegate(merged) == 1 {
+    if native_driver_should_delegate(merged_out_hold) == 1 {
         err_line("build: native driver cannot handle this source surface yet")
         return 1
     }
-    if native_compile_and_link(merged, 0) != 0 {
+    var exe_out = pick_build_out_path()
+    if native_compile_and_link(merged_out_hold, 0, exe_out) != 0 {
         return 1
     }
-    var built_msg = str_concat("[native] built executable at ", native_tmp_exe())
+    var built_msg = str_concat("[native] built executable at ", exe_out)
     print_str(built_msg)
     stdout(newline_str())
     return 0
@@ -1013,7 +1108,9 @@ func cmd_run_file(path: str): int {
     var merged = ""
     if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
-        if str_len(merged) == 0 {
+        var merged_hold = merged
+        var merged_len = str_len(merged_hold)
+        if merged_len == 0 {
             err_line("run: could not merge package sources (see loader messages above)")
             return 1
         }
@@ -1024,21 +1121,27 @@ func cmd_run_file(path: str): int {
         }
         // Use merged source to handle imports
         merged = merge_file_sources(path)
-        if str_len(merged) == 0 {
+        var merged_try = merged
+        var merged_try_len = str_len(merged_try)
+        if merged_try_len == 0 {
             merged = read_source(path)
         }
     }
-    if str_len(merged) == 0 {
+    var merged_out = merged
+    var merged_out_hold = merged_out
+    var merged_final_len = str_len(merged_out_hold)
+    if merged_final_len == 0 {
         return 1
     }
-    if native_driver_should_delegate(merged) == 1 {
+    if native_driver_should_delegate(merged_out_hold) == 1 {
         err_line("run: native driver cannot handle this source surface yet")
         return 1
     }
-    if native_compile_and_link(merged, 0) != 0 {
+    var exe_out = native_default_exe_out()
+    if native_compile_and_link(merged_out_hold, 0, exe_out) != 0 {
         return 1
     }
-    var rc = host_system(native_tmp_exe())
+    var rc = host_system(exe_out)
     return system_exit_code(rc)
 }
 
