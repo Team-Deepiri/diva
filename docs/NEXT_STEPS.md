@@ -1,22 +1,18 @@
-# Next steps — pure ELF bootstrap
+# Next steps — after string arena
 
-**Leave-off:** `docs/LEAVE_OFF.md` (2026-08-04).
-
-## Green
-
-Pure self-host with **handle-table grow** (stage2≡stage3), strict-pure **31/31**, seed promoted.
+**Leave-off:** `docs/LEAVE_OFF.md` (RSS ~567 MiB; seed promoted).
 
 ## Do next
 
-1. Shrink initial vec/builder mmap to cut ~28 GiB compile RSS.  
-2. More CI beyond `tests/strict-pure.list`.
+1. Bump arena for tiny AST `int_vec` objects (cut remaining ~0.5 GiB page tax).
+2. Broader CI beyond `tests/strict-pure.list`.
+3. Optional: skip per-call `FIXED_NOREPLACE` probes once arena/HT are live (micro-opt).
 
 ## Footguns
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| `parse failed` on merged compiler | Handle table full at 64K — now 1 048 575 slots |
-| Second `*_new` returned 0 | `-EEXIST` is `-17` |
-| `write_elf_chunk` SEGV | Resolve handle → object |
-| Huge RSS on full build | 1 MiB initial per object — shrink INIT next |
-| pass1/pass2 Δ | Sync emit + size before cc-link |
+| ~28 GiB RSS | page-rounded string `mmap` — STRA arena |
+| Emit size drift | sync return + `pure_builtin_call_size` |
+| `0xc3` in pure blob | NO ret on inlined builtins |
+| Don’t commit | `bootstrap/*.bak-*` |
