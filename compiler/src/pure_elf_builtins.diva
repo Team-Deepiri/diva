@@ -2,136 +2,176 @@
 import "std/vec.diva"
 import "tokens.diva"
 
-func emit_pure_int_vec_new_a(out: int): int {
-    // mmap 16MiB: int_vec cap = (0x1000000 - 24) / 8 = 0x1ffffd qwords.
-    // Codegen stores 1 machine byte per slot; full compiler ELF ~700KiB exceeds 4MiB/524285.
-    int_vec_push(out, 49) int_vec_push(out, 255) int_vec_push(out, 190) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 1) int_vec_push(out, 186) int_vec_push(out, 3) int_vec_push(out, 0)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 34) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 199)
-    int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 77) int_vec_push(out, 49) int_vec_push(out, 201) int_vec_push(out, 184) int_vec_push(out, 9)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 185) int_vec_push(out, 253) int_vec_push(out, 255) int_vec_push(out, 31) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 72)
-    return 0
-}
-func emit_pure_int_vec_new_b(out: int): int {
-    int_vec_push(out, 8) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 64) int_vec_push(out, 16) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 1) int_vec_push(out, 144)
-    int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144)
-    int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144)
-    int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144)
-    int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144)
-    return 0
-}
 func emit_pure_int_vec_new(out: int): int {
-    emit_pure_int_vec_new_a(out)
-    emit_pure_int_vec_new_b(out)
-    return 96
+    // compiler/res/pure_int_vec_new.s
+    int_vec_push(out, 83) int_vec_push(out, 65) int_vec_push(out, 84) int_vec_push(out, 72) int_vec_push(out, 191) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 190) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 128) int_vec_push(out, 0) int_vec_push(out, 186) int_vec_push(out, 3)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 50) int_vec_push(out, 0) int_vec_push(out, 16) int_vec_push(out, 0) int_vec_push(out, 73)
+    int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 69) int_vec_push(out, 49) int_vec_push(out, 201) int_vec_push(out, 184)
+    int_vec_push(out, 9) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 61) int_vec_push(out, 0) int_vec_push(out, 240)
+    int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 118) int_vec_push(out, 2) int_vec_push(out, 235) int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 0) int_vec_push(out, 1)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 49) int_vec_push(out, 255) int_vec_push(out, 190) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 16) int_vec_push(out, 0)
+    int_vec_push(out, 186) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 34) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 69) int_vec_push(out, 49)
+    int_vec_push(out, 201) int_vec_push(out, 184) int_vec_push(out, 9) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 61)
+    int_vec_push(out, 0) int_vec_push(out, 240) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 119) int_vec_push(out, 86) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 195) int_vec_push(out, 72)
+    int_vec_push(out, 199) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 185) int_vec_push(out, 253) int_vec_push(out, 255) int_vec_push(out, 1)
+    int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 75) int_vec_push(out, 8) int_vec_push(out, 185) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 16) int_vec_push(out, 0)
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 75) int_vec_push(out, 16) int_vec_push(out, 73) int_vec_push(out, 188) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 139) int_vec_push(out, 20) int_vec_push(out, 36) int_vec_push(out, 72) int_vec_push(out, 129)
+    int_vec_push(out, 250) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 15) int_vec_push(out, 0) int_vec_push(out, 119) int_vec_push(out, 20) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 28)
+    int_vec_push(out, 212) int_vec_push(out, 72) int_vec_push(out, 141) int_vec_push(out, 74) int_vec_push(out, 1) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 12) int_vec_push(out, 36) int_vec_push(out, 72)
+    int_vec_push(out, 137) int_vec_push(out, 208) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 91) int_vec_push(out, 235) int_vec_push(out, 20) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 223)
+    int_vec_push(out, 190) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 16) int_vec_push(out, 0) int_vec_push(out, 184) int_vec_push(out, 11) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 91) int_vec_push(out, 144)
+    return 198
 }
 
+
 func emit_pure_int_vec_push(out: int): int {
-    // compiler/res/pure_int_vec_push.s — push; exit_group(2) on full (no ret).
-    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 46) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 16)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 37) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 79)
-    int_vec_push(out, 8) int_vec_push(out, 72) int_vec_push(out, 57) int_vec_push(out, 200) int_vec_push(out, 125) int_vec_push(out, 13) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 116) int_vec_push(out, 199)
-    int_vec_push(out, 24) int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 192) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 7) int_vec_push(out, 235) int_vec_push(out, 14) int_vec_push(out, 184)
-    int_vec_push(out, 231) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 191) int_vec_push(out, 2) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15)
-    int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 144)
-    return 54
+    // compiler/res/pure_int_vec_push.s
+    int_vec_push(out, 83) int_vec_push(out, 65) int_vec_push(out, 84) int_vec_push(out, 65) int_vec_push(out, 85) int_vec_push(out, 65) int_vec_push(out, 86) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 252)
+    int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 245) int_vec_push(out, 77) int_vec_push(out, 133) int_vec_push(out, 228) int_vec_push(out, 15) int_vec_push(out, 132) int_vec_push(out, 135) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 129) int_vec_push(out, 252) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 15) int_vec_push(out, 0) int_vec_push(out, 119)
+    int_vec_push(out, 126) int_vec_push(out, 72) int_vec_push(out, 184) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 80) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 74) int_vec_push(out, 139) int_vec_push(out, 28) int_vec_push(out, 224) int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 219) int_vec_push(out, 116) int_vec_push(out, 107)
+    int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 3) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 75) int_vec_push(out, 8) int_vec_push(out, 72) int_vec_push(out, 57) int_vec_push(out, 200)
+    int_vec_push(out, 125) int_vec_push(out, 13) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 108) int_vec_push(out, 195) int_vec_push(out, 24) int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 192)
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 3) int_vec_push(out, 235) int_vec_push(out, 84) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 115) int_vec_push(out, 16) int_vec_push(out, 76)
+    int_vec_push(out, 141) int_vec_push(out, 52) int_vec_push(out, 54) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 223) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 242) int_vec_push(out, 65)
+    int_vec_push(out, 186) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 184) int_vec_push(out, 25) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 61) int_vec_push(out, 0) int_vec_push(out, 240) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 119) int_vec_push(out, 35)
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 195) int_vec_push(out, 72) int_vec_push(out, 185) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 74) int_vec_push(out, 137) int_vec_push(out, 28) int_vec_push(out, 225) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 115)
+    int_vec_push(out, 16) int_vec_push(out, 73) int_vec_push(out, 141) int_vec_push(out, 70) int_vec_push(out, 232) int_vec_push(out, 72) int_vec_push(out, 193) int_vec_push(out, 232) int_vec_push(out, 3) int_vec_push(out, 72)
+    int_vec_push(out, 137) int_vec_push(out, 67) int_vec_push(out, 8) int_vec_push(out, 235) int_vec_push(out, 161) int_vec_push(out, 184) int_vec_push(out, 231) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 191) int_vec_push(out, 2) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 65)
+    int_vec_push(out, 94) int_vec_push(out, 65) int_vec_push(out, 93) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 91) int_vec_push(out, 144)
+    return 167
 }
 
 func emit_pure_int_vec_len(out: int): int {
     // compiler/res/pure_int_vec_len.s
-    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 14) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 16)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 7) int_vec_push(out, 235) int_vec_push(out, 7) int_vec_push(out, 72)
-    int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 144)
-    return 27
+    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 33) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255)
+    int_vec_push(out, 15) int_vec_push(out, 0) int_vec_push(out, 119) int_vec_push(out, 24) int_vec_push(out, 72) int_vec_push(out, 184) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 60) int_vec_push(out, 248) int_vec_push(out, 72) int_vec_push(out, 133)
+    int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 7) int_vec_push(out, 235) int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 199)
+    int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 144)
+    return 46
 }
 
 func emit_pure_int_vec_get(out: int): int {
-    // compiler/res/pure_int_vec_get.s — null / small-handle / OOB; fall through (no ret).
-    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 24) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 16)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 15) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 57) int_vec_push(out, 198)
-    int_vec_push(out, 115) int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 68) int_vec_push(out, 247) int_vec_push(out, 24) int_vec_push(out, 235) int_vec_push(out, 7) int_vec_push(out, 72)
-    int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 144)
-    return 37
+    // compiler/res/pure_int_vec_get.s
+    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 43) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255)
+    int_vec_push(out, 15) int_vec_push(out, 0) int_vec_push(out, 119) int_vec_push(out, 34) int_vec_push(out, 72) int_vec_push(out, 184) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 60) int_vec_push(out, 248) int_vec_push(out, 72) int_vec_push(out, 133)
+    int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 15) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 57) int_vec_push(out, 198) int_vec_push(out, 115)
+    int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 68) int_vec_push(out, 247) int_vec_push(out, 24) int_vec_push(out, 235) int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 199)
+    int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 144)
+    return 56
 }
 
 func emit_pure_int_vec_free(out: int): int {
     // compiler/res/pure_int_vec_free.s
-    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 20) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 16)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 11) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 119) int_vec_push(out, 16) int_vec_push(out, 184) int_vec_push(out, 11)
+    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 50) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255)
+    int_vec_push(out, 15) int_vec_push(out, 0) int_vec_push(out, 119) int_vec_push(out, 41) int_vec_push(out, 72) int_vec_push(out, 184) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 12) int_vec_push(out, 248) int_vec_push(out, 72) int_vec_push(out, 133)
+    int_vec_push(out, 201) int_vec_push(out, 116) int_vec_push(out, 22) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 4) int_vec_push(out, 248) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 113) int_vec_push(out, 16) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 207) int_vec_push(out, 184) int_vec_push(out, 11)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 144)
-    return 26
+    return 56
 }
 
-func emit_pure_str_builder_new_a(out: int): int {
-    // mmap 16MiB: byte cap = 0x1000000 - 24 = 0xffffe8 (exact fit with 24-byte header).
-    int_vec_push(out, 49) int_vec_push(out, 255) int_vec_push(out, 190) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 1) int_vec_push(out, 186) int_vec_push(out, 3) int_vec_push(out, 0)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 34) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 199)
-    int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 77) int_vec_push(out, 49) int_vec_push(out, 201) int_vec_push(out, 184) int_vec_push(out, 9)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 185) int_vec_push(out, 232) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 72)
-    return 0
-}
-func emit_pure_str_builder_new_b(out: int): int {
-    int_vec_push(out, 8) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 64) int_vec_push(out, 16) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 1) int_vec_push(out, 144)
-    int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144)
-    int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144)
-    int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144)
-    int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144) int_vec_push(out, 144)
-    return 0
-}
 func emit_pure_str_builder_new(out: int): int {
-    emit_pure_str_builder_new_a(out)
-    emit_pure_str_builder_new_b(out)
-    return 96
+    // compiler/res/pure_str_builder_new.s
+    int_vec_push(out, 83) int_vec_push(out, 65) int_vec_push(out, 84) int_vec_push(out, 72) int_vec_push(out, 191) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 190) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 128) int_vec_push(out, 0) int_vec_push(out, 186) int_vec_push(out, 3)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 50) int_vec_push(out, 0) int_vec_push(out, 16) int_vec_push(out, 0) int_vec_push(out, 73)
+    int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 69) int_vec_push(out, 49) int_vec_push(out, 201) int_vec_push(out, 184)
+    int_vec_push(out, 9) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 61) int_vec_push(out, 0) int_vec_push(out, 240)
+    int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 118) int_vec_push(out, 2) int_vec_push(out, 235) int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 0) int_vec_push(out, 1)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 49) int_vec_push(out, 255) int_vec_push(out, 190) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 16) int_vec_push(out, 0)
+    int_vec_push(out, 186) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 34) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 69) int_vec_push(out, 49)
+    int_vec_push(out, 201) int_vec_push(out, 184) int_vec_push(out, 9) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 61)
+    int_vec_push(out, 0) int_vec_push(out, 240) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 119) int_vec_push(out, 86) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 195) int_vec_push(out, 72)
+    int_vec_push(out, 199) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 185) int_vec_push(out, 232) int_vec_push(out, 255) int_vec_push(out, 15)
+    int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 75) int_vec_push(out, 8) int_vec_push(out, 185) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 16) int_vec_push(out, 0)
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 75) int_vec_push(out, 16) int_vec_push(out, 73) int_vec_push(out, 188) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 139) int_vec_push(out, 20) int_vec_push(out, 36) int_vec_push(out, 72) int_vec_push(out, 129)
+    int_vec_push(out, 250) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 15) int_vec_push(out, 0) int_vec_push(out, 119) int_vec_push(out, 20) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 28)
+    int_vec_push(out, 212) int_vec_push(out, 72) int_vec_push(out, 141) int_vec_push(out, 74) int_vec_push(out, 1) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 12) int_vec_push(out, 36) int_vec_push(out, 72)
+    int_vec_push(out, 137) int_vec_push(out, 208) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 91) int_vec_push(out, 235) int_vec_push(out, 20) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 223)
+    int_vec_push(out, 190) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 16) int_vec_push(out, 0) int_vec_push(out, 184) int_vec_push(out, 11) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 91) int_vec_push(out, 144)
+    return 198
 }
+
 
 func emit_pure_str_builder_append(out: int): int {
-    // compiler/res/pure_str_builder_append.s — append; exit_group(2) on full (no ret).
-    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 25) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 16)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 16) int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 246) int_vec_push(out, 116) int_vec_push(out, 11) int_vec_push(out, 72)
-    int_vec_push(out, 129) int_vec_push(out, 254) int_vec_push(out, 0) int_vec_push(out, 16) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 2) int_vec_push(out, 235) int_vec_push(out, 4)
-    int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 235) int_vec_push(out, 92) int_vec_push(out, 83) int_vec_push(out, 65) int_vec_push(out, 84) int_vec_push(out, 65) int_vec_push(out, 85) int_vec_push(out, 65)
-    int_vec_push(out, 86) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 251) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 244) int_vec_push(out, 49) int_vec_push(out, 201) int_vec_push(out, 65)
-    int_vec_push(out, 128) int_vec_push(out, 60) int_vec_push(out, 12) int_vec_push(out, 0) int_vec_push(out, 116) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 193) int_vec_push(out, 235)
-    int_vec_push(out, 244) int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 201) int_vec_push(out, 116) int_vec_push(out, 51) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 3) int_vec_push(out, 76)
-    int_vec_push(out, 139) int_vec_push(out, 67) int_vec_push(out, 8) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 197) int_vec_push(out, 73) int_vec_push(out, 1) int_vec_push(out, 205) int_vec_push(out, 77)
-    int_vec_push(out, 57) int_vec_push(out, 197) int_vec_push(out, 119) int_vec_push(out, 21) int_vec_push(out, 76) int_vec_push(out, 141) int_vec_push(out, 116) int_vec_push(out, 3) int_vec_push(out, 24) int_vec_push(out, 76)
-    int_vec_push(out, 137) int_vec_push(out, 247) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 230) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 201) int_vec_push(out, 243) int_vec_push(out, 164)
-    int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 43) int_vec_push(out, 235) int_vec_push(out, 14) int_vec_push(out, 184) int_vec_push(out, 231) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, 191) int_vec_push(out, 2) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 65)
+    // compiler/res/pure_str_builder_append.s
+    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 25) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255)
+    int_vec_push(out, 15) int_vec_push(out, 0) int_vec_push(out, 119) int_vec_push(out, 16) int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 246) int_vec_push(out, 116) int_vec_push(out, 11) int_vec_push(out, 72)
+    int_vec_push(out, 129) int_vec_push(out, 254) int_vec_push(out, 0) int_vec_push(out, 16) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 2) int_vec_push(out, 235) int_vec_push(out, 7)
+    int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 233) int_vec_push(out, 189) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 83) int_vec_push(out, 65) int_vec_push(out, 84)
+    int_vec_push(out, 65) int_vec_push(out, 85) int_vec_push(out, 65) int_vec_push(out, 86) int_vec_push(out, 65) int_vec_push(out, 87) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 255) int_vec_push(out, 73)
+    int_vec_push(out, 137) int_vec_push(out, 244) int_vec_push(out, 72) int_vec_push(out, 184) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 80)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 74) int_vec_push(out, 139) int_vec_push(out, 28) int_vec_push(out, 248) int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 219) int_vec_push(out, 15)
+    int_vec_push(out, 132) int_vec_push(out, 140) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 49) int_vec_push(out, 201) int_vec_push(out, 65) int_vec_push(out, 128) int_vec_push(out, 60)
+    int_vec_push(out, 12) int_vec_push(out, 0) int_vec_push(out, 116) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 255) int_vec_push(out, 193) int_vec_push(out, 235) int_vec_push(out, 244) int_vec_push(out, 72)
+    int_vec_push(out, 133) int_vec_push(out, 201) int_vec_push(out, 116) int_vec_push(out, 117) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 205) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 3)
+    int_vec_push(out, 76) int_vec_push(out, 139) int_vec_push(out, 67) int_vec_push(out, 8) int_vec_push(out, 78) int_vec_push(out, 141) int_vec_push(out, 52) int_vec_push(out, 40) int_vec_push(out, 77) int_vec_push(out, 57)
+    int_vec_push(out, 198) int_vec_push(out, 119) int_vec_push(out, 20) int_vec_push(out, 72) int_vec_push(out, 141) int_vec_push(out, 124) int_vec_push(out, 3) int_vec_push(out, 24) int_vec_push(out, 76) int_vec_push(out, 137)
+    int_vec_push(out, 230) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 233) int_vec_push(out, 243) int_vec_push(out, 164) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 51) int_vec_push(out, 49)
+    int_vec_push(out, 192) int_vec_push(out, 235) int_vec_push(out, 84) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 115) int_vec_push(out, 16) int_vec_push(out, 76) int_vec_push(out, 141) int_vec_push(out, 52)
+    int_vec_push(out, 54) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 223) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 242) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 1)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 184) int_vec_push(out, 25) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5)
+    int_vec_push(out, 72) int_vec_push(out, 61) int_vec_push(out, 0) int_vec_push(out, 240) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 119) int_vec_push(out, 31) int_vec_push(out, 72) int_vec_push(out, 137)
+    int_vec_push(out, 195) int_vec_push(out, 72) int_vec_push(out, 185) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 80) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 74) int_vec_push(out, 137) int_vec_push(out, 28) int_vec_push(out, 249) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 115) int_vec_push(out, 16) int_vec_push(out, 73)
+    int_vec_push(out, 141) int_vec_push(out, 70) int_vec_push(out, 232) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 67) int_vec_push(out, 8) int_vec_push(out, 235) int_vec_push(out, 154) int_vec_push(out, 184)
+    int_vec_push(out, 231) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 191) int_vec_push(out, 2) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15)
+    int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 235) int_vec_push(out, 2) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 65) int_vec_push(out, 95) int_vec_push(out, 65)
     int_vec_push(out, 94) int_vec_push(out, 65) int_vec_push(out, 93) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 91) int_vec_push(out, 144)
-    return 127
+    return 227
 }
 
 func emit_pure_str_builder_len(out: int): int {
     // compiler/res/pure_str_builder_len.s
-    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 14) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 16)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 7) int_vec_push(out, 235) int_vec_push(out, 7) int_vec_push(out, 72)
-    int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 144)
-    return 27
+    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 33) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255)
+    int_vec_push(out, 15) int_vec_push(out, 0) int_vec_push(out, 119) int_vec_push(out, 24) int_vec_push(out, 72) int_vec_push(out, 184) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 60) int_vec_push(out, 248) int_vec_push(out, 72) int_vec_push(out, 133)
+    int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 7) int_vec_push(out, 235) int_vec_push(out, 7) int_vec_push(out, 72) int_vec_push(out, 199)
+    int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 144)
+    return 46
 }
 
 func emit_pure_str_builder_to_str(out: int): int {
-    // compiler/res/pure_str_builder_to_str.s — guard rdi before mov (%r12)
-    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 11) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 16)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 2) int_vec_push(out, 235) int_vec_push(out, 4) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 235) int_vec_push(out, 76)
-    int_vec_push(out, 83) int_vec_push(out, 65) int_vec_push(out, 84) int_vec_push(out, 65) int_vec_push(out, 85) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 252) int_vec_push(out, 77) int_vec_push(out, 139)
-    int_vec_push(out, 44) int_vec_push(out, 36) int_vec_push(out, 49) int_vec_push(out, 255) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 238) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 198)
-    int_vec_push(out, 1) int_vec_push(out, 186) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 34) int_vec_push(out, 0)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 77)
-    int_vec_push(out, 49) int_vec_push(out, 201) int_vec_push(out, 184) int_vec_push(out, 9) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72)
-    int_vec_push(out, 137) int_vec_push(out, 195) int_vec_push(out, 73) int_vec_push(out, 141) int_vec_push(out, 116) int_vec_push(out, 36) int_vec_push(out, 24) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 223)
-    int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 233) int_vec_push(out, 243) int_vec_push(out, 164) int_vec_push(out, 198) int_vec_push(out, 7) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 137)
-    int_vec_push(out, 216) int_vec_push(out, 65) int_vec_push(out, 93) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 91) int_vec_push(out, 144)
-    return 97
+    // compiler/res/pure_str_builder_to_str.s
+    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 30) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255)
+    int_vec_push(out, 15) int_vec_push(out, 0) int_vec_push(out, 119) int_vec_push(out, 21) int_vec_push(out, 72) int_vec_push(out, 184) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 60) int_vec_push(out, 248) int_vec_push(out, 72) int_vec_push(out, 133)
+    int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 2) int_vec_push(out, 235) int_vec_push(out, 4) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 235) int_vec_push(out, 76) int_vec_push(out, 83)
+    int_vec_push(out, 65) int_vec_push(out, 84) int_vec_push(out, 65) int_vec_push(out, 85) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 252) int_vec_push(out, 77) int_vec_push(out, 139) int_vec_push(out, 44)
+    int_vec_push(out, 36) int_vec_push(out, 49) int_vec_push(out, 255) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 238) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 198) int_vec_push(out, 1)
+    int_vec_push(out, 186) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 34) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 77) int_vec_push(out, 49)
+    int_vec_push(out, 201) int_vec_push(out, 184) int_vec_push(out, 9) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 137)
+    int_vec_push(out, 195) int_vec_push(out, 73) int_vec_push(out, 141) int_vec_push(out, 116) int_vec_push(out, 36) int_vec_push(out, 24) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 223) int_vec_push(out, 76)
+    int_vec_push(out, 137) int_vec_push(out, 233) int_vec_push(out, 243) int_vec_push(out, 164) int_vec_push(out, 198) int_vec_push(out, 7) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 216)
+    int_vec_push(out, 65) int_vec_push(out, 93) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 91) int_vec_push(out, 144)
+    return 116
 }
 
 func emit_pure_str_builder_free(out: int): int {
     // compiler/res/pure_str_builder_free.s
-    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 20) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 0) int_vec_push(out, 16)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 114) int_vec_push(out, 11) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 119) int_vec_push(out, 16) int_vec_push(out, 184) int_vec_push(out, 11)
+    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 116) int_vec_push(out, 50) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255)
+    int_vec_push(out, 15) int_vec_push(out, 0) int_vec_push(out, 119) int_vec_push(out, 41) int_vec_push(out, 72) int_vec_push(out, 184) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 12) int_vec_push(out, 248) int_vec_push(out, 72) int_vec_push(out, 133)
+    int_vec_push(out, 201) int_vec_push(out, 116) int_vec_push(out, 22) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 4) int_vec_push(out, 248) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 113) int_vec_push(out, 16) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 207) int_vec_push(out, 184) int_vec_push(out, 11)
     int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 144)
-    return 26
+    return 56
 }
 
 func emit_pure_print_hex_a(out: int): int {
@@ -366,32 +406,36 @@ func emit_pure_chmod_executable(out: int): int {
 }
 
 func emit_pure_write_elf_chunk(out: int): int {
-    // compiler/res/pure_write_elf_chunk.s — mmap/open/write; save is_first (r8) across mmap; no ret.
+    // compiler/res/pure_write_elf_chunk.s
     int_vec_push(out, 83) int_vec_push(out, 85) int_vec_push(out, 65) int_vec_push(out, 84) int_vec_push(out, 65) int_vec_push(out, 85) int_vec_push(out, 65) int_vec_push(out, 86) int_vec_push(out, 65) int_vec_push(out, 87)
-    int_vec_push(out, 65) int_vec_push(out, 80) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 255) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 243) int_vec_push(out, 73) int_vec_push(out, 137)
-    int_vec_push(out, 212) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 205) int_vec_push(out, 49) int_vec_push(out, 255) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 238) int_vec_push(out, 186)
-    int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 34) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, 73) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 77) int_vec_push(out, 49) int_vec_push(out, 201)
-    int_vec_push(out, 184) int_vec_push(out, 9) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248)
-    int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 136) int_vec_push(out, 148) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 197)
-    int_vec_push(out, 77) int_vec_push(out, 49) int_vec_push(out, 246) int_vec_push(out, 77) int_vec_push(out, 57) int_vec_push(out, 238) int_vec_push(out, 125) int_vec_push(out, 21) int_vec_push(out, 76) int_vec_push(out, 137)
-    int_vec_push(out, 230) int_vec_push(out, 76) int_vec_push(out, 1) int_vec_push(out, 246) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 68) int_vec_push(out, 243) int_vec_push(out, 24) int_vec_push(out, 66)
-    int_vec_push(out, 136) int_vec_push(out, 68) int_vec_push(out, 53) int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 198) int_vec_push(out, 235) int_vec_push(out, 230) int_vec_push(out, 76)
-    int_vec_push(out, 137) int_vec_push(out, 255) int_vec_push(out, 76) int_vec_push(out, 139) int_vec_push(out, 4) int_vec_push(out, 36) int_vec_push(out, 77) int_vec_push(out, 133) int_vec_push(out, 192) int_vec_push(out, 116)
-    int_vec_push(out, 7) int_vec_push(out, 190) int_vec_push(out, 65) int_vec_push(out, 2) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 235) int_vec_push(out, 5) int_vec_push(out, 190) int_vec_push(out, 65)
-    int_vec_push(out, 4) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 186) int_vec_push(out, 164) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 184) int_vec_push(out, 2)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, 0) int_vec_push(out, 120)
-    int_vec_push(out, 61) int_vec_push(out, 65) int_vec_push(out, 137) int_vec_push(out, 196) int_vec_push(out, 68) int_vec_push(out, 137) int_vec_push(out, 231) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 238)
-    int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 234) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5)
-    int_vec_push(out, 76) int_vec_push(out, 57) int_vec_push(out, 232) int_vec_push(out, 117) int_vec_push(out, 27) int_vec_push(out, 68) int_vec_push(out, 137) int_vec_push(out, 231) int_vec_push(out, 184) int_vec_push(out, 3)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 239) int_vec_push(out, 76) int_vec_push(out, 137)
-    int_vec_push(out, 238) int_vec_push(out, 184) int_vec_push(out, 11) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 49) int_vec_push(out, 192)
-    int_vec_push(out, 235) int_vec_push(out, 28) int_vec_push(out, 68) int_vec_push(out, 137) int_vec_push(out, 231) int_vec_push(out, 184) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 239) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 238) int_vec_push(out, 184) int_vec_push(out, 11)
-    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
-    int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 196) int_vec_push(out, 8) int_vec_push(out, 65) int_vec_push(out, 95) int_vec_push(out, 65) int_vec_push(out, 94) int_vec_push(out, 65) int_vec_push(out, 93)
-    int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 93) int_vec_push(out, 91)
-    return 234
+    int_vec_push(out, 65) int_vec_push(out, 80) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 255) int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 246) int_vec_push(out, 15) int_vec_push(out, 132)
+    int_vec_push(out, 233) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 254) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 15)
+    int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 135) int_vec_push(out, 220) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 184) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 80) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 28)
+    int_vec_push(out, 240) int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 219) int_vec_push(out, 15) int_vec_push(out, 132) int_vec_push(out, 197) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 212) int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 205) int_vec_push(out, 49) int_vec_push(out, 255) int_vec_push(out, 76) int_vec_push(out, 137)
+    int_vec_push(out, 238) int_vec_push(out, 186) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 65) int_vec_push(out, 186) int_vec_push(out, 34) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 77)
+    int_vec_push(out, 49) int_vec_push(out, 201) int_vec_push(out, 184) int_vec_push(out, 9) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72)
+    int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 136) int_vec_push(out, 148) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72)
+    int_vec_push(out, 137) int_vec_push(out, 197) int_vec_push(out, 77) int_vec_push(out, 49) int_vec_push(out, 246) int_vec_push(out, 77) int_vec_push(out, 57) int_vec_push(out, 238) int_vec_push(out, 125) int_vec_push(out, 21)
+    int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 230) int_vec_push(out, 76) int_vec_push(out, 1) int_vec_push(out, 246) int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 68) int_vec_push(out, 243)
+    int_vec_push(out, 24) int_vec_push(out, 66) int_vec_push(out, 136) int_vec_push(out, 68) int_vec_push(out, 53) int_vec_push(out, 0) int_vec_push(out, 73) int_vec_push(out, 255) int_vec_push(out, 198) int_vec_push(out, 235)
+    int_vec_push(out, 230) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 255) int_vec_push(out, 76) int_vec_push(out, 139) int_vec_push(out, 4) int_vec_push(out, 36) int_vec_push(out, 77) int_vec_push(out, 133)
+    int_vec_push(out, 192) int_vec_push(out, 116) int_vec_push(out, 7) int_vec_push(out, 190) int_vec_push(out, 65) int_vec_push(out, 2) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 235) int_vec_push(out, 5)
+    int_vec_push(out, 190) int_vec_push(out, 65) int_vec_push(out, 4) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 186) int_vec_push(out, 164) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 184) int_vec_push(out, 2) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248)
+    int_vec_push(out, 0) int_vec_push(out, 120) int_vec_push(out, 61) int_vec_push(out, 65) int_vec_push(out, 137) int_vec_push(out, 196) int_vec_push(out, 68) int_vec_push(out, 137) int_vec_push(out, 231) int_vec_push(out, 72)
+    int_vec_push(out, 137) int_vec_push(out, 238) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 234) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 76) int_vec_push(out, 57) int_vec_push(out, 232) int_vec_push(out, 117) int_vec_push(out, 27) int_vec_push(out, 68) int_vec_push(out, 137) int_vec_push(out, 231)
+    int_vec_push(out, 184) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 239)
+    int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 238) int_vec_push(out, 184) int_vec_push(out, 11) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5)
+    int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 235) int_vec_push(out, 28) int_vec_push(out, 68) int_vec_push(out, 137) int_vec_push(out, 231) int_vec_push(out, 184) int_vec_push(out, 3) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 239) int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 238)
+    int_vec_push(out, 184) int_vec_push(out, 11) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 184) int_vec_push(out, 1) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 196) int_vec_push(out, 8) int_vec_push(out, 65) int_vec_push(out, 95) int_vec_push(out, 65) int_vec_push(out, 94)
+    int_vec_push(out, 65) int_vec_push(out, 93) int_vec_push(out, 65) int_vec_push(out, 92) int_vec_push(out, 93) int_vec_push(out, 91)
+    return 276
 }
 
 

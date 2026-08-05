@@ -7,50 +7,47 @@ ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
 src = (ROOT / "compiler/src/pure_elf_builtins.diva").read_text()
 
 def extract_fn(name):
-    # pull consecutive int_vec_push bytes from _a and _b bodies
-    pat = rf"func {name}_a\(out: int\): int \{{(.*?)\}}\nfunc {name}_b\(out: int\): int \{{(.*?)\}}"
+    pat = rf"func {name}\(out: int\): int \{{(.*?)\n    return (\d+)\n\}}"
     m = re.search(pat, src, re.S)
     if not m:
         raise SystemExit(f"missing {name}")
-    body = m.group(1) + m.group(2)
-    return [int(x) for x in re.findall(r"int_vec_push\(out, (\d+)\)", body)]
+    body = m.group(1)
+    ret = int(m.group(2))
+    bs = [int(x) for x in re.findall(r"int_vec_push\(out, (\d+)\)", body)]
+    return bs, ret
 
 def u32(bs, i):
     return bs[i] | (bs[i+1]<<8) | (bs[i+2]<<16) | (bs[i+3]<<24)
 
-S, H = 0x1000000, 24  # 16 MiB — codegen uses 1 int slot per machine byte
+S, H = 0x100000, 24  # 1 MiB initial — grow via mremap in push/append
 payload = S - H
 errors = []
 
 for name, kind in [("emit_pure_int_vec_new", "qword"), ("emit_pure_str_builder_new", "byte")]:
-    bs = extract_fn(name)
-    assert len(bs) == 96, f"{name} blob len {len(bs)} != 96"
-    mmap_len = u32(bs, 3)  # after 31 FF BE
-    # find B9 imm32 (mov ecx)
-    b9 = bs.index(185)
-    cap = u32(bs, b9+1)
-    # movq [rax+16], imm — 48 C7 40 10 imm32
-    i16 = None
-    for i in range(len(bs)-7):
-        if bs[i:i+4] == [72, 199, 64, 16]:
-            i16 = u32(bs, i+4); break
-    print(f"{name}: mmap={mmap_len:#x} cap={cap:#x} size@16={i16:#x} bytes={len(bs)}")
-    if mmap_len != S:
-        errors.append(f"{name}: mmap len {mmap_len:#x} != {S:#x}")
-    if i16 != S:
-        errors.append(f"{name}: munmap size@16 {i16:#x} != {S:#x}")
-    if kind == "qword":
-        expect = payload // 8
-        if cap != expect:
-            errors.append(f"{name}: qword cap {cap:#x} != {expect:#x}")
-        if H + cap * 8 != S:
-            errors.append(f"{name}: layout overflow H+cap*8={H+cap*8:#x}")
+    bs, ret = extract_fn(name)
+    if len(bs) != ret:
+        errors.append(f"{name}: blob len {len(bs)} != return {ret}")
+    # Find movl $INIT_BYTES into esi: BE <imm32> after xor edi (31 FF)
+    be = None
+    for i in range(len(bs) - 5):
+        if bs[i] == 0xBE and i > 0:
+            # prefer the object mmap (second BE), not HT_BYTES
+            imm = u32(bs, i + 1)
+            if imm == S:
+                be = imm
+    print(f"{name}: bytes={len(bs)} init_mmap_imm={be:#x}" if be else f"{name}: bytes={len(bs)} init_mmap_imm=MISSING")
+    if be != S:
+        errors.append(f"{name}: INIT mmap imm {be} != {S:#x}")
+    expect_cap = payload // 8 if kind == "qword" else payload
+    # Cap is loaded via movl $cap, %ecx — B9 imm32; find value matching expect
+    caps = []
+    for i in range(len(bs) - 5):
+        if bs[i] == 0xB9:
+            caps.append(u32(bs, i + 1))
+    if expect_cap not in caps:
+        errors.append(f"{name}: expected cap {expect_cap:#x} not in movl ecx immediates { [hex(c) for c in caps] }")
     else:
-        expect = payload
-        if cap != expect:
-            errors.append(f"{name}: byte cap {cap:#x} != {expect:#x}")
-        if H + cap != S:
-            errors.append(f"{name}: layout overflow H+cap={H+cap:#x}")
+        print(f"  cap ok {expect_cap:#x}")
 
 # tok_esc_cr must be CR
 tok = (ROOT / "compiler/src/tokens.diva").read_bytes()
@@ -60,15 +57,32 @@ if not m or m.group(1) != b"\r":
 else:
     print("tok_esc_cr: OK (ord=13)")
 
-# workload fit: sources in str_builder; codegen out vec needs ~1 slot/byte of ELF
 src_bytes = sum(f.stat().st_size for f in (ROOT/"compiler").rglob("*.diva"))
-qcap = payload // 8
-print(f"compiler .diva bytes={src_bytes}; fits str cap {payload}? {src_bytes < payload}")
-print(f"qword cap={qcap}; fits ~700KiB codegen out? {700*1024 < qcap}")
-if src_bytes >= payload:
-    errors.append("compiler sources exceed str_builder cap")
-if qcap < 700 * 1024:
-    errors.append(f"qword cap {qcap} too small for full-compiler codegen out vec")
+print(f"compiler .diva bytes={src_bytes}; initial str cap {payload}; grow required for large builds")
+# With 1MiB initial, full-compiler out vec (~700KiB slots) must grow — that is intentional.
+qcap0 = payload // 8
+print(f"initial qword cap={qcap0}; full codegen needs grow? {700*1024 > qcap0}")
+
+# Size table sync
+cg = (ROOT / "compiler/src/codegen_x86.diva").read_text()
+expect_sizes = {
+    9: extract_fn("emit_pure_int_vec_new")[1],
+    10: extract_fn("emit_pure_int_vec_push")[1],
+    11: extract_fn("emit_pure_int_vec_len")[1],
+    12: extract_fn("emit_pure_int_vec_get")[1],
+    13: extract_fn("emit_pure_int_vec_free")[1],
+    14: extract_fn("emit_pure_str_builder_new")[1],
+    15: extract_fn("emit_pure_str_builder_append")[1],
+    16: extract_fn("emit_pure_str_builder_len")[1],
+    17: extract_fn("emit_pure_str_builder_to_str")[1],
+    18: extract_fn("emit_pure_str_builder_free")[1],
+}
+for id_, sz in expect_sizes.items():
+    m = re.search(rf"if id == {id_} \{{ return (\d+) \}}", cg)
+    if not m or int(m.group(1)) != sz:
+        errors.append(f"pure_builtin_call_size id={id_}: want {sz}, got {m.group(1) if m else None}")
+    else:
+        print(f"size id {id_}: {sz} OK")
 
 if errors:
     print("FAIL:")

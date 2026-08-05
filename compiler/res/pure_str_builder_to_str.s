@@ -1,4 +1,7 @@
-/* Inlined at ir_call (no ret). Guard rdi before mov (%r12) — pure uses mmap pointers, not host handles. */
+/* Pure ELF str_builder_to_str — handle index; returns fresh mmap C string. NO ret. */
+.equ HT_BASE, 0x500000000000
+.equ HT_MAX, 1048575
+
 .section .note.GNU-stack,"",@progbits
 .text
 .globl pure_str_builder_to_str
@@ -6,8 +9,12 @@
 pure_str_builder_to_str:
 	testq	%rdi, %rdi
 	je	.Lbad
-	cmpq	$4096, %rdi
-	jb	.Lbad
+	cmpq	$HT_MAX, %rdi
+	ja	.Lbad
+	movabs	$HT_BASE, %rax
+	movq	(%rax,%rdi,8), %rdi
+	testq	%rdi, %rdi
+	je	.Lbad
 	jmp	.Lgo
 .Lbad:
 	xorl	%eax, %eax

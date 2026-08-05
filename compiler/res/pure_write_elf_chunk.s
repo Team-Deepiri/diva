@@ -17,7 +17,15 @@ pure_write_elf_chunk_impl:
 	pushq	%r8			/* is_first — mmap clobbers r8 */
 
 	movq	%rdi, %r15		/* path */
-	movq	%rsi, %rbx		/* vec */
+	/* rsi = int_vec handle (table index) — resolve to object pointer */
+	testq	%rsi, %rsi
+	je	.Lpw_fail
+	cmpq	$1048575, %rsi
+	ja	.Lpw_fail
+	movabs	$0x500000000000, %rax
+	movq	(%rax,%rsi,8), %rbx	/* vec object */
+	testq	%rbx, %rbx
+	je	.Lpw_fail
 	movq	%rdx, %r12		/* pos */
 	movq	%rcx, %r13		/* take */
 
