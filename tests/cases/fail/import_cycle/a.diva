@@ -1,0 +1,4 @@
+import "./b.diva"
+func a_helper(): int {
+    return 1
+}

@@ -1,0 +1,4 @@
+import "./a.diva"
+func main(): int {
+    return 0
+}
