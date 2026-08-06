@@ -1,6 +1,7 @@
 # Single-file examples that pass `DIVA_NO_EXTERNAL=1` native build.
 # Broader than the original 21; still excludes package-only / multi-file demos.
 examples/algo_demo.diva
+examples/array_dynamic.diva
 examples/array_mutation.diva
 examples/arrays.diva
 examples/beautiful_logic.diva

@@ -577,6 +577,11 @@ func lower_expr_index(ctx: int, src: str, node: int): int {
                     ib_emit(ctx, ir_inst(ir_load(), r, base + off, 0, 0))
                     return r
                 }
+            } else {
+                var idx = lower_expr(ctx, src, idx_node)
+                var r = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_array_load(), r, base, idx, 0))
+                return r
             }
         }
     }
@@ -831,6 +836,10 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
                         var val = lower_expr(ctx, src, value)
                         ib_emit(ctx, ir_inst(ir_store(), base + off, val, 0, 0))
                     }
+                } else {
+                    var idx = lower_expr(ctx, src, idx_node)
+                    var val = lower_expr(ctx, src, value)
+                    ib_emit(ctx, ir_inst(ir_array_store(), base, idx, val, 0))
                 }
             }
         }

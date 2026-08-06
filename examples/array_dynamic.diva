@@ -1,0 +1,12 @@
+extern func print_int(x: int): void
+
+func main(): int {
+    var nums :: int[] = [3, 6, 9, 12]
+    var i = 2
+    print_int(nums[i])
+    nums[i] = 99
+    print_int(nums[i])
+    var j = i - 1
+    print_int(nums[j])
+    return 0
+}
