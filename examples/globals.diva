@@ -1,0 +1,22 @@
+// Module-level (global) variables: literal init, read, write, and cross-function access.
+
+extern func print_int(x: int): void
+
+var counter = 5
+
+func bump(): int {
+    counter = counter + 1
+    return counter
+}
+
+func main(): int {
+    var a = counter
+    counter = 10
+    var b = counter
+    var c = bump()
+    print_int(a)
+    print_int(b)
+    print_int(c)
+    print_int(counter)
+    return 0
+}

@@ -43,6 +43,8 @@ func dump_inst_opname(b: int, op: int, a: int, bv: int, src: str, toks: int): in
     if op == ir_neg() { str_builder_append(b, "neg ") }
     if op == ir_load()   { str_builder_append(b, "load ") }
     if op == ir_store()  { str_builder_append(b, "store ") }
+    if op == ir_global_load()  { str_builder_append(b, "global.load ") }
+    if op == ir_global_store() { str_builder_append(b, "global.store ") }
     if op == ir_alloca() { str_builder_append(b, "alloca") }
     if op == ir_param() {
         str_builder_append(b, "param ")

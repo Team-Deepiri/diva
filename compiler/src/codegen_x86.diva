@@ -206,7 +206,7 @@ func p2out_str_cum(c: int): int { return int_vec_get(c, 2) }
 func p2out_instr_total(c: int): int { return int_vec_get(c, 3) }
 
 
-func cg_inst_mem(ctx: int, nl: str, inst: int): int {
+func cg_inst_mem(ctx: int, src: str, nl: str, inst: int): int {
     var lp = cg_ctx_lp(ctx)
     var sb = cg_ctx_sb(ctx)
     var op = inst_op(inst)
@@ -229,6 +229,20 @@ func cg_inst_mem(ctx: int, nl: str, inst: int): int {
     if op == ir_store() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_global_load() {
+        var gl = mod_get_global(cg_ctx_m(ctx), a)
+        var gln = tok_text(src, cg_ctx_toks(ctx), global_name_tok(gl))
+        lp_add(lp, "    movq ") lp_add(lp, gln) lp_add(lp, "(%rip), %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_global_store() {
+        var gs = mod_get_global(cg_ctx_m(ctx), res)
+        var gsn = tok_text(src, cg_ctx_toks(ctx), global_name_tok(gs))
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, gsn) lp_add(lp, "(%rip)") lp_flush_sb(lp, sb, nl)
         return 1
     }
     if op == ir_alloca() {
@@ -442,7 +456,7 @@ func cg_inst_flow(ctx: int, nl: str, inst: int): int {
 
 func cg_inst(ctx: int, src: str, nl: str, inst: int): int {
     var op = inst_op(inst)
-    if (cg_inst_mem(ctx, nl, inst) == 1) { return 0 }
+    if (cg_inst_mem(ctx, src, nl, inst) == 1) { return 0 }
     if (cg_inst_arith(ctx, nl, inst) == 1) { return 0 }
     if (cg_inst_cmp(ctx, nl, inst) == 1) { return 0 }
     if op == ir_call() { cg_inst_call_op(ctx, nl, src, inst) return 0 }
@@ -859,6 +873,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_res = 1 }
     if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_res = 1 }
     if (op_is3(ik, ir_load(), ir_store(), ir_copy()) == 1) { has_res = 1 }
+    if (ik == ir_global_load()) { has_res = 1 }
     if (op_is2(ik, ir_neg(), ir_not()) == 1) { has_res = 1 }
     if (ik == ir_call()) { has_res = 1 }
     if (has_res == 1) {
@@ -872,6 +887,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_ia = 1 }
     if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_ia = 1 }
     if (op_is3(ik, ir_load(), ir_store(), ir_copy()) == 1) { has_ia = 1 }
+    if (ik == ir_global_store()) { has_ia = 1 }
     if (op_is2(ik, ir_neg(), ir_not()) == 1) { has_ia = 1 }
     if (ik == ir_ret()) { has_ia = 1 }
     if (has_ia == 1) {
@@ -978,6 +994,25 @@ func emit_mov_imm32_to_stack(out: int, slot: int, v: int): int {
     return 11
 }
 
+// Global slot gi lives at r15-8*(gi+1) (below the initial stack pointer; the entry stub
+// reserves the region with sub rsp before calling main). r15 stays = initial rsp so the
+// pure host_argc/host_argv/host_getenv builtins keep working.
+func global_slot_disp(gi: int): int {
+    return 0 - (gi + 1) * 8
+}
+
+func emit_mov_gslot_to_rax(out: int, gi: int): int {
+    int_vec_push(out, 73) int_vec_push(out, 139) int_vec_push(out, 135)
+    emit_i32(out, global_slot_disp(gi))
+    return 7
+}
+
+func emit_mov_rax_to_gslot(out: int, gi: int): int {
+    int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 135)
+    emit_i32(out, global_slot_disp(gi))
+    return 7
+}
+
 func emit_arg_move_to_abi_reg(out: int, arg_idx: int, src_slot: int): int {
     if arg_idx == 0 {
         int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 189) // rdi
@@ -1037,6 +1072,7 @@ func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
     if op == ir_neg() { return 17 }
     if op_is2(op, ir_shl(), ir_shr()) == 1 { return 24 }
     if op_is3(op, ir_load(), ir_store(), ir_copy()) == 1 { return 14 }
+    if op_is2(op, ir_global_load(), ir_global_store()) == 1 { return 14 }
     if op == ir_alloca() { return 11 }
     if op == ir_param() { return 7 }
     if (op == ir_ret()) & ((fi == main_fi) == 1) { return 24 }
@@ -1174,6 +1210,14 @@ func cg_p2_bitops(out: int, op: int, res: int, a: int, bv: int): int {
 // Emit arithmetic / memory instructions (not param). Returns 0.
 func cg_p2_arith(out: int, op: int, res: int, a: int, bv: int): int {
     if op == ir_const() { emit_mov_imm32_to_stack(out, res, a) }
+    if op == ir_global_load() {
+        emit_mov_gslot_to_rax(out, a)
+        emit_mov_rax_to_stack(out, res)
+    }
+    if op == ir_global_store() {
+        emit_mov_stack_to_rax(out, a)
+        emit_mov_rax_to_gslot(out, res)
+    }
     if op_is3(op, ir_add(), ir_sub(), ir_mul()) == 1 {
         emit_mov_stack_to_rax(out, a)
         if op == ir_add() { int_vec_push(out, 72) int_vec_push(out, 3) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
@@ -1456,6 +1500,19 @@ func cg_p2_func(p2fctx: int, src: str, f: int, brtab: int, p2out_ctx: int): int 
     return 0
 }
 
+// Entry stub bytes with |gc| globals: fixed tail (mov r15,rsp; call; mov rdi; mov eax; syscall)
+// is 18 bytes; with globals we also emit sub rsp (7) + one movq $init,disp(%r15) (11) each.
+func native_entry_stub_size(gc: int): int {
+    if gc == 0 { return 18 }
+    return 25 + gc * 11
+}
+
+// Stack bytes reserved below the initial rsp for globals, rounded to 16 (ABI alignment for the
+// call into main). Global slots sit at r15-8*(gi+1) inside this region.
+func native_globals_reserve(gc: int): int {
+    return 16 * ((gc + 1) / 2)
+}
+
 func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int {
     var fc = mod_func_count(m)
     if fc == 0 { return 0 }
@@ -1481,13 +1538,15 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
         }
         fmj = fmj + 1
     }
+    var glob_count = mod_global_count(m)
     // Pass 1: Label resolution
     var brtab = brtab_new()
     var func_offsets = int_vec_new()
-    // Entry stub (18 bytes): mov r15,rsp ; call main ; mov rdi,rax ; mov eax,60 ; syscall
+    // Entry stub: mov r15,rsp ; [sub rsp, globals ; movq $init, disp(%r15) xN] ; call main ;
+    // mov rdi,rax ; mov eax,60 ; syscall.
     // — call pushes a return address to the exit trampoline so a mistaken `ret` from main
     // (jmp entry had none) cannot pop garbage → RIP 0. Pure host_* builtins still use r15.
-    var current_offset = 18
+    var current_offset = native_entry_stub_size(glob_count)
 
     var fi = 0
     while (fi < fc) {
@@ -1519,13 +1578,28 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
     var p2out_ctx = p2out_new(out, func_offsets, str_cum, instr_total)
     // Emit entry stub before all functions.
     // 49 89 E7                mov r15, rsp
+    // 48 81 EC imm32          sub rsp, globals_reserve   (only when globals exist)
+    // 49 C7 87 disp32 imm32   movq $init, disp(%r15)     (per global)
     // E8 rel32               call main
     // 48 89 C7               mov rdi, rax
     // B8 3C 00 00 00         mov eax, 60
     // 0F 05                  syscall
     int_vec_push(out, 73) int_vec_push(out, 137) int_vec_push(out, 231)
+    if glob_count > 0 {
+        var gres = native_globals_reserve(glob_count)
+        int_vec_push(out, 72) int_vec_push(out, 129) int_vec_push(out, 236)
+        emit_i32(out, gres)
+        var gii = 0
+        while (gii < glob_count) {
+            var ginit = global_init(mod_get_global(m, gii))
+            int_vec_push(out, 73) int_vec_push(out, 199) int_vec_push(out, 135)
+            emit_i32(out, global_slot_disp(gii))
+            emit_i32(out, ginit)
+            gii = gii + 1
+        }
+    }
     int_vec_push(out, 232)
-    emit_i32(out, main_off - 8)
+    emit_i32(out, main_off - (native_entry_stub_size(glob_count) - 10))
     int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 199)
     int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
     int_vec_push(out, 15) int_vec_push(out, 5)

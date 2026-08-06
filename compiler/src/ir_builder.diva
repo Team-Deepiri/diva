@@ -415,28 +415,28 @@ func ib_struct_field_index(ctx: int, src: str, typename_tok: int, field_tok: int
 
 // --- Expression lowering ---
 
+// Find the module-level global index for an identifier token, or -1 if not a global.
+func ib_find_global_index(ctx: int, src: str, name_tok: int): int {
+    var h = ib_name_hash(ib_tok_text(ctx, src, name_tok))
+    var gnames = bctx_global_names(ctx)
+    var gcount = int_vec_len(gnames)
+    var i = 0
+    while (i < gcount) {
+        if (int_vec_get(gnames, i) == h) { return i }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
 // Lower nd_ident node. Handles global lookup fallback.
 func lower_expr_ident(ctx: int, src: str, node: int): int {
     var tok_idx = ast_child(node, 0)
     var slot = ib_lookup_by_name_tok(ctx, src, tok_idx)
     if (slot < 0) {
-        var h = ib_name_hash(ib_tok_text(ctx, src, tok_idx))
-        var gnames = bctx_global_names(ctx)
-        var gvals = bctx_global_vals(ctx)
-        var gcount = int_vec_len(gnames)
-        var gfound = 0
-        var gval = 0
-        var i = 0
-        while (i < gcount) {
-            if (int_vec_get(gnames, i) == h) {
-                gfound = 1
-                gval = int_vec_get(gvals, i)
-            }
-            i = i + 1
-        }
-        if gfound == 1 {
+        var gi = ib_find_global_index(ctx, src, tok_idx)
+        if (gi < 0) == 0 {
             var r = ib_fresh_vreg(ctx)
-            ib_emit(ctx, ir_inst(ir_const(), r, gval, 0, 0))
+            ib_emit(ctx, ir_inst(ir_global_load(), r, gi, 0, 0))
             return r
         }
         var r = ib_fresh_vreg(ctx)
@@ -814,6 +814,11 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
         var val = lower_expr(ctx, src, value)
         if (slot < 0) == 0 {
             ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+        } else {
+            var gi = ib_find_global_index(ctx, src, name_tok)
+            if (gi < 0) == 0 {
+                ib_emit(ctx, ir_inst(ir_global_store(), gi, val, 0, 0))
+            }
         }
         return 0
     }
@@ -1005,16 +1010,26 @@ func lower_global(ctx: int, src: str, node: int): int {
             if ik == nd_bool_lit() {
                 init_val = ast_child(init, 0)
             } else {
-                var r = lower_expr(ctx, src, init)
-                var i = 0
-                while (i < int_vec_len(bctx_global_vals(ctx))) {
-                    var gval = int_vec_get(bctx_global_vals(ctx), i)
-                    if (gval == r) {
-                        init_val = 0
+                if ik == nd_unary() {
+                    var uo = ast_child(init, 0)
+                    var uoperand = ast_child(init, 1)
+                    if (uo == unop_neg()) & (ast_kind(uoperand) == nd_int_lit()) {
+                        init_val = 0 - ast_child(uoperand, 0)
                     }
-                    i = i + 1
                 }
-                init_val = 0
+                if ik == nd_unary() {
+                } else {
+                    var r = lower_expr(ctx, src, init)
+                    var i = 0
+                    while (i < int_vec_len(bctx_global_vals(ctx))) {
+                        var gval = int_vec_get(bctx_global_vals(ctx), i)
+                        if (gval == r) {
+                            init_val = 0
+                        }
+                        i = i + 1
+                    }
+                    init_val = 0
+                }
             }
         }
     }

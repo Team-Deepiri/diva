@@ -76,6 +76,7 @@ expected_output() {
     examples/arrays.diva)           printf '9\n' ;;
     examples/array_mutation.diva)   printf '16\n' ;;
     examples/generics_traits.diva)  printf '7\n' ;;
+    examples/globals.diva)          printf '5\n10\n11\n11\n' ;;
     examples/stdlib_demo.diva)      printf '12\n10\n10\n5\n1\n1\n' ;;
     examples/utils_demo.diva)       printf '1\n6\ntrue\ntrue\nutil0x0000000000000004\n1\n1\n' ;;
     *) printf '' ;;
