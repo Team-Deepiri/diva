@@ -55,6 +55,8 @@ func ir_copy(): int      { return 29 }
 func ir_phi(): int       { return 30 }
 func ir_str_arg(): int   { return 31 }
 func ir_global(): int    { return 32 }
+func ir_global_load(): int { return 33 }
+func ir_global_store(): int { return 34 }
 
 func ir_op_name(op: int): str {
     if op == 0  { return "nop" }
@@ -90,6 +92,8 @@ func ir_op_name(op: int): str {
     if op == 30 { return "phi" }
     if op == 31 { return "str.arg" }
     if op == 32 { return "global" }
+    if op == 33 { return "global.load" }
+    if op == 34 { return "global.store" }
     return "???"
 }
 
