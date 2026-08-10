@@ -8,7 +8,21 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "${ROOT_DIR}"
 
-SEED="${SEED:-${ROOT_DIR}/bootstrap/diva-linux-amd64}"
+# Default SEED: pure bootstrap cannot `asm` a merged.diva (loader looks for sibling
+# tokens.diva). Prefer a known-good hosted bak; current build/diva-stage2-from-cc may
+# SIGSEGV on full-package `asm` (see docs/LEAVE_OFF.md).
+if [ -z "${SEED:-}" ]; then
+  BAK=$(ls -1t "${ROOT_DIR}"/build/diva-stage2-from-cc.bak-before-retfix-* 2>/dev/null | head -1 || true)
+  if [ -n "${BAK}" ] && [ -x "${BAK}" ]; then
+    SEED="${BAK}"
+    echo "[build-compiler-cc-link] SEED default -> ${SEED} (hosted bak; avoids full-asm SEGV)"
+  elif [ -x "${ROOT_DIR}/build/diva-stage2-from-cc" ]; then
+    SEED="${ROOT_DIR}/build/diva-stage2-from-cc"
+    echo "[build-compiler-cc-link] SEED default -> ${SEED} (may SEGV on full asm)"
+  else
+    SEED="${ROOT_DIR}/bootstrap/diva-linux-amd64"
+  fi
+fi
 DI_STDLIB_DIR="${DI_STDLIB_DIR:-${ROOT_DIR}/stdlib}"
 RT_O="${DI_RUNTIME_O:-${ROOT_DIR}/bootstrap/runtime-linux-amd64.o}"
 CRT_SRC="${ROOT_DIR}/compiler/res/legacy/native_crt.s"
@@ -64,12 +78,18 @@ echo "[build-compiler-cc-link] dedupe duplicate .globl blocks (merged std helper
 python3 "${ROOT_DIR}/scripts/dedupe_merged_gas.py" "${ASM}" "${DEDUP_ASM}"
 ASM_LINK="${DEDUP_ASM}"
 
-echo "[build-compiler-cc-link] cc (user asm + crt + runtime + runtime_extra)"
+echo "[build-compiler-cc-link] cc (user asm + crt + runtime + runtime_extra + int_to_str)"
 # PIE final link matches the seed binary (ET_DYN); a static ET_EXEC + this runtime mix
 # broke di_runtime_argc/argv in practice while the same argv worked against the seed.
 cc -fPIE -pie -c -o "${USER_O}" "${ASM_LINK}" -fno-stack-protector
 cc -fPIC -pie -c -o "${CRT_O}" "${CRT_SRC}"
 cc -fPIC -c -o "${EXTRA_O}" "${EXTRA_SRC}" -fno-stack-protector
-cc -pie -nostartfiles "${CRT_O}" "${USER_O}" "${RT_O}" "${EXTRA_O}" -o "${OUT_EXE}" -lc -Wl,-z,noexecstack
+INT_TO_STR_C="${ROOT_DIR}/compiler/res/legacy/runtime_int_to_str.c"
+INT_TO_STR_O="${WORK}/runtime_int_to_str.o"
+cc -fPIC -O2 -c -o "${INT_TO_STR_O}" "${INT_TO_STR_C}"
+# Weaken stock leaking int_to_str so our ring-buffer impl wins.
+RT_LINK="${WORK}/runtime-weak.o"
+objcopy --weaken-symbol=di_runtime_int_to_str "${RT_O}" "${RT_LINK}"
+cc -pie -nostartfiles "${CRT_O}" "${USER_O}" "${RT_LINK}" "${EXTRA_O}" "${INT_TO_STR_O}" -o "${OUT_EXE}" -lc -Wl,-z,noexecstack
 chmod +x "${OUT_EXE}"
 echo "[build-compiler-cc-link] OK -> ${OUT_EXE}"

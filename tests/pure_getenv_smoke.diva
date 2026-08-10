@@ -1,0 +1,11 @@
+import "std/host.diva"
+import "std/str.diva"
+
+func main(): int {
+    var v = host_getenv("PATH")
+    var vh = v
+    if str_len(vh) < 1 {
+        return 1
+    }
+    return 0
+}

@@ -21,18 +21,23 @@ echo "[merged-driver] merging compiler/ -> ${OUT_DIVA}"
 ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${DI_STDLIB_DIR}" python3 "${ROOT_DIR}/scripts/merge_compiler_package.py" >"${OUT_DIVA}"
 
 echo "[merged-driver] build (seed native ELF) -> ${OUT_EXE}"
-if ! "${SEED}" build "${OUT_DIVA}" >"${BUILD_LOG}" 2>&1
+if ! ROOT_DIR="${ROOT_DIR}" "${SEED}" build "${OUT_DIVA}" "${OUT_EXE}" >"${BUILD_LOG}" 2>&1
 then
   echo "[merged-driver] seed build failed; log ${BUILD_LOG}:" >&2
   sed -n '1,60p' "${BUILD_LOG}" >&2
   exit 1
 fi
 
-if [ ! -x /tmp/diva-native-exe ]; then
-  echo "[merged-driver] expected /tmp/diva-native-exe from diva build" >&2
-  exit 1
+if [ ! -x "${OUT_EXE}" ]; then
+  if [ -x "${ROOT_DIR}/build/diva-native-exe" ]; then
+    cp -f "${ROOT_DIR}/build/diva-native-exe" "${OUT_EXE}"
+  elif [ -x /tmp/diva-native-exe ]; then
+    cp -f /tmp/diva-native-exe "${OUT_EXE}"
+  else
+    echo "[merged-driver] expected ${OUT_EXE} (or build/diva-native-exe) from diva build" >&2
+    exit 1
+  fi
 fi
 
-cp -f /tmp/diva-native-exe "${OUT_EXE}"
 chmod +x "${OUT_EXE}"
 echo "[merged-driver] OK: ${OUT_EXE}"

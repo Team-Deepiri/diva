@@ -1,88 +1,67 @@
 ---
-name: Diva full ELF self-host
-overview: "Finish the self-host loop: fix or replace ELF materialization so the driver does not depend on Python for chunks, rebuild a trusted gcc-linked stage2, produce a pure-ELF compiler with that driver, promote it to the pinned bootstrap, then collapse tests to a single seed and run full verification."
+name: Escapes and print_hex NL
+overview: Implement minimal C-style string escapes in `tok_str_value` so `"\n"` etc. decode correctly at compile time, then append a trailing newline to the pure-ELF `print_hex` builtin to match common line-oriented I/O. Simplify examples/tests that currently work around the old behavior.
 todos:
-  - id: fix-write-elf-chunk
-    content: Debug and re-land write_elf_chunk (runtime_extra + pure id 32 + main.diva + codegen sizes/bounds + host.diva); verify stage2 build/run ret0, print2, vec_demo
-    status: completed
-  - id: cc-link-stage2
-    content: Run build-compiler-cc-link.sh → build/diva-stage2-boot; smoke native build compiler/ with skip env if needed
-    status: completed
-  - id: pure-build-promote
-    content: DRIVER=stage2 build-compiler-pure-elf.sh; promote bootstrap/diva-linux-amd64 per bootstrap/README; tighten verify script skip-env
-    status: completed
-  - id: collapse-tests
-    content: "tests/run.sh: single seed path after goldens green; optional DIVA_TEST_FAST=0 run"
-    status: completed
-  - id: gen-bytes-script
-    content: scripts/gen-pure-host-builtin-bytes.sh for .s → objcopy → paste bytes
-    status: completed
+  - id: tok-escapes
+    content: Extend tok_str_value in tokens.diva for \n \t \r (optional \0); add tiny 1-char helpers; update comment
+    status: pending
+  - id: print-hex-nl
+    content: Append newline syscall to emit_pure_print_hex + update id 19 size in codegen_x86.diva
+    status: pending
+  - id: examples-tests
+    content: Revert multiline LF hacks in branching/utils_demo; fix fmt/conv fallout; update run.sh goldens; add minimal escape/println assertion
+    status: pending
+  - id: merge-rebuild-verify
+    content: merge_compiler_package.py; rebuild diva-stage2; DIVA_TEST_FAST=1 tests/run.sh (+ optional verify-pure-compiler-build.sh)
+    status: pending
 isProject: false
 ---
 
-# Diva full ELF self-host (finish line)
+# C-style escapes + pure `print_hex` newline
 
-## Current repo state (verified)
+## Context
 
-- Pure builtins: real `[emit_pure_host_getenv](diri-lang/compiler/src/pure_elf_builtins.diva)` / `[emit_pure_host_system](diri-lang/compiler/src/pure_elf_builtins.diva)`, ids **26/27** with matching sizes in `[pure_builtin_call_size_hi_misc](diri-lang/compiler/src/codegen_x86.diva)`; **unlink/chmod** ids **30/31**; **no** `write_elf_chunk` (id 32 removed).
-- `[native_write_exe](diri-lang/compiler/src/main.diva)`: `**unlink` + `chmod_executable` + python `host_system` hex append** (python path restored after regression).
-- **Vec / second `print_int`**: fixed in `[emit_pure_builtin_call_5](diri-lang/compiler/src/codegen_x86.diva)` (red-zone buffer, `xor edx` before each `div`, size **64**); matches `[compiler/res/pure_print_int.s](diri-lang/compiler/res/pure_print_int.s)`.
-- Bootstrap gap: `[native_require_no_externs](diri-lang/compiler/src/main.diva)` can short-circuit when `**DIVA_SKIP_NATIVE_EXTERN_CHECK`** is set; `[scripts/install.sh](diri-lang/scripts/install.sh)` exports it for the seed `build` step. `[scripts/verify-pure-compiler-build.sh](diri-lang/scripts/verify-pure-compiler-build.sh)` does **not** set it yet—verify may still fail against an old seed if extern lists diverge.
-- Tests still use **dual seeds** in `[tests/run.sh](diri-lang/tests/run.sh)` (`INTEGRATION_SEED` vs `EARLY_PIPELINE_SEED`) with comments about `native_write_exe` / vec issues—vec fix should allow collapsing once one driver passes goldens.
+- String decoding lives in `[compiler/src/tokens.diva](diri-lang/compiler/src/tokens.diva)` (`tok_str_value`). Today only `\"` and `\\` are special; `\n` stays as two characters (documented in `[compiler/src/main.diva](diri-lang/compiler/src/main.diva)` near `newline_str()` / `lf.txt`).
+- Pure `print_hex` is emitted as a fixed blob in `[compiler/src/pure_elf_builtins.diva](diri-lang/compiler/src/pure_elf_builtins.diva)` (`emit_pure_print_hex`, size **96** bytes). `[compiler/src/codegen_x86.diva](diri-lang/compiler/src/codegen_x86.diva)` maps `pure_builtin_call_size_hi_misc` **id 19** to **96**. There is **no** trailing newline after the hex digits (unlike `print_int`, which now ends with a `write` of `\n`).
 
-## Goal
+## 1) C-style escapes in `tok_str_value`
 
-**One pure-ELF driver** builds `compiler/` without cc/ld, with `**DI_STDLIB_DIR` / `host_getenv` / `host_system`** only where intended, `**native_write_exe`** not requiring Python long-term, and **pinned `bootstrap/diva-linux-amd64`** updated to match that codegen.
+**File:** `[compiler/src/tokens.diva](diri-lang/compiler/src/tokens.diva)`
 
-## Phase 1 — ELF write path (replace Python)
+- Extend the `if c == 92` branch: after handling `n2 == 34` (`\"`) and `n2 == 92` (`\\`), add explicit cases for at least:
+  - `**n` (110)** → ASCII **10** (LF)
+  - `**t` (116)** → ASCII **9** (TAB)
+  - `**r` (114)** → ASCII **13** (CR)
+- Optional but low-cost: `**\0`** (backslash + `0`) → NUL **if** you want parity with common C subsets (only if second char is `0`).
+- **Implementation detail (no new host ABI):** append a **one-character** `str` to the builder. Prefer tiny private helpers in the same file that return a length-1 string, e.g. multiline literal for LF (same pattern as `[examples/branching.diva](diri-lang/examples/branching.diva)` today), and a literal **tab character** inside quotes for TAB (lexer already allows any byte except `"` inside strings). CR can be a multiline string that contains a single carriage return (editor-safe) or the same `lf.txt` pattern used elsewhere—pick one approach and stay consistent.
+- Update the stale comment at **L181** (“other backslash sequences stay as two literal chars”) to describe the new set.
 
-**Problem (session evidence):** A first attempt at `di_runtime_write_elf_chunk` (malloc + `di_runtime_int_vec_get` loop + open/write) caused **immediate segfault** on trivial `diva build`/`run` when linked into gcc-linked stage2; the implementation was reverted.
+**Follow-on cleanups** (same PR, so behavior is exercised):
 
-**Approach (pick one and prove with minimal tests):**
+- `[stdlib/std/fmt.diva](diri-lang/stdlib/std/fmt.diva)`: `println` / `eprintln` can keep `str_builder_append(b, "\n")`—after this change it becomes a **real** newline instead of backslash+`n`.
+- `[stdlib/std/conv.diva](diri-lang/stdlib/std/conv.diva)`: `char_to_str` branches that append `"\n"` / `"\t"` will behave correctly for programs compiled with the new compiler.
+- Examples that used **multiline** strings purely for LF: revert to escaped form where readability improves—`[examples/branching.diva](diri-lang/examples/branching.diva)`, `[examples/utils_demo.diva](diri-lang/examples/utils_demo.diva)` (`print_bool` strings, and the extra `print_str` inserted only to separate `print_hex` from the next `print_int`).
 
-1. **Reintroduce `write_elf_chunk` (or rename) with a minimal, audited implementation** in `[compiler/res/legacy/runtime_extra.s](diri-lang/compiler/res/legacy/runtime_extra.s)`:
-  - Re-add `.extern malloc`, `free`, `di_runtime_int_vec_get` only for this symbol.
-  - **Harden indexing:** use **64-bit** index `pos + i` in a single register when calling `di_runtime_int_vec_get` (avoid subtle `r12d`/`esi` overflow or wrong extension); keep buffer fill as `movb %al, (%rbp,%rcx,1)`.
-  - **Optional:** add a **temporary** `fprintf(stderr, ...)`-style trace behind `#ifdef` or a tiny `write(2, ...)` probe during bring-up, then remove.
-2. **Re-wire Diva side:** restore `extern func write_elf_chunk(...)` in `[stdlib/std/host.diva](diri-lang/stdlib/std/host.diva)`, `[pure_elf_builtins.diva](diri-lang/compiler/src/pure_elf_builtins.diva)` (id **32**, emit blob from `[compiler/res/pure_write_elf_chunk.s](diri-lang/compiler/res/pure_write_elf_chunk.s)`), `[pure_builtin_call_size_hi_misc](diri-lang/compiler/src/codegen_x86.diva)` **221**, `[emit_pure_builtin_call](diri-lang/compiler/src/codegen_x86.diva)` bound `**> 32`**, `[asm_runtime_label](diri-lang/compiler/src/codegen_x86.diva)` → `di_runtime_write_elf_chunk`, `[native_require_no_externs](diri-lang/compiler/src/main.diva)` + `[native_write_exe](diri-lang/compiler/src/main.diva)` loop with `is_first` truncate/append.
-3. **Gas alias:** keep `**write_elf_chunk`** / `**unlink`** / `**chmod_executable**` `jmp` stubs in `runtime_extra.s` so older seeds’ `call` names still link (as before).
+**Regression coverage:** add or extend a small compiler/lexer test or a `tests/run.sh` assertion on a tiny program that prints `"\n"` length / `println("hi")` output (`hi` + one LF). If no dedicated unit harness exists, a one-line `assert_output_equals` on a temp example under `examples/` or `tests/cases/` is enough.
 
-**Exit criteria:** `cc`-linked `build/diva-stage2-boot` runs `diva build examples/ret0.diva`, `run examples/print2.diva`, `**run examples/vec_demo.diva`** without SIGSEGV; then `diva build compiler/` with `**DIVA_SKIP_NATIVE_EXTERN_CHECK=1`** only if seed still lags (ideally remove skip once bootstrap promoted).
+## 2) Trailing newline for pure `print_hex`
 
-## Phase 2 — Bootstrap ladder (cc-link → pure → promote)
+**Files:**
 
-```mermaid
-flowchart LR
-  seed[bootstrap diva-linux-amd64]
-  asm[cc-link merged.s + runtime_extra + runtime.o]
-  stage2[build/diva-stage2-boot]
-  pure[pure ELF /tmp/diva-native-exe]
-  pin[bootstrap/diva-linux-amd64 promoted]
+- `[compiler/src/pure_elf_builtins.diva](diri-lang/compiler/src/pure_elf_builtins.diva)`: append the same **stdout newline syscall** tail used for `print_int` (reuse the **objcopy-from-.s** workflow via `[scripts/gen-pure-host-builtin-bytes.sh](diri-lang/scripts/gen-pure-host-builtin-bytes.sh)` if you extract the hex blob into a scratch `.s` file, or hand-append the known byte sequence and bump `emit_pure_print_hex` return size).
+- `[compiler/src/codegen_x86.diva](diri-lang/compiler/src/codegen_x86.diva)`: update `pure_builtin_call_size_hi_misc` for **id == 19** to the **new** byte length (must match emitted push count exactly).
 
-  seed --> asm --> stage2
-  stage2 -->|"DRIVER=stage2 scripts/build-compiler-pure-elf.sh"| pure
-  pure --> pin
-```
+**Downstream:**
 
+- `[tests/run.sh](diri-lang/tests/run.sh)`: adjust `assert_output_equals` for `[examples/systems_hosted.diva](diri-lang/examples/systems_hosted.diva)` and `[examples/utils_demo.diva](diri-lang/examples/utils_demo.diva)` if the observable stdout changes (extra newline after hex; possibly final line ending).
+- Remove the **temporary** `print_str("↵")` spacer in `utils_demo` after `print_hex` if hex now ends with `\n`.
 
+## 3) Bootstrap / self-host hygiene
 
-1. Run `[scripts/legacy/build-compiler-cc-link.sh](diri-lang/scripts/legacy/build-compiler-cc-link.sh)` (ASM timeout already configurable) → `**build/diva-stage2-boot**`.
-2. Run `[scripts/build-compiler-pure-elf.sh](diri-lang/scripts/build-compiler-pure-elf.sh)` with `**DRIVER=build/diva-stage2-boot**` and sufficient `**BUILD_TIMEOUT_SECS**` → copy output to `**build/diva-compiler-pure-elf**`.
-3. Follow `[bootstrap/README.md](diri-lang/bootstrap/README.md)` / existing promote scripts: replace committed `**bootstrap/diva-linux-amd64**` (and document backup filename), so day-to-day `**verify-pure-compiler-build.sh**` uses the new trust root **without** skip-env hacks long-term.
-4. Add `**DIVA_SKIP_NATIVE_EXTERN_CHECK=1`** to `[scripts/verify-pure-compiler-build.sh](diri-lang/scripts/verify-pure-compiler-build.sh)` **only until** promotion, or remove once seed matches—document in `[docs/seed-codegen-workarounds.md](diri-lang/docs/seed-codegen-workarounds.md)` if touched.
+- Run `[scripts/merge_compiler_package.py](diri-lang/scripts/merge_compiler_package.py)` so `[compiler/src/_bootstrap_merged.diva](diri-lang/compiler/src/_bootstrap_merged.diva)` matches edited sources.
+- Rebuild the cc-linked driver (`[scripts/legacy/build-compiler-cc-link.sh](diri-lang/scripts/legacy/build-compiler-cc-link.sh)` → `build/diva-stage2`) before `DIVA_TEST_FAST=1 sh tests/run.sh` and optionally `sh scripts/verify-pure-compiler-build.sh`.
 
-## Phase 3 — Tests and dual-seed removal
+## Risk / scope note
 
-- In `[tests/run.sh](diri-lang/tests/run.sh)`: once `**vec_demo`** and integration goldens pass with the **large** self-built driver, **collapse** `INTEGRATION_SEED` / `EARLY_PIPELINE_SEED` to a **single** `DIVA_TEST_SEED` / default bootstrap path; delete obsolete `.bak-*` default if inappropriate.
-- Run `**DIVA_TEST_FAST=0`** full harness and `verify-pure-compiler-build.sh` with `**DRIVER`** set to the pure artifact.
-
-## Phase 4 — Maintainer ergonomics
-
-- Add `[scripts/gen-pure-host-builtin-bytes.sh](diri-lang/scripts/gen-pure-host-builtin-bytes.sh)`: assemble `compiler/res/*.s` → `objcopy -O binary -j .text` → print **length + C/Diva-style** byte list for pasting into `pure_elf_builtins.diva` / `codegen_x86.diva` (per original plan).
-
-## Risks / constraints
-
-- **Stack red zone** `print_int` is Linux-ABI–dependent; acceptable for the pure driver target but document if non-Linux hosts matter.
-- **Bootstrap chicken-and-egg:** seed `asm` always uses **seed’s** embedded codegen; skip-env + cc-link + pure build is the supported ladder until the promoted binary catches up.
-- **WSL2:** re-validate `host_getenv` stack walk and `vfork`/`execve` path on target Linux.
+- Changing `tok_str_value` affects **all** string literals in every program the compiler compiles (stdlib, compiler, tests). Expect a few goldens or snapshots that assumed literal `\n` two-character strings to flip—fix forward by updating expectations or source that relied on the old quirk.
 

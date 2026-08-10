@@ -40,7 +40,7 @@ done_parent:
 	popq	%r13
 	popq	%r12
 	popq	%rbx
-	ret
+	jmp	pure_host_system_exit
 
 child:
 	subq	$128, %rsp
@@ -72,6 +72,9 @@ err_fork:
 	popq	%r13
 	popq	%r12
 	popq	%rbx
-	ret
+	jmp	pure_host_system_exit
+
+/* Fall-through target for inline emission (no ret — avoids bogus stack pop). */
+pure_host_system_exit:
 
 .size pure_host_system, .-pure_host_system

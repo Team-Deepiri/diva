@@ -1,0 +1,7 @@
+// Regression: fmt.println uses "\n" in source — must be one LF after tok_str_value.
+import "std/fmt.diva"
+
+func main(): int {
+    println("hi")
+    return 0
+}

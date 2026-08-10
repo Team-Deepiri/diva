@@ -10,8 +10,7 @@ func max(a: int, b: int): int {
 }
 
 func main(): int {
-    print_str("running diva
-")
+    print_str("running diva\n")
     print_int(max(7 + 5, 10 * 2))
     if 3 == 3 {
         print_int(1)

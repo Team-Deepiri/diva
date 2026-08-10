@@ -1,7 +1,10 @@
 /* Pure-ELF inline host_getenv (id 26): SysV ABI, rdi=name (null-terminated).
  * r15 = initial rsp (argc at [r15], argv..., NULL, envp...).
  * Returns rax = value pointer (past '=') or pointer to empty string.
- * Preserves r15. Saves rbx,r12,r13,r14. */
+ * Preserves r15. Saves rbx,r12,r13,r14.
+ *
+ * Inlined at IR call sites: must not end in `ret` (would pop a bogus address). After the callee
+ * pops, jmp over match_key to .Lhost_getenv_done so execution continues in the emitted caller. */
 .section .note.GNU-stack,"",@progbits
 .text
 .globl pure_host_getenv
@@ -47,8 +50,7 @@ pure_host_getenv:
 	popq	%r13
 	popq	%r12
 	popq	%rbx
-	ret
-.size pure_host_getenv, .-pure_host_getenv
+	jmp	.Lhost_getenv_done
 
 /* rsi = env "KEY=VAL...", rdi = name (null-term); sets r13 = ptr past '=' or 0 */
 .type match_key, @function
@@ -75,3 +77,6 @@ match_key:
 	ret
 .Lmk_fail:
 	ret
+
+.Lhost_getenv_done:
+.size pure_host_getenv, .-pure_host_getenv

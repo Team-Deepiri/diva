@@ -54,6 +54,14 @@ That path does **not** make the final artifact “all Diva”; it only fixes the
 
 The pinned seed / native subset parser rejects **`>=` and `<=` in `if` conditions** (you get `unexpected token … EQ`). Use **`!(id < n)`** / **`!(id > n)`** instead (see `emit_pure_builtin_call` in `codegen_x86.diva`).
 
+## 7. `str_len` on the return of an extern / merge call (pure codegen)
+
+**Symptom:** SIGSEGV or wrong control flow on the **pure-ELF** driver when code does `if str_len(read_file(…)) == 0` or `str_len(merge_file_sources(…))` with **no** intermediate `str` / `int` binding.
+
+**Why:** The in-process pure backend can leave the string value in a **transient** register path; using it **immediately** as the sole argument to **`str_len`** can mis-schedule and corrupt the value used in the call.
+
+**Mitigation in Diva source:** always bind, then length, then branch, e.g. `var s = read_file(p); var n = str_len(s); if n == 0 { … }` (same idea for `merge_file_sources` / `merge_package_sources` / `read_source` results). The compiler **loader** and **driver** (`compiler/src/loader.diva`, `compiler/src/main.diva`) follow this pattern.
+
 ## Related
 
 - Strict pure CI list: `tests/strict-pure.list` (single-file examples that fit the native subset and pure extern set).
@@ -61,3 +69,4 @@ The pinned seed / native subset parser rejects **`>=` and `<=` in `if` condition
 - Bootstrap / promotion: `bootstrap/README.md`, `scripts/promote-bootstrap-seed.sh`, `scripts/build-bootstrap-driver-merged.sh`.
 - One-shot pure compiler ELF (no `cc` on the build path): `scripts/build-compiler-pure-elf.sh` (uses `DIVA_NO_EXTERNAL=1`; full `compiler/` can take a long time).
 - Full pure `compiler/` build check (log + exit status): `scripts/verify-pure-compiler-build.sh`.
+- Pure-only driver matrix and exit criteria: `docs/pure-only-driver.md`, `scripts/verify-pure-only-driver.sh`.

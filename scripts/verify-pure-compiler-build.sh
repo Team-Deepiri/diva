@@ -40,13 +40,16 @@ fi
 LOG="${LOG:-${ROOT_DIR}/build/.pure-elf-compiler/verify-build.log}"
 mkdir -p "$(dirname "${LOG}")"
 
+OUT_EXE="${OUT_EXE:-${ROOT_DIR}/build/diva-compiler-pure-elf}"
+DEFAULT_EXE="${ROOT_DIR}/build/diva-native-exe"
+
 echo "[verify-pure-compiler] DRIVER=${DRIVER}"
 echo "[verify-pure-compiler] logging to ${LOG}"
 echo "[verify-pure-compiler] start $(date -Is)"
 set +e
 ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${DI_STDLIB_DIR}" DIVA_NO_EXTERNAL=1 \
   DI_RUNTIME_O="${DI_RUNTIME_O}" \
-  "${DRIVER}" build "${ROOT_DIR}/compiler" >"${LOG}" 2>&1
+  "${DRIVER}" build "${ROOT_DIR}/compiler" "${OUT_EXE}" >"${LOG}" 2>&1
 rc=$?
 set -e
 echo "[verify-pure-compiler] end $(date -Is) rc=${rc}"
@@ -57,11 +60,18 @@ if test "${rc}" -ne 0; then
   exit "${rc}"
 fi
 
-if ! test -x /tmp/diva-native-exe; then
-  echo "[verify-pure-compiler] build claimed success but /tmp/diva-native-exe missing" >&2
-  exit 1
+CAND="${OUT_EXE}"
+if ! test -x "${CAND}"; then
+  if test -x "${DEFAULT_EXE}"; then
+    CAND="${DEFAULT_EXE}"
+  elif test -x /tmp/diva-native-exe; then
+    CAND=/tmp/diva-native-exe
+  else
+    echo "[verify-pure-compiler] build claimed success but missing ${OUT_EXE} (also tried ${DEFAULT_EXE}, /tmp/diva-native-exe)" >&2
+    exit 1
+  fi
 fi
 
-sz=$(wc -c </tmp/diva-native-exe)
-echo "[verify-pure-compiler] OK -> /tmp/diva-native-exe (${sz} bytes)"
+sz=$(wc -c <"${CAND}")
+echo "[verify-pure-compiler] OK -> ${CAND} (${sz} bytes)"
 exit 0

@@ -178,7 +178,23 @@ func tok_int_value(src: str, stream: int, index: int): int {
     return result
 }
 
-// Decoded string value: \" -> ", \\ -> \, other backslash sequences stay as two (or one) literal chars.
+// Single-byte strings for escape decoding (tok_str_value). Multiline = one LF; tab = literal ASCII 9; CR = literal ASCII 13.
+func tok_esc_lf(): str {
+    return "
+"
+}
+
+func tok_esc_tab(): str {
+    return "	"
+}
+
+func tok_esc_cr(): str {
+    return ""
+}
+
+
+
+// Decoded string value: \" -> ", \\ -> \, \n \t \r -> C0 controls; unknown \x stays as two literal chars.
 func tok_str_value(src: str, stream: int, index: int): str {
     var t0 = tok_start(stream, index)
     var tl = tok_len(stream, index)
@@ -206,9 +222,24 @@ func tok_str_value(src: str, stream: int, index: int): str {
                         str_builder_append(b, str_slice(src, inner_start + i, 1))
                         i = i + 2
                     } else {
-                        str_builder_append(b, str_slice(src, inner_start + i, 1))
-                        str_builder_append(b, str_slice(src, inner_start + i + 1, 1))
-                        i = i + 2
+                        if n2 == 110 {
+                            str_builder_append(b, tok_esc_lf())
+                            i = i + 2
+                        } else {
+                            if n2 == 116 {
+                                str_builder_append(b, tok_esc_tab())
+                                i = i + 2
+                            } else {
+                                if n2 == 114 {
+                                    str_builder_append(b, tok_esc_cr())
+                                    i = i + 2
+                                } else {
+                                    str_builder_append(b, str_slice(src, inner_start + i, 1))
+                                    str_builder_append(b, str_slice(src, inner_start + i + 1, 1))
+                                    i = i + 2
+                                }
+                            }
+                        }
                     }
                 }
             }
