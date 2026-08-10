@@ -1,0 +1,22 @@
+extern func print_int(x: int): void
+
+// Method calls lower receiver-first: obj.method(args) -> method(obj, args...).
+func incr(v: int): int {
+    return v + 1
+}
+
+func scale(v: int, k: int): int {
+    return v * k
+}
+
+func mix(v: int, a: int, b: int): int {
+    return v + a * b
+}
+
+func main(): int {
+    var n = 7
+    print_int(n.incr())
+    print_int(n.scale(3))
+    print_int(n.mix(2, 5))
+    return 0
+}
