@@ -1,6 +1,6 @@
 /* Pure ELF str_builder_new — stable handle (table index). NO ret. */
 .equ HT_BASE, 0x500000000000
-.equ HT_BYTES, 0x800000
+.equ HT_BYTES, 0x801000
 .equ HT_MAX, 1048575
 .equ INIT_BYTES, 0x1000
 .equ MAP_PRIVATE_ANON_FIXED_NR, 0x100032
