@@ -15,7 +15,7 @@ func sema_err(msg: str): int {
     return 1
 }
 
-func sema_top_level_func_hashes(file_node: int): int {
+func sema_top_level_func_hashes(src: str, toks: int, file_node: int): int {
     var children = ast_child(file_node, 0)
     var n = int_vec_len(children)
     var seen = int_vec_new()
@@ -23,20 +23,56 @@ func sema_top_level_func_hashes(file_node: int): int {
     while (i < n) {
         var ch = int_vec_get(children, i)
         if ast_kind(ch) == nd_func() {
-            var ht = ast_child(ch, 0)
+            var name_tok = ast_child(ch, 0)
             var j = 0
             var nc = int_vec_len(seen)
             while (j < nc) {
-                if (int_vec_get(seen, j) == ht) {
-                    return sema_err("duplicate top-level function name")
+                if tok_spelling_eq(src, toks, int_vec_get(seen, j), name_tok) == 1 {
+                    int_vec_free(seen)
+                    stderr("sema: duplicate top-level function name '")
+                    stderr(tok_text(src, toks, name_tok))
+                    stderr("' across merged translation unit")
+                    stderr(char_to_str(10))
+                    return 1
                 }
                 j = j + 1
             }
-            int_vec_push(seen, ht)
+            int_vec_push(seen, name_tok)
         }
         i = i + 1
     }
     int_vec_free(seen)
+    return 0
+}
+
+// All nd_package_decl names in a merged translation unit must agree. merge_package_sources /
+// merge_file_sources concatenate whole files, so a cross-file import that declares a different
+// package is a mismatch (Issue #17).
+func sema_package_names_agree(src: str, toks: int, file_node: int): int {
+    var children = ast_child(file_node, 0)
+    var n = int_vec_len(children)
+    var i = 0
+    var pkg_tok = -1
+    while (i < n) {
+        var ch = int_vec_get(children, i)
+        if ast_kind(ch) == nd_package_decl() {
+            var pt = ast_child(ch, 0)
+            if pkg_tok < 0 {
+                pkg_tok = pt
+            } else {
+                if tok_spelling_eq(src, toks, pkg_tok, pt) == 0 {
+                    stderr("sema: package name mismatch across merged translation unit ('")
+                    stderr(tok_text(src, toks, pkg_tok))
+                    stderr("' vs '")
+                    stderr(tok_text(src, toks, pt))
+                    stderr("')")
+                    stderr(char_to_str(10))
+                    return 1
+                }
+            }
+        }
+        i = i + 1
+    }
     return 0
 }
 
@@ -98,7 +134,10 @@ func sema_check_func_body_dup_lets(file_node: int, src: str, toks: int): int {
 
 // Returns 0 if ok, 1 on error (messages on stderr).
 func sema_check_file(src: str, toks: int, file_node: int): int {
-    if sema_top_level_func_hashes(file_node) != 0 {
+    if sema_top_level_func_hashes(src, toks, file_node) != 0 {
+        return 1
+    }
+    if sema_package_names_agree(src, toks, file_node) != 0 {
         return 1
     }
     if sema_check_func_body_dup_lets(file_node, src, toks) != 0 {

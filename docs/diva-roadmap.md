@@ -5,8 +5,8 @@ This document maps AST node kinds ([compiler/src/ast.diva](compiler/src/ast.diva
 | Construct | Parse | IR / lowering | Codegen | Notes |
 |-----------|-------|---------------|---------|--------|
 | `nd_file` | yes | yes | yes | |
-| `nd_import` | yes | skip | n/a | Imports ignored in native IR; multi-file is seed |
-| `nd_package_decl` | yes | skip | n/a | |
+| `nd_import` | yes | yes | yes | Source-merged TU: `merge_file_sources`/`merge_package_sources` concat files, then one lex/parse; sema checks duplicate funcs + package-name agreement |
+| `nd_package_decl` | yes | yes | n/a | Skipped in IR; sema enforces all package decls in a merged TU agree |
 | `nd_func` | yes | yes | yes | |
 | `nd_extern_func` | yes | yes | yes | Calls → `di_runtime_*` |
 | `nd_param` | yes | yes | yes | |

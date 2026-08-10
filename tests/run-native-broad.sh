@@ -159,6 +159,9 @@ check_fail() {
 }
 check_fail "tests/cases/fail/duplicate_decl.diva" "duplicate declaration of 'x' in the same scope"
 check_fail "tests/cases/fail/missing_trait_method.diva" "parse error"
+check_fail "tests/cases/fail/duplicate_import_main.diva" "duplicate top-level function name 'clash' across merged translation unit"
+check_fail "tests/cases/fail/package_mismatch_main.diva" "package name mismatch across merged translation unit"
+check_fail "tests/cases/fail/import_cycle_main.diva" "loader: import cycle at"
 
 echo "[native-broad] totals: examples=${total} multi-file=${total_pkg} failed=${failed}"
 if [ "${failed}" -ne 0 ]; then
