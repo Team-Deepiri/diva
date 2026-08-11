@@ -518,6 +518,18 @@ func lower_expr_call(ctx: int, src: str, node: int): int {
     return r
 }
 
+// Lower nd_generic_call by erasing the type-argument list and lowering as a plain call.
+// Type parameters are parse-only in the native subset, so a generic call site binds to
+// the single monomorphic definition of the same name.
+func lower_expr_generic_call(ctx: int, src: str, node: int): int {
+    var callee = ast_child(node, 0)
+    var args = ast_child(node, 2)
+    var cnode = ast_call(callee, args)
+    var r = lower_expr_call(ctx, src, cnode)
+    int_vec_free(cnode)
+    return r
+}
+
 // Lower nd_field node.
 func lower_expr_field(ctx: int, src: str, node: int): int {
     var obj_node = ast_child(node, 0)
@@ -627,6 +639,7 @@ func lower_expr(ctx: int, src: str, node: int): int {
     }
 
     if kind == nd_call() { return lower_expr_call(ctx, src, node) }
+    if kind == nd_generic_call() { return lower_expr_generic_call(ctx, src, node) }
     if kind == nd_method_call() { return lower_expr_method_call(ctx, src, node) }
     if kind == nd_index() { return lower_expr_index(ctx, src, node) }
     if kind == nd_field() { return lower_expr_field(ctx, src, node) }

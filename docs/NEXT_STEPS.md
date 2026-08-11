@@ -24,7 +24,9 @@ subset. These constructs are **parse-only or seed-only** in the native pipeline 
    `nd_package_decl` also skipped.
 5. **Globals:** `nd_ident` globals → stub (locals + params only).
 6. **Arrays:** `nd_array_lit` only as `int[]` initializer; `nd_index` const-index only.
-7. **Generic calls:** `nd_generic_call` — no codegen.
+7. **Generic calls:** `nd_generic_call` — type erasure (call type-args and decl
+   type-params dropped; calls bind to the single monomorphic definition). See
+   `docs/diva-roadmap.md` `nd_generic_call`.
 8. **Backend / kernel track:** `compiler/{mir,backend}/` scaffolding and kernel targets are not
    shipped (see `docs/roadmap.md` phases 8–9).
 

@@ -176,6 +176,17 @@ func ast_call(callee: int, args: int): int {
     return n
 }
 
+// Generic call: [kind, callee_node, type_args_handle, args_handle]
+// type_args_handle is an int_vec of type token indices (erased at IR build).
+func ast_generic_call(callee: int, type_args: int, args: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_generic_call())
+    int_vec_push(n, callee)
+    int_vec_push(n, type_args)
+    int_vec_push(n, args)
+    return n
+}
+
 // Method call: [kind, obj_node, method_tok, args_handle]
 func ast_method_call(obj: int, method_tok: int, args: int): int {
     var n = int_vec_new()
