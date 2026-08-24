@@ -181,6 +181,13 @@ else
   echo "[native-broad] OK   tests/run-watch-smoke.sh"
 fi
 
+echo "[native-broad] category: DWARF -g / addr2line smoke"
+if ! DIVA="${DRIVER}" bash "${ROOT_DIR}/tests/run-dwarf-smoke.sh"; then
+  record_fail "dwarf" "tests/run-dwarf-smoke.sh" "dwarf smoke failed"
+else
+  echo "[native-broad] OK   tests/run-dwarf-smoke.sh"
+fi
+
 echo "[native-broad] totals: examples=${total} multi-file=${total_pkg} failed=${failed}"
 if [ "${failed}" -ne 0 ]; then
   echo "[native-broad] failing entries:"

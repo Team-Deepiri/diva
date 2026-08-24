@@ -30,11 +30,12 @@ func native_cmd_ir_debug(): int {
 func cmd_print_usage(): int {
     stderr("usage: diva <command> [args]\n")
     stderr("  lex <file.diva> | parse <file.diva> | ir <file.diva> | asm <file.diva>\n")
-    stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast] | run <...>\n")
+    stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g] | run <...>\n")
     stderr("  watch <file.diva|package-dir> | check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline\n")
     stderr("Environment: DI_STDLIB_DIR (stdlib search path)\n")
     stderr("  DIVA_WATCH_MAX_ITERS=N exits after N poll cycles (CI smoke)\n")
+    stderr("  diva build -g embeds DWARF via scripts/embed-dwarf-debug.py (needs python3)\n")
     stderr("  diva new <path> [--lib|--kernel] (native scaffolding)\n")
     return 1
 }
@@ -983,6 +984,50 @@ func build_wants_ast(): int {
     return 0
 }
 
+func build_wants_g(): int {
+    var i = 2
+    while (i < host_argc()) {
+        if str_eq(host_argv(i), "-g") == 1 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Source path recorded in DWARF (entry .diva for packages).
+func dwarf_debug_src_path(path: str): str {
+    if build_path_is_package_dir(path) == 1 {
+        var man = path_join_dir(path, "package.diva")
+        var ent = package_entry_relative(man)
+        if str_len(ent) == 0 {
+            return path
+        }
+        return path_join_dir(path, ent)
+    }
+    return path
+}
+
+// Post-process pure ELF with scripts/embed-dwarf-debug.py (Issue #63).
+func native_embed_dwarf(exe_out: str, src_path: str): int {
+    var root = host_getenv("ROOT_DIR")
+    var script = "scripts/embed-dwarf-debug.py"
+    if str_len(root) > 0 {
+        script = path_join_dir(root, "scripts/embed-dwarf-debug.py")
+    }
+    var b = str_builder_new()
+    str_builder_append(b, "python3 ")
+    str_builder_append(b, script)
+    str_builder_append(b, " ")
+    str_builder_append(b, exe_out)
+    str_builder_append(b, " ")
+    str_builder_append(b, src_path)
+    var cmd = str_builder_to_str(b)
+    str_builder_free(b)
+    var rc = host_system(cmd)
+    return system_exit_code(rc)
+}
+
 // Lex + parse + sema for a lib/app package (merged sources). No seed forwarding.
 func cmd_check(): int {
     if (host_argc() < 3) {
@@ -1092,6 +1137,18 @@ func native_build_path(path: str, quiet: int): int {
     var exe_out = pick_build_out_path()
     if native_compile_and_link(merged_out_hold, quiet, exe_out) != 0 {
         return 1
+    }
+    if build_wants_g() == 1 {
+        var dbg_src = dwarf_debug_src_path(path)
+        if native_embed_dwarf(exe_out, dbg_src) != 0 {
+            if quiet == 0 {
+                err_line("build -g: embed-dwarf-debug.py failed (need python3 + scripts/embed-dwarf-debug.py)")
+            }
+            return 1
+        }
+        if quiet == 0 {
+            err_line("[native] DWARF -g sections embedded (addr2line)")
+        }
     }
     if quiet == 0 {
         if build_path_is_package_dir(path) == 1 {
