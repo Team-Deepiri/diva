@@ -10,7 +10,7 @@ This document maps AST node kinds ([compiler/src/ast.diva](compiler/src/ast.diva
 | `nd_func` | yes | yes | yes | |
 | `nd_extern_func` | yes | yes | yes | Calls → `di_runtime_*` |
 | `nd_param` | yes | yes | yes | |
-| `nd_var_decl` | yes | partial | partial | Scalars + fixed `int[]` with array literal init |
+| `nd_var_decl` | yes | partial | partial | Scalars + fixed `int[]`/`bool[]`/`str[]`/struct-elem arrays with literal init |
 | `nd_if` | yes | yes | yes | |
 | `nd_while` | yes | yes | yes | |
 | `nd_return` | yes | yes | yes | |
@@ -19,13 +19,13 @@ This document maps AST node kinds ([compiler/src/ast.diva](compiler/src/ast.diva
 | `nd_binop` / `nd_unary` | yes | yes | yes | |
 | `nd_int_lit` / `nd_bool_lit` / `nd_str_lit` | yes | yes | yes | |
 | `nd_ident` | yes | yes | yes | Locals, params, and module globals (int/bool/str) |
-| `nd_assign` | yes | partial | partial | Ident and `nd_index` (const index) |
-| `nd_field` | yes | yes | yes | Locals with struct type; field assign supported |
-| `nd_index` | yes | yes | yes | Const or dynamic index into stack `int[]`; see `docs/array-bounds.md` |
+| `nd_assign` | yes | partial | partial | Ident, index, and `arr[i].field` |
+| `nd_field` | yes | yes | yes | Locals with struct type; `arr[i].field` for struct arrays |
+| `nd_index` | yes | yes | yes | Const/dynamic scalar arrays; struct arrays via field — `docs/array-bounds.md` |
 | `nd_class` / `nd_trait` / `nd_impl` | yes | partial | partial | Field + class-body methods with `self`; traits/impls static free-fn |
-| `nd_type_name` / `nd_type_array` | yes | partial | partial | Arrays for locals only |
-| `nd_array_lit` | yes | partial | partial | Only as `int[]` initializer |
-| `nd_flux` | yes | yes | yes | Desugars to while over `nd_range` `[start,end)` or fixed `int[]` |
+| `nd_type_name` / `nd_type_array` | yes | partial | partial | Arrays for locals (`int`/`bool`/`str`/named struct elems) |
+| `nd_array_lit` | yes | partial | partial | Typed local initializers (scalar or struct elems) |
+| `nd_flux` | yes | yes | yes | Desugars to while over `nd_range` `[start,end)` or fixed scalar arrays |
 | `nd_range` | yes | yes | n/a | Only as `flux` iterable today |
 | `nd_method_call` | yes | yes | yes | Lowers to free fn `method(recv, args...)` |
 | `nd_obj_lit` / `nd_field_init` | yes | yes | yes | Struct init via `Type { f: v }` (type from lit or `::`) |

@@ -76,6 +76,9 @@ expected_output() {
     examples/arrays.diva)           printf '9\n' ;;
     examples/array_mutation.diva)   printf '16\n' ;;
     examples/array_dynamic.diva)    printf '9\n99\n6\n' ;;
+    examples/array_bool.diva)       printf '1\n0\n1\n' ;;
+    examples/array_str.diva)        printf 'hi\nok\nzz\n' ;;
+    examples/array_struct.diva)     printf '1\n4\n5\n9\n' ;;
     examples/flux_range.diva)       printf '10\n5\n1\n0\n0\n' ;;
     examples/flux_array.diva)       printf '30\n' ;;
     examples/class_methods.diva)    printf '3\n7\n' ;;

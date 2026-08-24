@@ -18,7 +18,7 @@ path is closed (#55).
 | **P0** | [#54](https://github.com/Team-Deepiri/diva/issues/54) span diagnostics | Multi-file errors useless without locations — **MVP landed** (`path:line:col:`) |
 | **P0** | [#55](https://github.com/Team-Deepiri/diva/issues/55) pure driver / seed promote (**landed**) | Trust root without skip-flag hacks |
 | **P0** | [#61](https://github.com/Team-Deepiri/diva/issues/61) negative suite (**landed**) | Lock failure cases so stacked PRs don't regress |
-| P1 | [#56](https://github.com/Team-Deepiri/diva/issues/56) array flux (**landed**), [#58](https://github.com/Team-Deepiri/diva/issues/58) bounds traps (**landed**), [#57](https://github.com/Team-Deepiri/diva/issues/57) class methods (**landed**), [#64](https://github.com/Team-Deepiri/diva/issues/64) non-int arrays | Collection / OOP surface |
+| P1 | [#56](https://github.com/Team-Deepiri/diva/issues/56) array flux (**landed**), [#58](https://github.com/Team-Deepiri/diva/issues/58) bounds traps (**landed**), [#57](https://github.com/Team-Deepiri/diva/issues/57) class methods (**landed**), [#64](https://github.com/Team-Deepiri/diva/issues/64) non-int arrays (**landed**) | Collection / OOP surface |
 | P1 | [#62](https://github.com/Team-Deepiri/diva/issues/62) heap + growable buffer | Unblocks real [#28](https://github.com/Team-Deepiri/diva/issues/28) stdlib |
 | P2 | [#60](https://github.com/Team-Deepiri/diva/issues/60) `diva watch`, [#63](https://github.com/Team-Deepiri/diva/issues/63) DWARF | Dev UX |
 | P2 | [#59](https://github.com/Team-Deepiri/diva/issues/59) kernel packages | Feeds [#30](https://github.com/Team-Deepiri/diva/issues/30) systems track |
@@ -39,7 +39,7 @@ Still open from earlier track: merge the feature stack to `dev`/`main`, finish
 See `docs/diva-roadmap.md`. Highlights still partial/seed:
 
 1. **OOP:** class-body methods / `self` (#57 landed — value receiver); trait objects later (#27 residual).
-2. **Collections:** `bool[]`/`str[]`/struct arrays (#64); array flux (#56) + bounds traps (#58) landed.
+2. **Collections:** `bool[]`/`str[]`/struct arrays (#64 landed); array flux (#56) + bounds traps (#58) landed.
 3. **Imports / modules:** full graph/cache (#24); import merge already in flight (#17).
 4. **Generics:** monomorphization / generic classes (#26).
 5. **IR Stage 2 / backends:** #25 status doc; kernel path #59 + #30.

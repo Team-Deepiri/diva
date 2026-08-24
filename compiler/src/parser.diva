@@ -111,8 +111,18 @@ func parse_type(ps: int, src: str): int {
         if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(t) }
         return t
     }
-    if kind == tk_str_kw()  { p_advance(ps) return ast_type_name(tok) }
-    if kind == tk_bool_kw() { p_advance(ps) return ast_type_name(tok) }
+    if kind == tk_str_kw() {
+        p_advance(ps)
+        var ts = ast_type_name(tok)
+        if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(ts) }
+        return ts
+    }
+    if kind == tk_bool_kw() {
+        p_advance(ps)
+        var tb = ast_type_name(tok)
+        if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(tb) }
+        return tb
+    }
     if kind == tk_void()    { p_advance(ps) return ast_type_name(tok) }
     if kind == tk_ident() {
         p_advance(ps)
