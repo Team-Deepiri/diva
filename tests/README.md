@@ -1,13 +1,11 @@
 # Diva Tests
 
-Current test coverage lives in `tests/run.sh`.
+Current coverage:
 
-It currently checks:
-
-- example program integration runs
-- AST smoke output for a simple program
-- semantic failure cases with expected diagnostics
-- app/library/kernel scaffolding workflows through native `diva new`, `diva new --lib`, and `diva new --kernel`
+- `tests/run.sh` — install + integration smoke (examples, scaffolding, fail needles)
+- `tests/run-native-broad.sh` — broad native build/run + locked negatives
+- `tests/run-negative.sh` — curated fail suite from `tests/negative.list` (Issue #61)
+- `tests/run-strict-pure.sh` — strict pure-ELF example list
 
 ## Run
 
@@ -15,16 +13,11 @@ From the repository root:
 
 ```sh
 sh tests/run.sh
+sh tests/run-native-broad.sh
+sh tests/run-negative.sh
 ```
 
 ## Test Layout
 
-- `tests/run.sh`: installs `diva` into a temporary home and runs the full smoke suite
-- `tests/cases/fail/`: negative compilation cases that should fail with known diagnostics
-
-## Next Useful Additions
-
-- token snapshot tests
-- richer AST snapshot coverage
-- emitted LLVM IR shape checks
-- Windows-side install and SDK tests
+- `tests/cases/fail/`: negative compilation / runtime-abort cases (see `tests/cases/fail/README.md`)
+- `tests/negative.list`: path + expected stderr needle + kind (`fail_build` / `runtime_abort`)

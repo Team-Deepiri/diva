@@ -1,3 +1,5 @@
+// Deferred (Issue #61): `double` is not a reserved word on native; see
+// tests/cases/fail/README.md. Replaced by duplicate_func / self_outside_method.
 func double(x: int): int {
     return x;
 }

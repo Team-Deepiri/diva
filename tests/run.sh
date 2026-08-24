@@ -274,9 +274,9 @@ assert_error_contains "${ROOT_DIR}/tests/cases/fail/parse_bad_params.diva" "pars
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/parse_bad_params.diva" "parse_bad_params.diva:1:"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/wrong_arity.diva" "wrong number of arguments for 'add'"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/wrong_arity.diva" "wrong_arity.diva:"
-# duplicate_import_main / package_mismatch_main: seed expected "native build: unsupported surface"; the
-# in-tree driver now accepts package+imports for native build. Re-add when duplicate symbols /
-# package entry rules get stable diagnostics (#61).
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_func.diva" "duplicate function 'foo'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/self_outside_method.diva" "unknown identifier 'self'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_import_main.diva" "duplicate function 'clash'"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/missing_trait_method.diva" "missing trait method"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_package_dep" "unknown package dependency"
 

@@ -150,45 +150,10 @@ else
 fi
 
 echo "[native-broad] category: stable negative diagnostics"
-check_fail() {
-  _src=$1
-  _needle=$2
-  total=$((total + 1))
-  if DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-    DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
-    timeout 30 "${DRIVER}" build "${_src}" "${WORK}/neg-exe" >"${WORK}/neg.log" 2>&1; then
-    record_fail "negative" "${_src}" "expected failure but build succeeded"
-    return
-  fi
-  if ! grep -F "${_needle}" "${WORK}/neg.log" >/dev/null; then
-    record_fail "negative" "${_src}" "missing expected diagnostic '${_needle}'"
-  else
-    echo "[native-broad] OK   ${_src} (fails as expected)"
-  fi
-}
-check_fail "tests/cases/fail/duplicate_decl.diva" "duplicate declaration of 'x' in the same scope"
-check_fail "tests/cases/fail/unknown_ident.diva" "unknown_ident.diva:2:"
-check_fail "tests/cases/fail/wrong_arity.diva" "wrong number of arguments for 'add'"
-check_fail "tests/cases/fail/parse_bad_params.diva" "parse_bad_params.diva:1:"
-check_fail "tests/cases/fail/missing_trait_method.diva" "missing trait method"
-
-echo "[native-broad] category: runtime bounds trap"
-total=$((total + 1))
-if DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-  DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
-  timeout 30 "${DRIVER}" build "tests/cases/fail/array_oob_runtime.diva" "${WORK}/oob-exe" >"${WORK}/oob-build.log" 2>&1; then
-  set +e
-  timeout 5 "${WORK}/oob-exe" >"${WORK}/oob-run.log" 2>&1
-  oob_rc=$?
-  set -e
-  if [ "${oob_rc}" -eq 0 ]; then
-    record_fail "runtime" "array_oob_runtime.diva" "expected non-zero exit on OOB index"
-  else
-    echo "[native-broad] OK   tests/cases/fail/array_oob_runtime.diva (aborts as expected, rc=${oob_rc})"
-  fi
+if ! DIVA_PURE_DRIVER="${DRIVER}" bash "${ROOT_DIR}/tests/run-negative.sh"; then
+  record_fail "negative" "tests/negative.list" "run-negative.sh failed"
 else
-  record_fail "runtime" "array_oob_runtime.diva" "build failed"
-  sed -n '1,40p' "${WORK}/oob-build.log" >&2 || true
+  echo "[native-broad] OK   tests/run-negative.sh (locked suite)"
 fi
 
 echo "[native-broad] totals: examples=${total} multi-file=${total_pkg} failed=${failed}"

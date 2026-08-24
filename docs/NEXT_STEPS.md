@@ -17,7 +17,7 @@ trustworthy promote path.
 | **P0** | [#53](https://github.com/Team-Deepiri/diva/issues/53) type checker | Unknown idents → `const 0`; no real programs without reject-bad |
 | **P0** | [#54](https://github.com/Team-Deepiri/diva/issues/54) span diagnostics | Multi-file errors useless without locations — **MVP landed** (`path:line:col:`) |
 | **P0** | [#55](https://github.com/Team-Deepiri/diva/issues/55) pure driver / seed promote | Trust root without skip-flag hacks |
-| **P0** | [#61](https://github.com/Team-Deepiri/diva/issues/61) negative suite | Lock failure cases so stacked PRs don't regress |
+| **P0** | [#61](https://github.com/Team-Deepiri/diva/issues/61) negative suite (**landed**) | Lock failure cases so stacked PRs don't regress |
 | P1 | [#56](https://github.com/Team-Deepiri/diva/issues/56) array flux (**landed**), [#58](https://github.com/Team-Deepiri/diva/issues/58) bounds traps (**landed**), [#57](https://github.com/Team-Deepiri/diva/issues/57) class methods (**landed**), [#64](https://github.com/Team-Deepiri/diva/issues/64) non-int arrays | Collection / OOP surface |
 | P1 | [#62](https://github.com/Team-Deepiri/diva/issues/62) heap + growable buffer | Unblocks real [#28](https://github.com/Team-Deepiri/diva/issues/28) stdlib |
 | P2 | [#60](https://github.com/Team-Deepiri/diva/issues/60) `diva watch`, [#63](https://github.com/Team-Deepiri/diva/issues/63) DWARF | Dev UX |
@@ -32,7 +32,7 @@ Still open from earlier track: merge the feature stack to `dev`/`main`, finish
 
 1. **Land / merge** stacked native PRs (#47–#52) onto `dev` so mainline matches tip.
 2. **Implement #53** (type checker) — MVP landed: unknown idents + call arity; continue with full types.
-3. Pair **#54** diagnostics + **#61** negative suite with #53 so errors are actionable and locked.
+3. Pair **#54** diagnostics + **#61** negative suite (**landed**: `tests/negative.list` + `run-negative.sh`) with #53 so errors stay actionable.
 
 ## Native codegen gaps (remaining)
 
