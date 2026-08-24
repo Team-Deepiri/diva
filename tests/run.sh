@@ -273,7 +273,7 @@ assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva" "duplic
 # in-tree driver now accepts package+imports for native build. Re-add a sema-level negative test when
 # duplicate symbols / package entry rules are enforced with stable diagnostics.
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/missing_trait_method.diva" "missing trait method"
-# unknown_package_dep: was "loader: cannot read"; native merge path may no longer fail this package at build time.
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_package_dep" "unknown package dependency"
 
 assert_output_equals "${ROOT_DIR}/examples/hello.diva" "10"
 assert_output_equals "${ROOT_DIR}/examples/escape_smoke.diva" "$(printf '1\n')"

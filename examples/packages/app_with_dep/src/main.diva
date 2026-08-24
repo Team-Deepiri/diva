@@ -1,6 +1,5 @@
-// Package dep alias (Issue #24): `import "math_lib"` resolves via package.diva
-// `dep.math_lib = "..."`, then that package's entry file.
-import "math_lib"
+// Package dep alias (Issue #24): canonical `pkg/<name>` via package.diva dep.*.
+import "pkg/math_lib"
 
 extern func print_int(x: int): void
 

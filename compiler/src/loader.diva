@@ -239,6 +239,13 @@ func import_looks_like_dep_alias(imp: str): int {
     if n == 0 {
         return 0
     }
+    // Canonical: pkg/<name>
+    if !(n < 4) {
+        if str_eq(str_slice(imp, 0, 4), "pkg/") == 1 {
+            return 1
+        }
+    }
+    // Bare alias: math_lib (no slash / dot)
     var i = 0
     while (i < n) {
         var b = str_byte(imp, i)
@@ -253,16 +260,35 @@ func import_looks_like_dep_alias(imp: str): int {
     return 1
 }
 
+func import_dep_alias_name(imp: str): str {
+    var n = str_len(imp)
+    if !(n < 4) {
+        if str_eq(str_slice(imp, 0, 4), "pkg/") == 1 {
+            return str_slice(imp, 4, n - 4)
+        }
+    }
+    return imp
+}
+
 func resolve_dep_alias_import(cur_file: str, imp: str): str {
     if import_looks_like_dep_alias(imp) == 0 {
         return ""
     }
+    var alias = import_dep_alias_name(imp)
     var root = find_enclosing_package_root(cur_file)
     if str_len(root) == 0 {
+        if !(str_len(imp) < 4) {
+            if str_eq(str_slice(imp, 0, 4), "pkg/") == 1 {
+                stderr("loader: pkg/ import requires package.diva ancestor\n")
+            }
+        }
         return ""
     }
-    var rel = package_manifest_dep_value(root, imp)
+    var rel = package_manifest_dep_value(root, alias)
     if str_len(rel) == 0 {
+        stderr("loader: unknown package dependency '")
+        stderr(alias)
+        stderr("'\n")
         return ""
     }
     var target = path_join_dir(root, rel)
