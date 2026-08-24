@@ -348,13 +348,25 @@ func ast_type_array(elem: int): int {
     return n
 }
 
-// Class: [kind, name_tok, members_handle (int_vec of field/method nodes)]
+// Class: [kind, name_tok, members_handle, type_params_handle]
 func ast_class(name_tok: int, members: int): int {
+    return ast_class_generic(name_tok, int_vec_new(), members)
+}
+
+func ast_class_generic(name_tok: int, type_params: int, members: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_class())
     int_vec_push(n, name_tok)
     int_vec_push(n, members)
+    int_vec_push(n, type_params)
     return n
+}
+
+func ast_class_type_params(node: int): int {
+    if int_vec_len(node) < 4 {
+        return int_vec_new()
+    }
+    return ast_child(node, 3)
 }
 
 // Trait: [kind, name_tok, methods_handle (int_vec of nd_func, body may be empty)]
