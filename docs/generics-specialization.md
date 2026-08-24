@@ -2,18 +2,11 @@
 
 Issue: [#26](https://github.com/Team-Deepiri/diva/issues/26). Call-site IR: [#23](https://github.com/Team-Deepiri/diva/issues/23).
 
-## Current strategy: call-site monomorphization (MVP)
+## Current strategy: call-site monomorphization (infrastructure)
 
-1. **Declarations** — `func id[T](x: T): T` and `class Box[T] { … }` keep type
-   parameters on the AST (`ast_func_generic`, `ast_class_generic`).
-
-2. **Call sites** — `id[int](30)` lowers to a **mangled callee** `id_int` via
-   `name_pool.diva` (synthetic name tokens on the IR module). The template IR
-   body is cloned under the mangled symbol when first referenced.
-
-3. **Soundness bound** — clones share the template IR body today (pass-through
-   generics). Type-dependent codegen still requires AST substitution per
-   specialization (next step).
+`name_pool.diva` + alias map + codegen hooks are landed. **IR lowering still uses type
+erasure** (plain call to the template name) until alias lookup is verified in the
+self-hosted seed; then lowering will emit mangled synthetic callees again.
 
 ## Previous strategy: type erasure
 

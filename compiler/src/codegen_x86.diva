@@ -55,8 +55,12 @@ func cg_func_name(m: int, src: str, toks: int, name_tok: int): str {
     if name_pool_is_synthetic(name_tok) == 1 {
         var pool = mod_name_pool(m)
         if pool >= 0 {
-            return name_pool_text(pool, name_tok)
+            var nm = name_pool_text(pool, name_tok)
+            if str_len(nm) > 0 {
+                return nm
+            }
         }
+        return "_syn"
     }
     return tok_text(src, toks, name_tok)
 }
@@ -130,6 +134,9 @@ func asm_runtime_label(src: str, toks: int, name_tok: int): str {
 }
 
 func call_is_extern(m: int, src: str, toks: int, call_tok: int): int {
+    if name_pool_is_synthetic(call_tok) == 1 {
+        return 0
+    }
     var cname = cg_func_name(m, src, toks, call_tok)
     var fc = mod_func_count(m)
     var i = 0
@@ -475,7 +482,7 @@ func cg_inst_call_op(ctx: int, nl: str, src: str, inst: int): int {
     if call_is_extern(m, src, toks, ctok) == 1 {
         lab = asm_runtime_label(src, toks, ctok)
     } else {
-        lab = asm_user_label(src, toks, ctok)
+        lab = asm_user_label_m(m, src, toks, ctok)
     }
     lp_add(lp, "    call ")
     lp_add(lp, lab)
@@ -665,6 +672,38 @@ func find_func_index_by_tok(m: int, src: str, toks: int, call_tok: int): int {
         if ali >= 0 {
             return ali
         }
+        var pool = mod_name_pool(m)
+        if pool >= 0 {
+            var cname = name_pool_text(pool, call_tok)
+            var fc = mod_func_count(m)
+            var best = 0 - 1
+            var best_len = 0
+            var i = 0
+            while (i < fc) {
+                var ftok = func_name_tok(mod_get_func(m, i))
+                if name_pool_is_synthetic(ftok) == 0 {
+                    var fn = tok_text(src, toks, ftok)
+                    var fl = str_len(fn)
+                    if fl > best_len {
+                        if fl <= str_len(cname) {
+                        if str_eq(str_slice(cname, 0, fl), fn) == 1 {
+                            if fl < str_len(cname) {
+                                if str_byte(cname, fl) == 95 {
+                                    best = i
+                                    best_len = fl
+                                }
+                            }
+                        }
+                    }
+                    }
+                }
+                i = i + 1
+            }
+            if best >= 0 {
+                return best
+            }
+        }
+        return 0 - 1
     }
     var cname = cg_func_name(m, src, toks, call_tok)
     var fc = mod_func_count(m)
@@ -680,6 +719,9 @@ func find_func_index_by_tok(m: int, src: str, toks: int, call_tok: int): int {
 }
 
 func pure_builtin_extern_id(src: str, toks: int, call_tok: int): int {
+    if name_pool_is_synthetic(call_tok) == 1 {
+        return 0
+    }
     var nm = tok_text(src, toks, call_tok)
     if str_eq(nm, "write") == 1 { return 1 }
     if str_eq(nm, "exit") == 1 { return 2 }

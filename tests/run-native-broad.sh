@@ -181,6 +181,20 @@ else
   echo "[native-broad] OK   tests/run-watch-smoke.sh"
 fi
 
+echo "[native-broad] category: SDK smoke"
+if ! DIVA_PURE_DRIVER="${DRIVER}" bash "${ROOT_DIR}/tests/run-sdk-smoke.sh"; then
+  record_fail "sdk" "tests/run-sdk-smoke.sh" "sdk smoke failed"
+else
+  echo "[native-broad] OK   tests/run-sdk-smoke.sh"
+fi
+
+echo "[native-broad] category: freestanding / FFI smoke"
+if ! DIVA_PURE_DRIVER="${DRIVER}" bash "${ROOT_DIR}/tests/run-freestanding-smoke.sh"; then
+  record_fail "freestanding" "tests/run-freestanding-smoke.sh" "freestanding smoke failed"
+else
+  echo "[native-broad] OK   tests/run-freestanding-smoke.sh"
+fi
+
 echo "[native-broad] category: generics monomorphization"
 if ! DIVA_PURE_DRIVER="${DRIVER}" bash "${ROOT_DIR}/tests/run-generics.sh"; then
   record_fail "generics" "tests/run-generics.sh" "generics smoke failed"

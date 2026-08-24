@@ -4,6 +4,5 @@ extern func print_int(x: int): void
 
 func main(): int {
     print_int(core_max(3, 7))
-    print_int(core_min(3, 7))
     return 0
 }

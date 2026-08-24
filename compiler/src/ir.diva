@@ -237,6 +237,9 @@ func mod_alias_lookup(m: int, syn_tok: int): int {
     var i = 0
     var n = int_vec_len(al)
     while (i < n) {
+        if (i + 1) >= n {
+            return 0 - 1
+        }
         if int_vec_get(al, i) == syn_tok {
             return int_vec_get(al, i + 1)
         }

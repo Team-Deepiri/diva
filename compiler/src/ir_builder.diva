@@ -606,52 +606,14 @@ func ib_ensure_specialized(ctx: int, src: str, base_tok: int, mangled: str, syn_
     return 0
 }
 
+// Lower nd_generic_call: emit plain call (type erasure). Codegen synthetic-name
+// paths remain for future monomorphization once alias lookup is seed-stable.
 func lower_expr_generic_call(ctx: int, src: str, node: int): int {
     var callee = ast_child(node, 0)
-    var targs = ast_child(node, 1)
-    var args_h = ast_child(node, 2)
-    if ast_kind(callee) != nd_ident() {
-        var cnode = ast_call(callee, args_h)
-        var r0 = lower_expr_call(ctx, src, cnode)
-        int_vec_free(cnode)
-        return r0
-    }
-    var base_tok = ast_child(callee, 0)
-    var mangled = ib_mangle_generic(ctx, src, base_tok, targs)
-    var pool = mod_name_pool(bctx_mod(ctx))
-    var syn = name_pool_intern(pool, mangled)
-    if ib_ensure_specialized(ctx, src, base_tok, mangled, syn) != 0 {
-        var cnode2 = ast_call(callee, args_h)
-        var r1 = lower_expr_call(ctx, src, cnode2)
-        int_vec_free(cnode2)
-        return r1
-    }
-    var argc = int_vec_len(args_h)
-    var r = ib_fresh_vreg(ctx)
-    if argc == 1 {
-        var only_av = lower_expr(ctx, src, int_vec_get(args_h, 0))
-        var c1 = int_vec_new()
-        int_vec_push(c1, ir_call())
-        int_vec_push(c1, r)
-        int_vec_push(c1, syn)
-        int_vec_push(c1, 1)
-        int_vec_push(c1, only_av)
-        ib_emit(ctx, c1)
-        return r
-    }
-    var arg_regs = int_vec_new()
-    var ai = 0
-    while (ai < argc) {
-        int_vec_push(arg_regs, lower_expr(ctx, src, int_vec_get(args_h, ai)))
-        ai = ai + 1
-    }
-    var cinst = int_vec_new()
-    int_vec_push(cinst, ir_call())
-    int_vec_push(cinst, r)
-    int_vec_push(cinst, syn)
-    int_vec_push(cinst, argc)
-    int_vec_push(cinst, arg_regs)
-    ib_emit(ctx, cinst)
+    var args = ast_child(node, 2)
+    var cnode = ast_call(callee, args)
+    var r = lower_expr_call(ctx, src, cnode)
+    int_vec_free(cnode)
     return r
 }
 
