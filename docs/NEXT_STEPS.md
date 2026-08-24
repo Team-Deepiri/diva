@@ -24,7 +24,8 @@ subset. These constructs are **parse-only or seed-only** in the native pipeline 
    `nd_package_decl` also skipped.
 5. **Globals:** `nd_ident` globals → stub (locals + params only).
 6. **Arrays:** `nd_array_lit` only as `int[]` initializer; `nd_index` const-index only.
-7. **Generic calls:** `nd_generic_call` — no codegen.
+7. **Generic calls / funcs:** type erasure today (`docs/generics-specialization.md`);
+   monomorphization is the next specialization step (Issue #26).
 8. **Backend / kernel track:** `compiler/{mir,backend}/` scaffolding and kernel targets are not
    shipped (see `docs/roadmap.md` phases 8–9).
 

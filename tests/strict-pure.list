@@ -10,6 +10,7 @@ examples/color_demo.diva
 examples/csv_demo.diva
 examples/escape_println.diva
 examples/escape_smoke.diva
+examples/generics.diva
 examples/generics_traits.diva
 examples/hello.diva
 examples/hello_di.diva
@@ -18,6 +19,7 @@ examples/json_demo.diva
 examples/log_demo.diva
 examples/loop.diva
 examples/matrix_demo.diva
+examples/method_call.diva
 examples/path_demo.diva
 examples/pattern_demo.diva
 examples/print2.diva

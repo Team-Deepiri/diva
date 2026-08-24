@@ -1,0 +1,27 @@
+extern func print_int(x: int): void
+extern func print_str(x: str): void
+
+// Generic declarations keep type params on the AST; IR uses type erasure so each
+// name has one monomorphic body. See docs/generics-specialization.md (Issue #26).
+
+func twice[T](x: int): int {
+    return x * 2
+}
+
+func twice_both[A, B](x: int): int {
+    return x + 1
+}
+
+func id[T](x: T): T {
+    return x
+}
+
+func main(): int {
+    print_int(twice[int](21))
+    print_int(twice[bool](5))
+    print_int(twice[MyWidget](7))
+    print_int(twice_both[int, str](1))
+    print_int(id[int](30))
+    print_str(id[str]("hi"))
+    return 0
+}
