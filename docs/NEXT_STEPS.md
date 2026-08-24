@@ -1,37 +1,50 @@
-# Next steps — after AST bump arena
+# Next steps — path to a usable production language
 
 **Leave-off:** `docs/LEAVE_OFF.md` (RSS ~168 MiB; seed promoted to arena fixed point).
 
-## Do next
+## Honest status
 
-1. Broader CI beyond `tests/strict-pure.list`.
-2. Optional: skip per-call `FIXED_NOREPLACE` probes once arena/HT are live (micro-opt).
-3. Optional: arena exhaustion is process-lifetime (no reuse of freed slots); a free-list for
-   arena slots would help pathological churn, and the fallback 4 KiB mmap path is untested
-   at scale (only hit past 2 GiB of live AST).
+Feature stack PRs (#46–#52) close much of the **codegen surface** (methods, generics
+erasure, structs, traits static, globals, dynamic `int[]`, flux ranges). That is
+necessary but **not sufficient**: wrong programs still compile (sema is structural),
+diagnostics lack `file:line:col`, and the pure self-hosted driver is not yet a
+trustworthy promote path.
 
-## Native codegen gaps (seed-only today)
+## Production path (do in this order)
 
-The pure in-process ELF path (`compiler/src/codegen_x86.diva`) only covers the single-file
-subset. These constructs are **parse-only or seed-only** in the native pipeline (see
-`docs/diva-roadmap.md` for the full per-node checklist):
+| Priority | Issue | Why |
+|----------|-------|-----|
+| **P0** | [#53](https://github.com/Team-Deepiri/diva/issues/53) type checker | Unknown idents → `const 0`; no real programs without reject-bad |
+| **P0** | [#54](https://github.com/Team-Deepiri/diva/issues/54) span diagnostics | Multi-file errors useless without locations |
+| **P0** | [#55](https://github.com/Team-Deepiri/diva/issues/55) pure driver / seed promote | Trust root without skip-flag hacks |
+| **P0** | [#61](https://github.com/Team-Deepiri/diva/issues/61) negative suite | Lock failure cases so stacked PRs don't regress |
+| P1 | [#56](https://github.com/Team-Deepiri/diva/issues/56) array flux, [#58](https://github.com/Team-Deepiri/diva/issues/58) bounds traps, [#64](https://github.com/Team-Deepiri/diva/issues/64) non-int arrays | Collection surface people expect |
+| P1 | [#57](https://github.com/Team-Deepiri/diva/issues/57) class methods + `self` | OOP as documented (not free-fn only) |
+| P1 | [#62](https://github.com/Team-Deepiri/diva/issues/62) heap + growable buffer | Unblocks real [#28](https://github.com/Team-Deepiri/diva/issues/28) stdlib |
+| P2 | [#60](https://github.com/Team-Deepiri/diva/issues/60) `diva watch`, [#63](https://github.com/Team-Deepiri/diva/issues/63) DWARF | Dev UX |
+| P2 | [#59](https://github.com/Team-Deepiri/diva/issues/59) kernel packages | Feeds [#30](https://github.com/Team-Deepiri/diva/issues/30) systems track |
 
-1. **OOP surface:** field-only struct/class + obj lit + field access/assign work in native;
-   traits + impls validate method names and lower impl methods as free functions (Issue #27);
-   class-body methods / trait objects still later.
-2. **Control flow:** `nd_flux` / `nd_range` int ranges lower to while (Issue #20);
-   array flux still later.
-3. **Method calls:** receiver-first free-function lowering (Issue #19).
-4. **Imports / multi-file:** merge + diagnostics (Issue #17); dep aliases (Issue #24 phase 1 —
-   `docs/module-graph-phase1.md`); full module graph/cache still open.
-5. **Array literals beyond int[] init / generics monomorphization:** Issues #22 (remaining) / #26.
-   Dynamic `int[]` index + bounds docs landed with this stack; globals (#21) on prior PR.
-6. **IR Stage 2:** see `docs/ir-stage2-status.md` (Issue #25).
-7. **Backend / kernel track:** `compiler/{mir,backend}/` scaffolding and kernel targets are not
-   shipped (see `docs/roadmap.md` phases 8–9).
+Still open from earlier track: merge the feature stack to `dev`/`main`, finish
+[#24](https://github.com/Team-Deepiri/diva/issues/24) module graph/cache,
+[#26](https://github.com/Team-Deepiri/diva/issues/26) monomorphization / generic classes,
+[#28](https://github.com/Team-Deepiri/diva/issues/28)–[#31](https://github.com/Team-Deepiri/diva/issues/31) stdlib/SDK/FFI/runtime-research.
 
-Ordering suggestion: imports/multi-file first (unblocks real programs), then classes/objects +
-method calls, then flux/range, then globals/generics.
+## Do next (immediate)
+
+1. **Land / merge** stacked native PRs (#47–#52) onto `dev` so mainline matches tip.
+2. **Implement #53** (type checker) — highest leverage for “can we use this.”
+3. Pair **#54** diagnostics + **#61** negative suite with #53 so errors are actionable and locked.
+
+## Native codegen gaps (remaining)
+
+See `docs/diva-roadmap.md`. Highlights still partial/seed:
+
+1. **OOP:** class-body methods / `self` (#57); trait objects later (#27 residual).
+2. **Collections:** array flux (#56), bounds traps (#58), `bool[]`/`str[]`/struct arrays (#64).
+3. **Imports / modules:** full graph/cache (#24); import merge already in flight (#17).
+4. **Generics:** monomorphization / generic classes (#26).
+5. **IR Stage 2 / backends:** #25 status doc; kernel path #59 + #30.
+6. **Runtime/stdlib:** heap (#62) then grow packages (#28).
 
 ## Footguns
 
@@ -42,3 +55,4 @@ method calls, then flux/range, then globals/generics.
 | Emit size drift | sync return + `pure_builtin_call_size` |
 | `0xc3` in pure blob | NO ret on inlined builtins |
 | Don’t commit | `bootstrap/*.bak-*` |
+| Silent wrong results | no type checker yet — #53 |
