@@ -5,7 +5,7 @@ Stable import surface for SDK consumers. Paths stay under `stdlib/std/*.diva`
 
 | Package | Role | Modules today |
 |---------|------|----------------|
-| **core** | Primitives, asserts, conversion | `assert`, `conv`, `logic`, `int`, `char`, `bitwise` |
+| **core** | Primitives, asserts, conversion | `core`, `assert`, `conv`, `logic`, `int`, `char`, `bitwise` |
 | **mem** | Heap + growable buffers (pure ELF) | `mem` (`mem_*`, `int_buf_*`) — see `docs/heap-mem.md` |
 | **io** | Print / panic / streams | `io`, `fmt`, `log`, `color` |
 | **str** | String helpers + builders | `str`, `vec` (`str_builder_*`), `pattern`, `hex`, `base64` |

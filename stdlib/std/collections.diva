@@ -22,3 +22,7 @@ func IntBuf_push(h: int, v: int): int {
 func IntBuf_free(h: int): int {
     return int_buf_free(h)
 }
+
+func IntBuf_min(h: int): int {
+    return int_buf_min(h)
+}
