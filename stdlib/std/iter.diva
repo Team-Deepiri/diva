@@ -1,0 +1,39 @@
+// Iter layer (Issue #28) — folds over IntBuf / int_buf handles.
+import "std/mem.diva"
+import "std/range.diva"
+
+func int_buf_sum(h: int): int {
+    var n = int_buf_len(h)
+    var total = 0
+    var i = 0
+    while (i < n) {
+        total = total + int_buf_get(h, i)
+        i = i + 1
+    }
+    return total
+}
+
+func int_buf_max(h: int): int {
+    var n = int_buf_len(h)
+    if n == 0 {
+        return 0
+    }
+    var best = int_buf_get(h, 0)
+    var i = 1
+    while (i < n) {
+        var v = int_buf_get(h, i)
+        if v > best {
+            best = v
+        }
+        i = i + 1
+    }
+    return best
+}
+
+func iter_sum_range(start: int, end: int): int {
+    return sum_range(start, end)
+}
+
+func iter_count_range(start: int, end: int): int {
+    return count_range(start, end)
+}

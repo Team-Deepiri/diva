@@ -80,6 +80,7 @@ expected_output() {
     examples/array_str.diva)        printf 'hi\nok\nzz\n' ;;
     examples/array_struct.diva)     printf '1\n4\n5\n9\n' ;;
     examples/heap_buf.diva)         printf '5\n10\n50\n' ;;
+    examples/stdlib_packages.diva)  printf '35\n20\n10\n' ;;
     examples/flux_range.diva)       printf '10\n5\n1\n0\n0\n' ;;
     examples/flux_array.diva)       printf '30\n' ;;
     examples/class_methods.diva)    printf '3\n7\n' ;;
