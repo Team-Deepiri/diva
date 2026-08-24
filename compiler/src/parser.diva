@@ -610,8 +610,7 @@ func parse_class_decl(ps: int, src: str): int {
                 int_vec_push(members, parse_func_decl(ps, src))
             } else {
                 if p_cur(ps) == tk_ident() {
-                    var fname = p_cur(ps)
-                    p_advance(ps)
+                    var fname = p_advance(ps)
                     if p_cur(ps) == tk_colon() {
                         p_advance(ps)
                         var ftype = parse_type(ps, src)

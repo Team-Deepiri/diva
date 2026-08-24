@@ -851,6 +851,24 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
         }
         return 0
     }
+    if ast_kind(target) == nd_field() {
+        var obj_node = ast_child(target, 0)
+        var field_tok = ast_child(target, 1)
+        if ast_kind(obj_node) == nd_ident() {
+            var obj_name = ib_tok_text(ctx, src, ast_child(obj_node, 0))
+            var base = ib_lookup_local(ctx, src, obj_name)
+            var alen = ib_lookup_array_len(ctx, src, obj_name)
+            var sty = ib_lookup_struct_ty(ctx, src, obj_name)
+            if ((base < 0) == 0 & sty != ib_struct_ty_none()) {
+                var fidx = ib_struct_field_index(ctx, src, sty, field_tok)
+                if ((fidx < 0) == 0 & fidx < alen) {
+                    var val = lower_expr(ctx, src, value)
+                    ib_emit(ctx, ir_inst(ir_store(), base + fidx, val, 0, 0))
+                }
+            }
+        }
+        return 0
+    }
     if ast_kind(target) == nd_index() {
         var obj = ast_child(target, 0)
         var idx_node = ast_child(target, 1)
@@ -901,6 +919,14 @@ func lower_stmt(ctx: int, src: str, node: int): int {
                         if lower_stmt_var_struct(ctx, src, name_tok, type_name_tok, init) == 1 { return 0 }
                     }
                 }
+            }
+        }
+
+        // Infer struct type from `var p = Point { ... }` when no `::` annotation.
+        if (init < 0) == 0 {
+            if ast_kind(init) == nd_obj_lit() {
+                var lit_ty = ast_child(init, 0)
+                if lower_stmt_var_struct(ctx, src, name_tok, lit_ty, init) == 1 { return 0 }
             }
         }
 

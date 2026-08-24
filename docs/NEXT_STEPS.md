@@ -16,17 +16,14 @@ The pure in-process ELF path (`compiler/src/codegen_x86.diva`) only covers the s
 subset. These constructs are **parse-only or seed-only** in the native pipeline (see
 `docs/diva-roadmap.md` for the full per-node checklist):
 
-1. **OOP surface:** `nd_class` / `nd_trait` / `nd_impl` / `nd_obj_lit` / `nd_field_init` / `nd_field`
-   — no IR lowering, no codegen.
-2. **Control flow:** `nd_flux` / `nd_range` — no IR lowering, no codegen.
-3. **Method calls:** `nd_method_call` — IR shape fragile; prefers `nd_call`.
-4. **Imports / multi-file:** `nd_import` skipped in native IR — pure pipeline is single-file.
-   `nd_package_decl` also skipped.
-5. **Globals:** `nd_ident` globals → stub (locals + params only).
-6. **Arrays:** `nd_array_lit` only as `int[]` initializer; `nd_index` const-index only.
-7. **Generic calls / funcs:** type erasure today (`docs/generics-specialization.md`);
-   monomorphization is the next specialization step (Issue #26).
-8. **Backend / kernel track:** `compiler/{mir,backend}/` scaffolding and kernel targets are not
+1. **OOP surface:** field-only struct/class + obj lit + field access/assign work in native;
+   trait/impl/class methods still seed-only (Issue #18 / #27).
+2. **Control flow:** `nd_flux` / `nd_range` — see feature PRs / Issue #20.
+3. **Method calls:** receiver-first free-function lowering (Issue #19).
+4. **Imports / multi-file:** merge + diagnostics (Issue #17); full module graph is Issue #24.
+5. **Globals / arrays / generics:** see Issues #21–#23 / #26 and open feature PRs.
+6. **IR Stage 2:** see `docs/ir-stage2-status.md` (Issue #25).
+7. **Backend / kernel track:** `compiler/{mir,backend}/` scaffolding and kernel targets are not
    shipped (see `docs/roadmap.md` phases 8–9).
 
 Ordering suggestion: imports/multi-file first (unblocks real programs), then classes/objects +
