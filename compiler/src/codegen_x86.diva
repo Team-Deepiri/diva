@@ -1669,10 +1669,28 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
     var fmj = 0
     while (fmj < fc) {
         var ffn = mod_get_func(m, fmj)
-        if str_eq(tok_text(src, toks, func_name_tok(ffn)), "main") == 1 {
+        var fnm = tok_text(src, toks, func_name_tok(ffn))
+        if str_eq(fnm, "main") == 1 {
             main_fi = fmj
         }
         fmj = fmj + 1
+    }
+    // Kernel packages use kmain as the freestanding entry (Issue #59).
+    if main_fi < 0 {
+        fmj = 0
+        while (fmj < fc) {
+            var ffn2 = mod_get_func(m, fmj)
+            if str_eq(tok_text(src, toks, func_name_tok(ffn2)), "kmain") == 1 {
+                main_fi = fmj
+            }
+            fmj = fmj + 1
+        }
+    }
+    if main_fi < 0 {
+        stderr("codegen error: no main or kmain entry function")
+        stderr(char_to_str(10))
+        int_vec_free(str_cum)
+        return 0 - 1
     }
     var glob_count = mod_global_count(m)
     // Pass 1: Label resolution
@@ -1702,8 +1720,7 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
     }
     var fk = 0
     while (fk < fc) {
-        var ff = mod_get_func(m, fk)
-        if str_eq(tok_text(src, toks, func_name_tok(ff)), "main") == 1 {
+        if fk == main_fi {
             main_off = int_vec_get(func_offsets, fk)
         }
         fk = fk + 1

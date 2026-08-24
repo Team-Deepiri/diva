@@ -29,6 +29,6 @@ There are **no C/C++ sources** in this repository.
 - `diva compiler-version` — banner  
 - `diva pipeline` — pipeline description  
 
-Kernel packages are still rejected by the native driver for `check` / `build` / `emit-ir` (scaffolding via `diva new --kernel` is native).
+Kernel packages (`kind = "kernel"`, entry `kmain`) are supported for `check` / `emit-ir` / `build` / `run` / `watch` — see `docs/kernel-packages.md`.
 
 See: [`docs/selfhost-bootstrap.md`](../docs/selfhost-bootstrap.md), [`docs/source-language-policy.md`](../docs/source-language-policy.md).

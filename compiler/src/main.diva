@@ -886,14 +886,10 @@ func cmd_asm(path: str): int {
 func cmd_emit_ir(path: str): int {
     var src = ""
     if path_is_package_dir(path) == 1 {
-        if package_is_kernel_dir(path) == 1 {
-            err_line("emit-ir: kernel packages are not supported in the native driver")
-            return 1
-        }
         src = merge_package_sources(path)
     } else {
         if path_is_diva_file(path) == 0 {
-            err_line("emit-ir: expected a .diva file or an app/lib package directory")
+            err_line("emit-ir: expected a .diva file or a package directory")
             return 1
         }
         src = merge_file_sources(path)
@@ -999,10 +995,6 @@ func cmd_check(): int {
         err_line("check: expected a package directory (with package.diva)")
         return 1
     }
-    if package_is_kernel_dir(path_h) == 1 {
-        err_line("check: kernel packages are not supported in the native driver")
-        return 1
-    }
     var merged = merge_package_sources(path_h)
     // Pin before loader_check_trace / err_line (getenv + IO may clobber `merged`'s slot).
     var merged_hold = merged
@@ -1066,12 +1058,6 @@ func cmd_build(): int {
 
 // Shared by `build` and `watch`. quiet=1 suppresses the success line (watch prints its own).
 func native_build_path(path: str, quiet: int): int {
-    if build_path_is_package_dir(path) == 1 {
-        if package_is_kernel_dir(path) == 1 {
-            err_line("build: kernel packages are not supported in the native driver")
-            return 1
-        }
-    }
     var merged = ""
     if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
@@ -1108,6 +1094,14 @@ func native_build_path(path: str, quiet: int): int {
         return 1
     }
     if quiet == 0 {
+        if build_path_is_package_dir(path) == 1 {
+            if package_is_kernel_dir(path) == 1 {
+                var kmsg = str_concat("[native] built kernel ELF (kmain entry) at ", exe_out)
+                print_str(kmsg)
+                stdout(newline_str())
+                return 0
+            }
+        }
         var built_msg = str_concat("[native] built executable at ", exe_out)
         print_str(built_msg)
         stdout(newline_str())
@@ -1192,12 +1186,6 @@ func cmd_watch(): int {
     if build_path_is_package_dir(path_h) == 0 {
         if path_is_diva_file(path_h) == 0 {
             err_line("watch: expected a .diva file or a package directory")
-            return 1
-        }
-    }
-    if build_path_is_package_dir(path_h) == 1 {
-        if package_is_kernel_dir(path_h) == 1 {
-            err_line("watch: kernel packages are not supported in the native driver")
             return 1
         }
     }
