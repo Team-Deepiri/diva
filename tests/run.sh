@@ -312,6 +312,9 @@ assert_output_equals "${ROOT_DIR}/examples/array_struct.diva" "1
 4
 5
 9"
+assert_output_equals "${ROOT_DIR}/examples/heap_buf.diva" "5
+10
+50"
 # Dynamic OOB index must abort (exit non-zero), not silently corrupt.
 oob_exe="${TEST_ROOT}/array_oob"
 if ! diva build "${ROOT_DIR}/tests/cases/fail/array_oob_runtime.diva" "${oob_exe}" >"${TEST_ROOT}/oob_build.out" 2>&1; then

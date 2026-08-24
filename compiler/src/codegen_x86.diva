@@ -703,6 +703,10 @@ func pure_builtin_call_size_hi_misc(id: int): int {
     if id == 30 { return 30 }
     if id == 31 { return 31 }
     if id == 32 { return 276 }
+    if id == 33 { return 88 }
+    if id == 34 { return 21 }
+    if id == 35 { return 4 }
+    if id == 36 { return 6 }
     return 5
 }
 
@@ -822,7 +826,7 @@ func emit_pure_builtin_call(out: int, id: int): int {
         }
     }
     if (!(id < 9)) {
-        if (!(id > 32)) {
+        if (!(id > 36)) {
             return emit_pure_builtin_high(out, id)
         }
     }

@@ -7,6 +7,7 @@ examples/arrays.diva
 examples/array_bool.diva
 examples/array_str.diva
 examples/array_struct.diva
+examples/heap_buf.diva
 examples/beautiful_logic.diva
 examples/branching.diva
 examples/branch_stress.diva

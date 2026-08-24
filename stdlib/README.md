@@ -10,6 +10,7 @@ Available modules:
 - `std/io.diva`: `stdout`, `stderr`, `print_bool`, `panic`
 - `std/int.diva`: `sign`, `is_even`, `is_odd`, `gcd`
 - `std/assert.diva`: `assert_true`, `assert_eq_int`
+- `std/mem.diva`: `mem_alloc` / `mem_free` / `mem_get` / `mem_set` and growable `int_buf_*` (see `docs/heap-mem.md`)
 
 Usage:
 
