@@ -231,6 +231,22 @@ func cg_inst_mem(ctx: int, nl: str, inst: int): int {
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 1
     }
+    if op == ir_array_load() {
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rdx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    negq %rdx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    leaq -") lp_add_int(lp, (a + 1) * 8) lp_add(lp, "(%rbp,%rdx,8), %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq (%rax), %rdx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_array_store() {
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rdx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    negq %rdx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    leaq -") lp_add_int(lp, (res + 1) * 8) lp_add(lp, "(%rbp,%rdx,8), %rcx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, (%rcx)") lp_flush_sb(lp, sb, nl)
+        return 1
+    }
     if op == ir_alloca() {
         lp_add(lp, "    movq $0, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 1
@@ -860,6 +876,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_res = 1 }
     if (op_is3(ik, ir_load(), ir_store(), ir_copy()) == 1) { has_res = 1 }
     if (op_is2(ik, ir_neg(), ir_not()) == 1) { has_res = 1 }
+    if (op_is2(ik, ir_array_load(), ir_array_store()) == 1) { has_res = 1 }
     if (ik == ir_call()) { has_res = 1 }
     if (has_res == 1) {
         if (res > maxv) { maxv = res }
@@ -873,6 +890,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_ia = 1 }
     if (op_is3(ik, ir_load(), ir_store(), ir_copy()) == 1) { has_ia = 1 }
     if (op_is2(ik, ir_neg(), ir_not()) == 1) { has_ia = 1 }
+    if (op_is2(ik, ir_array_load(), ir_array_store()) == 1) { has_ia = 1 }
     if (ik == ir_ret()) { has_ia = 1 }
     if (has_ia == 1) {
         if (ia > maxv) { maxv = ia }
@@ -884,6 +902,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_ne(), ir_lt(), ir_le()) == 1) { has_ibk = 1 }
     if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_ibk = 1 }
     if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_ibk = 1 }
+    if (op_is2(ik, ir_array_load(), ir_array_store()) == 1) { has_ibk = 1 }
     if (has_ibk == 1) {
         if (ibk > maxv) { maxv = ibk }
     }
@@ -1037,6 +1056,7 @@ func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
     if op == ir_neg() { return 17 }
     if op_is2(op, ir_shl(), ir_shr()) == 1 { return 24 }
     if op_is3(op, ir_load(), ir_store(), ir_copy()) == 1 { return 14 }
+    if op_is2(op, ir_array_load(), ir_array_store()) == 1 { return 28 }
     if op == ir_alloca() { return 11 }
     if op == ir_param() { return 7 }
     if (op == ir_ret()) & ((fi == main_fi) == 1) { return 24 }
@@ -1165,6 +1185,30 @@ func cg_p2_bitops(out: int, op: int, res: int, a: int, bv: int): int {
     if op_is3(op, ir_load(), ir_store(), ir_copy()) == 1 {
         emit_mov_stack_to_rax(out, a)
         emit_mov_rax_to_stack(out, res)
+    }
+    if op == ir_array_load() {
+        // movq idx(%rbp), %rdx
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 149) emit_i32(out, stack_disp32(bv))
+        // negq %rdx
+        int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 218)
+        // leaq disp32(base)(%rbp,%rdx,8), %rax
+        int_vec_push(out, 72) int_vec_push(out, 141) int_vec_push(out, 132) int_vec_push(out, 213) emit_i32(out, stack_disp32(a))
+        // movq (%rax), %rdx
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 16)
+        // movq %rdx, res(%rbp)
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 149) emit_i32(out, stack_disp32(res))
+    }
+    if op == ir_array_store() {
+        // movq val(%rbp), %rax
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv))
+        // movq idx(%rbp), %rdx
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 149) emit_i32(out, stack_disp32(a))
+        // negq %rdx
+        int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 218)
+        // leaq disp32(base)(%rbp,%rdx,8), %rcx
+        int_vec_push(out, 72) int_vec_push(out, 141) int_vec_push(out, 140) int_vec_push(out, 213) emit_i32(out, stack_disp32(res))
+        // movq %rax, (%rcx)
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 1)
     }
     if op == ir_alloca() { emit_mov_imm32_to_stack(out, res, 0) }
     if op == ir_param() { cg_p2_param(out, a, res) }

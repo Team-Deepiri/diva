@@ -78,18 +78,12 @@ echo "[build-compiler-cc-link] dedupe duplicate .globl blocks (merged std helper
 python3 "${ROOT_DIR}/scripts/dedupe_merged_gas.py" "${ASM}" "${DEDUP_ASM}"
 ASM_LINK="${DEDUP_ASM}"
 
-echo "[build-compiler-cc-link] cc (user asm + crt + runtime + runtime_extra + int_to_str)"
+echo "[build-compiler-cc-link] cc (user asm + crt + runtime + runtime_extra)"
 # PIE final link matches the seed binary (ET_DYN); a static ET_EXEC + this runtime mix
 # broke di_runtime_argc/argv in practice while the same argv worked against the seed.
 cc -fPIE -pie -c -o "${USER_O}" "${ASM_LINK}" -fno-stack-protector
 cc -fPIC -pie -c -o "${CRT_O}" "${CRT_SRC}"
 cc -fPIC -c -o "${EXTRA_O}" "${EXTRA_SRC}" -fno-stack-protector
-INT_TO_STR_C="${ROOT_DIR}/compiler/res/legacy/runtime_int_to_str.c"
-INT_TO_STR_O="${WORK}/runtime_int_to_str.o"
-cc -fPIC -O2 -c -o "${INT_TO_STR_O}" "${INT_TO_STR_C}"
-# Weaken stock leaking int_to_str so our ring-buffer impl wins.
-RT_LINK="${WORK}/runtime-weak.o"
-objcopy --weaken-symbol=di_runtime_int_to_str "${RT_O}" "${RT_LINK}"
-cc -pie -nostartfiles "${CRT_O}" "${USER_O}" "${RT_LINK}" "${EXTRA_O}" "${INT_TO_STR_O}" -o "${OUT_EXE}" -lc -Wl,-z,noexecstack
+cc -pie -nostartfiles "${CRT_O}" "${USER_O}" "${RT_O}" "${EXTRA_O}" -o "${OUT_EXE}" -lc -Wl,-z,noexecstack
 chmod +x "${OUT_EXE}"
 echo "[build-compiler-cc-link] OK -> ${OUT_EXE}"
