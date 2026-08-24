@@ -1,4 +1,5 @@
 # Diva
+<img width="1695" height="928" alt="image" src="https://github.com/user-attachments/assets/48b30bdb-1c2b-4a67-ba69-a70c647cd708" />
 
 **Diva** is Deepiri’s experimental programming language and LLVM-backed toolchain for fast, expressive **`.diva`** programs—aiming at compact representations, rich control flow, and efficient execution. **All compiler and library sources in this repo are `.diva`**. Policy details: [`docs/source-language-policy.md`](docs/source-language-policy.md).
 
