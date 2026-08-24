@@ -268,7 +268,12 @@ run_all_tests() {
     log "checking semantic failure cases (before long native run smoke)"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva" "duplicate declaration of 'x' in the same scope"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_ident.diva" "unknown identifier 'missing'"
+# Span diagnostics (Issue #54): path:line:col: prefix on parser + sema errors.
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_ident.diva" "unknown_ident.diva:2:"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/parse_bad_params.diva" "parse error: expected"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/parse_bad_params.diva" "parse_bad_params.diva:1:"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/wrong_arity.diva" "wrong number of arguments for 'add'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/wrong_arity.diva" "wrong_arity.diva:"
 # duplicate_import_main / package_mismatch_main: seed expected "native build: unsupported surface"; the
 # in-tree driver now accepts package+imports for native build. Re-add when duplicate symbols /
 # package entry rules get stable diagnostics (#61).

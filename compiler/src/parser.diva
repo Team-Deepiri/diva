@@ -7,6 +7,7 @@ import "std/vec.diva"
 import "tokens.diva"
 import "ast.diva"
 import "cell.diva"
+import "diag.diva"
 
 // --- Parser context ---
 // ps = int_vec: [pos_cell, tlen, err_cell, toks_handle, quiet (0=loud, 1=no stderr on error)]
@@ -47,9 +48,25 @@ func p_text(ps: int, src: str, idx: int): str {
     return tok_text(src, ps_toks(ps), idx)
 }
 
+func p_byte_off(ps: int): int {
+    if (ps_pos(ps) < ps_tlen(ps)) {
+        return tok_start(ps_toks(ps), ps_pos(ps))
+    }
+    if (ps_tlen(ps) > 0) {
+        var last = ps_tlen(ps) - 1
+        return tok_start(ps_toks(ps), last) + tok_len(ps_toks(ps), last)
+    }
+    return 0
+}
+
+func p_diag(ps: int, src: str): int {
+    return diag_emit_loc(src, p_byte_off(ps))
+}
+
 func p_expect(ps: int, src: str, kind: int): int {
     if (p_cur(ps) != kind) {
         if ps_quiet(ps) == 0 {
+            p_diag(ps, src)
             stderr("parse error: expected ")
             stderr(tk_name(kind))
             stderr(", got ")
@@ -104,6 +121,7 @@ func parse_type(ps: int, src: str): int {
         return t
     }
     if ps_quiet(ps) == 0 {
+        p_diag(ps, src)
         stderr("parse error: expected type\n")
     }
     ps_set_err(ps)
@@ -199,6 +217,7 @@ func parse_primary(ps: int, src: str): int {
     }
 
     if ps_quiet(ps) == 0 {
+        p_diag(ps, src)
         stderr("parse error: unexpected token in expression: ")
         stderr(tk_name(kind))
         stderr("\n")
@@ -618,6 +637,7 @@ func parse_impl_decl(ps: int, src: str): int {
     var for_sp = p_text(ps, src, for_tok)
     if str_eq(for_sp, "for") == 0 {
         if ps_quiet(ps) == 0 {
+            diag_emit_loc(src, tok_start(ps_toks(ps), for_tok))
             stderr("parse error: expected 'for' in impl header, got '")
             stderr(for_sp)
             stderr("'\n")
@@ -750,6 +770,7 @@ func parse_top_level(ps: int, src: str): int {
             return ast_file(children)
         } else {
             if ps_quiet(ps) == 0 {
+                p_diag(ps, src)
                 stderr("parse error: unexpected top-level token: ")
                 stderr(tk_name(kind))
                 stderr("\n")

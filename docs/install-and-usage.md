@@ -183,6 +183,18 @@ cmake -S . -B build
 cmake --build build
 ```
 
+## Diagnostics
+
+Parser and semantic errors print:
+
+```text
+<path>:<line>:<col>: <message>
+```
+
+Lines and columns are **1-based** and refer to the originating source file (not the
+merged translation unit). Multi-file builds insert `//@diva-file:<abs-path>` markers
+when merging imports so diagnostics resolve back to the real file.
+
 ## Testing
 
 Run the smoke test suite from the repository root:

@@ -165,8 +165,9 @@ check_fail() {
   fi
 }
 check_fail "tests/cases/fail/duplicate_decl.diva" "duplicate declaration of 'x' in the same scope"
-check_fail "tests/cases/fail/unknown_ident.diva" "unknown identifier 'missing'"
+check_fail "tests/cases/fail/unknown_ident.diva" "unknown_ident.diva:2:"
 check_fail "tests/cases/fail/wrong_arity.diva" "wrong number of arguments for 'add'"
+check_fail "tests/cases/fail/parse_bad_params.diva" "parse_bad_params.diva:1:"
 check_fail "tests/cases/fail/missing_trait_method.diva" "missing trait method"
 
 echo "[native-broad] totals: examples=${total} multi-file=${total_pkg} failed=${failed}"

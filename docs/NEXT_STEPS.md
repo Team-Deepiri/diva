@@ -15,7 +15,7 @@ trustworthy promote path.
 | Priority | Issue | Why |
 |----------|-------|-----|
 | **P0** | [#53](https://github.com/Team-Deepiri/diva/issues/53) type checker | Unknown idents → `const 0`; no real programs without reject-bad |
-| **P0** | [#54](https://github.com/Team-Deepiri/diva/issues/54) span diagnostics | Multi-file errors useless without locations |
+| **P0** | [#54](https://github.com/Team-Deepiri/diva/issues/54) span diagnostics | Multi-file errors useless without locations — **MVP landed** (`path:line:col:`) |
 | **P0** | [#55](https://github.com/Team-Deepiri/diva/issues/55) pure driver / seed promote | Trust root without skip-flag hacks |
 | **P0** | [#61](https://github.com/Team-Deepiri/diva/issues/61) negative suite | Lock failure cases so stacked PRs don't regress |
 | P1 | [#56](https://github.com/Team-Deepiri/diva/issues/56) array flux, [#58](https://github.com/Team-Deepiri/diva/issues/58) bounds traps, [#64](https://github.com/Team-Deepiri/diva/issues/64) non-int arrays | Collection surface people expect |

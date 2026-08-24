@@ -500,6 +500,10 @@ func merge_emit_file(abs_path: str, done: str, stack: str, stdroot: str, out: in
             done2 = dr_hold
         }
     }
+    // Issue #54: mark file origin for path:line:col diagnostics (comment; lexer skips).
+    str_builder_append(out, "//@diva-file:")
+    str_builder_append(out, abs_p)
+    str_builder_append(out, nl)
     str_builder_append(out, src_hold)
     str_builder_append(out, nl)
     var b_done = str_builder_new()

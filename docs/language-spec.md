@@ -276,7 +276,7 @@ func main(): int {
 - explicit generic functions with call-site type arguments like `identity[int](7)`
 - class declarations with methods
 - `trait` declarations and `impl Trait for Type` validation
-- **Native sema (MVP):** scoped name resolution rejects unknown identifiers; call/generic-call arity checking; object-literal type names; method-call name lookup (Issue #53). Full type matching and `file:line:col` diagnostics still open (#54).
+- **Native sema (MVP):** scoped name resolution rejects unknown identifiers; call/generic-call arity checking; object-literal type names; method-call name lookup (Issue #53). Diagnostics use `path:line:col:` prefixes (Issue #54). Full type matching still open.
 - `var` bindings with optional `::` type annotations
 - `if` / `else`
 - `while condition => update`

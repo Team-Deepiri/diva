@@ -9,8 +9,17 @@ import "tokens.diva"
 import "ast.diva"
 import "std/host.diva"
 import "cell.diva"
+import "diag.diva"
 
 func sema_err(msg: str): int {
+    stderr("sema: ")
+    stderr(msg)
+    stderr(char_to_str(10))
+    return 1
+}
+
+func sema_err_at(src: str, byte_off: int, msg: str): int {
+    diag_emit_loc(src, byte_off)
     stderr("sema: ")
     stderr(msg)
     stderr(char_to_str(10))
@@ -65,6 +74,7 @@ func sema_dup_let_flat_block(block: int, src: str, toks: int): int {
                 var pt = int_vec_get(names, j)
                 if str_eq(tok_text(src, toks, pt), nm) == 1 {
                     int_vec_free(names)
+                    diag_emit_loc(src, tok_start(toks, nt))
                     stderr("sema: duplicate declaration of '")
                     stderr(nm)
                     stderr("' in the same scope")
@@ -158,6 +168,7 @@ func sema_check_impls(file_node: int, src: str, toks: int): int {
             var impl_methods = ast_child(ch, 2)
             var trait_node = sema_find_trait(file_node, src, toks, trait_tok)
             if (trait_node < 0) {
+                diag_emit_loc(src, tok_start(toks, trait_tok))
                 stderr("sema: unknown trait '")
                 stderr(tok_text(src, toks, trait_tok))
                 stderr("' in impl")
@@ -171,6 +182,7 @@ func sema_check_impls(file_node: int, src: str, toks: int): int {
                 if ast_kind(tm) == nd_func() {
                     var mname = tok_text(src, toks, ast_child(tm, 0))
                     if sema_method_name_in_list(impl_methods, src, toks, mname) == 0 {
+                        diag_emit_loc(src, tok_start(toks, ast_child(tm, 0)))
                         stderr("sema: missing trait method '")
                         stderr(mname)
                         stderr("' in impl of '")
@@ -317,6 +329,7 @@ func sctx_fn_arity(c: int, src: str, toks: int, want: str): int {
 func sctx_add_fn(c: int, src: str, toks: int, name_tok: int, arity: int): int {
     var nm = tok_text(src, toks, name_tok)
     if sctx_tok_list_has(sctx_fn_names(c), src, toks, nm) == 1 {
+        diag_emit_loc(src, tok_start(toks, name_tok))
         stderr("sema: duplicate function '")
         stderr(nm)
         stderr("'")
@@ -331,6 +344,7 @@ func sctx_add_fn(c: int, src: str, toks: int, name_tok: int, arity: int): int {
 func sctx_add_global(c: int, src: str, toks: int, name_tok: int): int {
     var nm = tok_text(src, toks, name_tok)
     if sctx_tok_list_has(sctx_globals(c), src, toks, nm) == 1 {
+        diag_emit_loc(src, tok_start(toks, name_tok))
         stderr("sema: duplicate global '")
         stderr(nm)
         stderr("'")
@@ -338,6 +352,7 @@ func sctx_add_global(c: int, src: str, toks: int, name_tok: int): int {
         return 1
     }
     if sctx_tok_list_has(sctx_fn_names(c), src, toks, nm) == 1 {
+        diag_emit_loc(src, tok_start(toks, name_tok))
         stderr("sema: global '")
         stderr(nm)
         stderr("' conflicts with function")
@@ -348,9 +363,10 @@ func sctx_add_global(c: int, src: str, toks: int, name_tok: int): int {
     return 0
 }
 
-func sema_unknown(name: str): int {
+func sema_unknown_at(src: str, toks: int, name_tok: int): int {
+    diag_emit_loc(src, tok_start(toks, name_tok))
     stderr("sema: unknown identifier '")
-    stderr(name)
+    stderr(tok_text(src, toks, name_tok))
     stderr("'")
     stderr(char_to_str(10))
     return 1
@@ -363,9 +379,10 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
     if kind == nd_bool_lit() { return 0 }
     if kind == nd_str_lit() { return 0 }
     if kind == nd_ident() {
-        var nm = tok_text(src, toks, ast_child(node, 0))
+        var itok = ast_child(node, 0)
+        var nm = tok_text(src, toks, itok)
         if sctx_name_known(c, src, toks, nm) == 0 {
-            return sema_unknown(nm)
+            return sema_unknown_at(src, toks, itok)
         }
         return 0
     }
@@ -422,12 +439,14 @@ func sema_check_call(c: int, src: str, toks: int, node: int): int {
     if ast_kind(callee) != nd_ident() {
         return sema_check_expr(c, src, toks, callee)
     }
-    var nm = tok_text(src, toks, ast_child(callee, 0))
+    var ctok = ast_child(callee, 0)
+    var nm = tok_text(src, toks, ctok)
     var arity = sctx_fn_arity(c, src, toks, nm)
     if (arity < 0) {
-        return sema_unknown(nm)
+        return sema_unknown_at(src, toks, ctok)
     }
     if (int_vec_len(args) != arity) {
+        diag_emit_loc(src, tok_start(toks, ctok))
         stderr("sema: wrong number of arguments for '")
         stderr(nm)
         stderr("': expected ")
@@ -451,12 +470,14 @@ func sema_check_generic_call(c: int, src: str, toks: int, node: int): int {
     if ast_kind(callee) != nd_ident() {
         return sema_check_expr(c, src, toks, callee)
     }
-    var nm = tok_text(src, toks, ast_child(callee, 0))
+    var ctok = ast_child(callee, 0)
+    var nm = tok_text(src, toks, ctok)
     var arity = sctx_fn_arity(c, src, toks, nm)
     if (arity < 0) {
-        return sema_unknown(nm)
+        return sema_unknown_at(src, toks, ctok)
     }
     if (int_vec_len(args) != arity) {
+        diag_emit_loc(src, tok_start(toks, ctok))
         stderr("sema: wrong number of arguments for '")
         stderr(nm)
         stderr("': expected ")
@@ -477,9 +498,11 @@ func sema_check_method_call(c: int, src: str, toks: int, node: int): int {
         if sema_check_expr(c, src, toks, int_vec_get(args, ai)) != 0 { return 1 }
         ai = ai + 1
     }
-    var mname = tok_text(src, toks, ast_child(node, 1))
+    var mtok = ast_child(node, 1)
+    var mname = tok_text(src, toks, mtok)
     if sctx_tok_list_has(sctx_fn_names(c), src, toks, mname) == 1 { return 0 }
     if sctx_tok_list_has(sctx_methods(c), src, toks, mname) == 1 { return 0 }
+    diag_emit_loc(src, tok_start(toks, mtok))
     stderr("sema: unknown method '")
     stderr(mname)
     stderr("'")
@@ -493,6 +516,7 @@ func sema_check_obj_lit(c: int, src: str, toks: int, node: int): int {
     if (type_tok < 0) == 0 {
         var tnm = tok_text(src, toks, type_tok)
         if sctx_tok_list_has(sctx_types(c), src, toks, tnm) == 0 {
+            diag_emit_loc(src, tok_start(toks, type_tok))
             stderr("sema: unknown type '")
             stderr(tnm)
             stderr("' in object literal")
@@ -525,9 +549,10 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
     if kind == nd_assign() {
         var target = ast_child(node, 0)
         if ast_kind(target) == nd_ident() {
-            var nm = tok_text(src, toks, ast_child(target, 0))
+            var ttok = ast_child(target, 0)
+            var nm = tok_text(src, toks, ttok)
             if sctx_name_known(c, src, toks, nm) == 0 {
-                return sema_unknown(nm)
+                return sema_unknown_at(src, toks, ttok)
             }
         } else {
             if sema_check_expr(c, src, toks, target) != 0 { return 1 }
