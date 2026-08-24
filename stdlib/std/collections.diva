@@ -1,0 +1,24 @@
+// Collections layer (Issue #28) — IntBuf on pure-ELF int_buf_*.
+import "std/mem.diva"
+
+// Alias-style wrappers keep the collections surface stable if mem internals move.
+
+func IntBuf_new(): int {
+    return int_buf_new()
+}
+
+func IntBuf_len(h: int): int {
+    return int_buf_len(h)
+}
+
+func IntBuf_get(h: int, i: int): int {
+    return int_buf_get(h, i)
+}
+
+func IntBuf_push(h: int, v: int): int {
+    return int_buf_push(h, v)
+}
+
+func IntBuf_free(h: int): int {
+    return int_buf_free(h)
+}
