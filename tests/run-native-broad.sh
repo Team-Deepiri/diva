@@ -181,6 +181,13 @@ else
   echo "[native-broad] OK   tests/run-watch-smoke.sh"
 fi
 
+echo "[native-broad] category: module graph + package cache"
+if ! DIVA_PURE_DRIVER="${DRIVER}" bash "${ROOT_DIR}/tests/run-module-cache.sh"; then
+  record_fail "module-cache" "tests/run-module-cache.sh" "module cache failed"
+else
+  echo "[native-broad] OK   tests/run-module-cache.sh"
+fi
+
 echo "[native-broad] category: sema type suite"
 if ! DIVA_PURE_DRIVER="${DRIVER}" bash "${ROOT_DIR}/tests/run-sema.sh"; then
   record_fail "sema" "tests/sema.list" "run-sema.sh failed"
