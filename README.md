@@ -22,13 +22,20 @@
 
 ## Repository Layout
 
-- `bootstrap/`: pinned **seed** binary (`diva-linux-amd64`) and optional prebuilt runtime object for `NO_CLANG=1`
-- `compiler/`: **installable** Diva app — lexer in `src/lexer.diva`, CLI driver in `src/main.diva` (see `compiler/README.md`)
-- `runtime/`: hosted runtime as **LLVM IR** (`runtime.ll`); install and the seed link against a compiled **`runtime.o`** (`bootstrap/runtime-linux-amd64.o` or `clang -c runtime.ll`)
-- `stdlib/`: standard library (`.diva` sources)
-- `docs/`: language and architecture documents
-- `examples/`: small `Diva` programs
-- `tests/`: focused compiler tests
+| Path | Purpose |
+|------|---------|
+| `bootstrap/` | Pinned seed (`diva-linux-amd64`) and prebuilt `runtime-linux-amd64.o` |
+| `compiler/` | Installable Diva driver (`src/main.diva`, …) — see `compiler/README.md` |
+| `stdlib/` | Standard library (`.diva`) |
+| `docs/` | Specs, roadmaps, install guide, logo (`docs/diva-logo.png`) |
+| `examples/` | Small programs exercised by native / strict-pure suites |
+| `tests/` | Integration + locked negatives (`cases/fail`, `negative.list`); ad-hoc snippets in `tests/manual/` |
+| `scripts/` | Build, promote, verify, install helpers |
+| `tools/` | Editor / tooling (e.g. VS Code extension) |
+| `testkern/` | Kernel package demo |
+| `build/` | Local build outputs (gitignored) |
+
+Root keeps only `README.md`, `LICENSE`, and `.gitignore` besides those directories.
 
 ## Guides
 
