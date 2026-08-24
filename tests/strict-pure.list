@@ -13,6 +13,7 @@ examples/escape_println.diva
 examples/escape_smoke.diva
 examples/flux_range.diva
 examples/flux_array.diva
+examples/class_methods.diva
 examples/generics.diva
 examples/generics_traits.diva
 examples/globals.diva

@@ -116,6 +116,19 @@ func sema_check_func_body_dup_lets(file_node: int, src: str, toks: int): int {
                 mi = mi + 1
             }
         }
+        if ast_kind(ch) == nd_class() {
+            var members = ast_child(ch, 1)
+            var cj = 0
+            while (cj < int_vec_len(members)) {
+                var cm = int_vec_get(members, cj)
+                if ast_kind(cm) == nd_func() {
+                    if sema_dup_let_flat_block(ast_child(cm, 3), src, toks) != 0 {
+                        return 1
+                    }
+                }
+                cj = cj + 1
+            }
+        }
         i = i + 1
     }
     return 0
@@ -233,6 +246,7 @@ func sctx_new(): int {
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())
+    int_vec_push(c, mut_new(0))
     return c
 }
 
@@ -243,6 +257,8 @@ func sctx_fn_names(c: int): int { return int_vec_get(c, 3) }
 func sctx_fn_arities(c: int): int { return int_vec_get(c, 4) }
 func sctx_types(c: int): int { return int_vec_get(c, 5) }
 func sctx_methods(c: int): int { return int_vec_get(c, 6) }
+func sctx_self_ok(c: int): int { return mut_get(int_vec_get(c, 7)) }
+func sctx_set_self_ok(c: int, v: int): int { return mut_set(int_vec_get(c, 7), v) }
 
 func sctx_set_names(c: int, v: int): int { return mut_set(int_vec_get(c, 0), v) }
 func sctx_set_marks(c: int, v: int): int { return mut_set(int_vec_get(c, 1), v) }
@@ -309,6 +325,7 @@ func sctx_name_known(c: int, src: str, toks: int, want: str): int {
     if sctx_tok_list_has(sctx_names(c), src, toks, want) == 1 { return 1 }
     if sctx_tok_list_has(sctx_globals(c), src, toks, want) == 1 { return 1 }
     if sctx_tok_list_has(sctx_fn_names(c), src, toks, want) == 1 { return 1 }
+    if (sctx_self_ok(c) == 1) & (str_eq(want, "self") == 1) { return 1 }
     return 0
 }
 
@@ -666,6 +683,23 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
         }
         if k == nd_class() {
             int_vec_push(sctx_types(c), ast_child(ch, 0))
+            var members = ast_child(ch, 1)
+            var mi = 0
+            while (mi < int_vec_len(members)) {
+                var m = int_vec_get(members, mi)
+                if ast_kind(m) == nd_func() {
+                    var mtok = ast_child(m, 0)
+                    int_vec_push(sctx_methods(c), mtok)
+                    // Class methods lower with implicit self as first arg (+1 arity).
+                    var arity = int_vec_len(ast_child(m, 1)) + 1
+                    if (sctx_fn_arity(c, src, toks, tok_text(src, toks, mtok)) < 0) {
+                        if sctx_add_fn(c, src, toks, mtok, arity) != 0 {
+                            return 1
+                        }
+                    }
+                }
+                mi = mi + 1
+            }
         }
         if k == nd_impl() {
             var methods = ast_child(ch, 2)
@@ -738,20 +772,40 @@ func sema_check_names(file_node: int, src: str, toks: int): int {
                 mi = mi + 1
             }
         }
+        if k2 == nd_class() {
+            var members2 = ast_child(ch2, 1)
+            var mj = 0
+            while (mj < int_vec_len(members2)) {
+                var mm = int_vec_get(members2, mj)
+                if ast_kind(mm) == nd_func() {
+                    sctx_set_self_ok(c, 1)
+                    if sema_check_func_node(c, src, toks, mm) != 0 {
+                        sctx_set_self_ok(c, 0)
+                        sctx_free(c)
+                        return 1
+                    }
+                    sctx_set_self_ok(c, 0)
+                }
+                mj = mj + 1
+            }
+        }
         i = i + 1
     }
     sctx_free(c)
     return 0
 }
 
-// 1 = native may lower: package/import/funcs/extern; field-only struct/class;
-// traits + impls (static dispatch / free-function methods).
-func sema_class_members_field_only(members: int): int {
+// 1 = native may lower: package/import/funcs/extern; struct/class with fields and
+// class-body methods (receiver-first / `self`); traits + impls.
+func sema_class_members_ok(members: int): int {
     var n = int_vec_len(members)
     var j = 0
     while (j < n) {
-        if ast_kind(int_vec_get(members, j)) != nd_class_field() {
-            return 0
+        var mk = ast_kind(int_vec_get(members, j))
+        if (mk == nd_class_field()) == 0 {
+            if (mk == nd_func()) == 0 {
+                return 0
+            }
         }
         j = j + 1
     }
@@ -767,7 +821,7 @@ func sema_file_only_native_subset(file_node: int): int {
         var k = ast_kind(ch)
         if k == nd_class() {
             var mem = ast_child(ch, 1)
-            if sema_class_members_field_only(mem) == 0 {
+            if sema_class_members_ok(mem) == 0 {
                 return 0
             }
         }

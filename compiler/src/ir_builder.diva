@@ -1149,12 +1149,22 @@ func lower_block(ctx: int, src: str, node: int): int {
 // --- Function lowering ---
 
 func lower_func(ctx: int, src: str, node: int): int {
+    return lower_func_opts(ctx, src, node, 0 - 1, 0)
+}
+
+// Lower a function. If |class_type_tok| >= 0, inject implicit `self` as param 0
+// (struct receiver for class-body methods, Issue #57).
+func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_self: int): int {
     var name_tok = ast_child(node, 0)
     var params_h = ast_child(node, 1)
     var ret_type = ast_child(node, 2)
     var body     = ast_child(node, 3)
 
     var pcount = int_vec_len(params_h)
+    var total_params = pcount
+    if inject_self == 1 {
+        total_params = pcount + 1
+    }
 
     var ret_ty = ir_ty_int()
     if (ret_type < 0) == 0 {
@@ -1166,7 +1176,7 @@ func lower_func(ctx: int, src: str, node: int): int {
         }
     }
 
-    var f = ir_func_new(name_tok, pcount, ret_ty)
+    var f = ir_func_new(name_tok, total_params, ret_ty)
     bctx_set_func(ctx, f)
     bctx_set_vreg(ctx, 0)
     bctx_set_label(ctx, 0)
@@ -1177,11 +1187,29 @@ func lower_func(ctx: int, src: str, node: int): int {
     ib_add_blk(ctx, entry)
     ib_set_blk(ctx, entry)
 
+    var pi = 0
+    if inject_self == 1 {
+        var self_tok = ib_find_self_tok(body, bctx_toks(ctx))
+        if (self_tok < 0) {
+            self_tok = name_tok
+        }
+        var sw = ib_type_struct_width(ctx, src, class_type_tok)
+        if (sw > 0) {
+            var base = ib_define_struct_local(ctx, self_tok, sw, class_type_tok)
+            ib_emit(ctx, ir_inst(ir_param(), base, 0, 0, 0))
+        } else {
+            var slot0 = ib_define_local(ctx, self_tok)
+            ib_emit(ctx, ir_inst(ir_param(), slot0, 0, 0, 0))
+        }
+        pi = 1
+    }
+
     var i = 0
     while (i < pcount) {
         var p = int_vec_get(params_h, i)
         var slot = ib_define_local(ctx, ast_child(p, 0))
-        ib_emit(ctx, ir_inst(ir_param(), slot, i, 0, 0))
+        ib_emit(ctx, ir_inst(ir_param(), slot, pi, 0, 0))
+        pi = pi + 1
         i = i + 1
     }
 
@@ -1190,6 +1218,81 @@ func lower_func(ctx: int, src: str, node: int): int {
     ib_scope_pop(ctx, scope)
     mod_add_func(bctx_mod(ctx), f)
     return 0
+}
+
+// Find first `self` identifier token under |node|, or -1.
+func ib_find_self_tok(node: int, toks: int): int {
+    if (node < 0) { return 0 - 1 }
+    var kind = ast_kind(node)
+    if kind == nd_ident() {
+        var t = ast_child(node, 0)
+        if tok_kind(toks, t) == tk_self() {
+            return t
+        }
+        return 0 - 1
+    }
+    if kind == nd_field() {
+        return ib_find_self_tok(ast_child(node, 0), toks)
+    }
+    if kind == nd_assign() {
+        var a = ib_find_self_tok(ast_child(node, 0), toks)
+        if (a < 0) == 0 { return a }
+        return ib_find_self_tok(ast_child(node, 1), toks)
+    }
+    if kind == nd_binop() {
+        var a = ib_find_self_tok(ast_child(node, 1), toks)
+        if (a < 0) == 0 { return a }
+        return ib_find_self_tok(ast_child(node, 2), toks)
+    }
+    if kind == nd_return() {
+        var e = ast_child(node, 0)
+        if (e < 0) == 0 { return ib_find_self_tok(e, toks) }
+        return 0 - 1
+    }
+    if kind == nd_block() {
+        var stmts = ast_child(node, 0)
+        var i = 0
+        while (i < int_vec_len(stmts)) {
+            var f = ib_find_self_tok(int_vec_get(stmts, i), toks)
+            if (f < 0) == 0 { return f }
+            i = i + 1
+        }
+        return 0 - 1
+    }
+    if kind == nd_var_decl() {
+        var init = ast_child(node, 2)
+        if (init < 0) == 0 { return ib_find_self_tok(init, toks) }
+        return 0 - 1
+    }
+    if kind == nd_if() {
+        var a = ib_find_self_tok(ast_child(node, 0), toks)
+        if (a < 0) == 0 { return a }
+        a = ib_find_self_tok(ast_child(node, 1), toks)
+        if (a < 0) == 0 { return a }
+        var els = ast_child(node, 2)
+        if (els < 0) == 0 {
+            if (els == 2147483647) == 0 {
+                return ib_find_self_tok(els, toks)
+            }
+        }
+        return 0 - 1
+    }
+    if kind == nd_expr_stmt() {
+        return ib_find_self_tok(ast_child(node, 0), toks)
+    }
+    if kind == nd_call() {
+        var a = ib_find_self_tok(ast_child(node, 0), toks)
+        if (a < 0) == 0 { return a }
+        var args = ast_child(node, 1)
+        var ai = 0
+        while (ai < int_vec_len(args)) {
+            var f = ib_find_self_tok(int_vec_get(args, ai), toks)
+            if (f < 0) == 0 { return f }
+            ai = ai + 1
+        }
+        return 0 - 1
+    }
+    return 0 - 1
 }
 
 func lower_extern(ctx: int, src: str, node: int): int {
@@ -1288,6 +1391,18 @@ func lower_file(ctx: int, src: str, file_node: int): int {
                     lower_func(ctx, src, m)
                 }
                 mi = mi + 1
+            }
+        }
+        if kind == nd_class() {
+            var class_tok = ast_child(child, 0)
+            var members = ast_child(child, 1)
+            var mj = 0
+            while (mj < int_vec_len(members)) {
+                var mem = int_vec_get(members, mj)
+                if ast_kind(mem) == nd_func() {
+                    lower_func_opts(ctx, src, mem, class_tok, 1)
+                }
+                mj = mj + 1
             }
         }
         if kind == nd_extern_func() {
