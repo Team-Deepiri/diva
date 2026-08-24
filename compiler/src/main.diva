@@ -36,7 +36,7 @@ func cmd_print_usage(): int {
     stderr("Environment: DI_STDLIB_DIR (stdlib search path)\n")
     stderr("  DIVA_WATCH_MAX_ITERS=N exits after N poll cycles (CI smoke)\n")
     stderr("  diva build -g embeds DWARF via scripts/embed-dwarf-debug.py (needs python3)\n")
-    stderr("  diva new <path> [--lib|--kernel] (native scaffolding)\n")
+    stderr("  diva new <path> [--lib|--kernel|--system] (native scaffolding)\n")
     return 1
 }
 
@@ -630,11 +630,12 @@ func native_mkdir_p(path: str): int {
 
 func cmd_new(): int {
     if (host_argc() < 3) {
-        err_line("usage: diva new <path> [--lib|--kernel]   (or: diva new --lib <path>)")
+        err_line("usage: diva new <path> [--lib|--kernel|--system]   (or: diva new --lib <path>)")
         return 1
     }
     var want_lib = 0
     var want_kernel = 0
+    var want_system = 0
     var path = ""
     var i = 2
     while (i < host_argc()) {
@@ -645,22 +646,27 @@ func cmd_new(): int {
             if str_eq(a, "--kernel") == 1 {
                 want_kernel = 1
             } else {
+                if str_eq(a, "--system") == 1 {
+                    want_system = 1
+                } else {
                 if str_byte(a, 0) != 45 {
                     if str_len(path) == 0 {
                         // Copy argv text: host_argv pointers may alias one buffer reused each call.
                         path = str_concat(a, "")
                     }
                 }
+                }
             }
         }
         i = i + 1
     }
-    if (want_lib == 1 & want_kernel == 1) {
-        err_line("new: choose either --lib or --kernel")
+    var kind_count = want_lib + want_kernel + want_system
+    if kind_count > 1 {
+        err_line("new: choose at most one of --lib, --kernel, --system")
         return 1
     }
     if str_len(path) == 0 {
-        err_line("usage: diva new <path> [--lib|--kernel]")
+        err_line("usage: diva new <path> [--lib|--kernel|--system]")
         return 1
     }
     if new_path_shell_safe(path) == 0 {
@@ -706,6 +712,11 @@ func cmd_new(): int {
         str_builder_append(mf, nl)
         str_builder_append(mf, "entry = \"src/boot.diva\"")
         str_builder_append(mf, nl)
+    } else if want_system == 1 {
+        str_builder_append(mf, "kind = \"system\"")
+        str_builder_append(mf, nl)
+        str_builder_append(mf, "entry = \"src/system.diva\"")
+        str_builder_append(mf, nl)
     } else {
         str_builder_append(mf, "kind = \"app\"")
         str_builder_append(mf, nl)
@@ -743,6 +754,24 @@ func cmd_new(): int {
         main_body = str_concat(main_body, nl)
         if native_write_text_bytes(path_join_dir(src_dir, "boot.diva"), main_body) != 0 {
             err_line("new: writing src/boot.diva failed")
+            return 1
+        }
+    } else if want_system == 1 {
+        main_body = "// Freestanding/system template — see docs/freestanding.md"
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "extern func sys_exit(code: int): void")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "func main(): int {")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    sys_exit(0)")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    return 0")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "}")
+        main_body = str_concat(main_body, nl)
+        if native_write_text_bytes(path_join_dir(src_dir, "system.diva"), main_body) != 0 {
+            err_line("new: writing src/system.diva failed")
             return 1
         }
     } else {
@@ -788,6 +817,13 @@ func cmd_new(): int {
         str_builder_append(rd, nl)
         str_builder_append(rd, "`diva parse ")
         str_builder_append(rd, path_join_dir(path, "src/boot.diva"))
+        str_builder_append(rd, "`")
+        str_builder_append(rd, nl)
+    } else if want_system == 1 {
+        str_builder_append(rd, "System/freestanding scaffold. See docs/freestanding.md.")
+        str_builder_append(rd, nl)
+        str_builder_append(rd, "Validate: `diva check ")
+        str_builder_append(rd, path)
         str_builder_append(rd, "`")
         str_builder_append(rd, nl)
     } else if want_lib == 1 {
