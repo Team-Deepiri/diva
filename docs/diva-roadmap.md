@@ -21,7 +21,7 @@ This document maps AST node kinds ([compiler/src/ast.diva](compiler/src/ast.diva
 | `nd_ident` | yes | yes | yes | Locals, params, and module globals (int/bool/str) |
 | `nd_assign` | yes | partial | partial | Ident and `nd_index` (const index) |
 | `nd_field` | yes | yes | yes | Locals with struct type; field assign supported |
-| `nd_index` | yes | partial | partial | Constant index into stack `int[]` |
+| `nd_index` | yes | yes | yes | Const or dynamic index into stack `int[]`; see `docs/array-bounds.md` |
 | `nd_class` / `nd_trait` / `nd_impl` | yes | partial | partial | Field-only class/struct + obj lit; traits/impls validate + static free-fn methods |
 | `nd_type_name` / `nd_type_array` | yes | partial | partial | Arrays for locals only |
 | `nd_array_lit` | yes | partial | partial | Only as `int[]` initializer |

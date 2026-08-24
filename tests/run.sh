@@ -294,6 +294,9 @@ assert_output_equals "${ROOT_DIR}/examples/structs.diva" "18
 assert_output_equals "${ROOT_DIR}/examples/struct_mutation.diva" "10"
 assert_output_equals "${ROOT_DIR}/examples/arrays.diva" "9"
 assert_output_equals "${ROOT_DIR}/examples/array_mutation.diva" "16"
+assert_output_equals "${ROOT_DIR}/examples/array_dynamic.diva" "9
+99
+6"
 assert_output_equals "${ROOT_DIR}/examples/imports/main.diva" "42"
 assert_output_equals "${ROOT_DIR}/examples/generics_traits.diva" "7"
 assert_output_equals "${ROOT_DIR}/examples/method_call.diva" "7

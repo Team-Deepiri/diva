@@ -23,8 +23,8 @@ subset. These constructs are **parse-only or seed-only** in the native pipeline 
 3. **Method calls:** receiver-first free-function lowering (Issue #19).
 4. **Imports / multi-file:** merge + diagnostics (Issue #17); dep aliases (Issue #24 phase 1 —
    `docs/module-graph-phase1.md`); full module graph/cache still open.
-5. **Arrays / generics monomorphization:** see Issues #22–#23 / #26 and open feature PRs.
-   (Globals int/bool/str: Issue #21 — native entry-stub + string pool.)
+5. **Array literals beyond int[] init / generics monomorphization:** Issues #22 (remaining) / #26.
+   Dynamic `int[]` index + bounds docs landed with this stack; globals (#21) on prior PR.
 6. **IR Stage 2:** see `docs/ir-stage2-status.md` (Issue #25).
 7. **Backend / kernel track:** `compiler/{mir,backend}/` scaffolding and kernel targets are not
    shipped (see `docs/roadmap.md` phases 8–9).
