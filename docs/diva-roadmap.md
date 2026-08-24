@@ -30,7 +30,7 @@ This document maps AST node kinds ([compiler/src/ast.diva](compiler/src/ast.diva
 | `nd_method_call` | yes | partial | partial | IR shape fragile; prefer `nd_call` |
 | `nd_obj_lit` / `nd_field_init` | yes | no | no | |
 | `nd_expr_stmt` | yes | yes | yes | |
-| `nd_generic_call` | yes | no | no | |
+| `nd_generic_call` | yes | yes | yes | Type erasure: call type-args dropped at IR build; decl type-params dropped at parse. Single monomorphic def per name |
 
 **Examples / tests:** Full `examples/` and `tests/cases` rely on the **seed** compiler for packages, traits, kernels, `diva check`, etc. Native `diva build` / `diva run` apply to single-file programs that fit the supported subset (see `compiler-version` output).
 

@@ -1,0 +1,31 @@
+extern func print_int(x: int): void
+extern func print_str(x: str): void
+
+// Generic declarations and calls in the native subset are lowered by type erasure:
+// the type-parameter list on a declaration is dropped at parse time and the
+// type-argument list on a call is dropped at IR build, so every generic call site
+// binds to the single monomorphic definition of the same name. This is only sound
+// while erased types never change a function's lowering, so the erasure strategy is
+// the documented subset for now (see docs/diva-roadmap.md `nd_generic_call`).
+
+func twice[T](x: int): int {
+    return x * 2
+}
+
+func twice_both[A, B](x: int): int {
+    return x + 1
+}
+
+func id[T](x: T): T {
+    return x
+}
+
+func main(): int {
+    print_int(twice[int](21))
+    print_int(twice[bool](5))
+    print_int(twice[MyWidget](7))
+    print_int(twice_both[int, str](1))
+    print_int(id[int](30))
+    print_str(id[str]("hi"))
+    return 0
+}
