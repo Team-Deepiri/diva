@@ -181,6 +181,13 @@ else
   echo "[native-broad] OK   tests/run-watch-smoke.sh"
 fi
 
+echo "[native-broad] category: sema type suite"
+if ! DIVA_PURE_DRIVER="${DRIVER}" bash "${ROOT_DIR}/tests/run-sema.sh"; then
+  record_fail "sema" "tests/sema.list" "run-sema.sh failed"
+else
+  echo "[native-broad] OK   tests/run-sema.sh"
+fi
+
 echo "[native-broad] category: DWARF -g / addr2line smoke"
 if ! DIVA="${DRIVER}" bash "${ROOT_DIR}/tests/run-dwarf-smoke.sh"; then
   record_fail "dwarf" "tests/run-dwarf-smoke.sh" "dwarf smoke failed"

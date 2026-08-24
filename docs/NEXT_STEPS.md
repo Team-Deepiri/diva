@@ -14,7 +14,7 @@ path is closed (#55).
 
 | Priority | Issue | Why |
 |----------|-------|-----|
-| **P0** | [#53](https://github.com/Team-Deepiri/diva/issues/53) type checker | Unknown idents → `const 0`; no real programs without reject-bad |
+| **P0** | [#53](https://github.com/Team-Deepiri/diva/issues/53) type checker (**landed** assign/return/binop + sema suite) | Unknown idents → `const 0`; no real programs without reject-bad |
 | **P0** | [#54](https://github.com/Team-Deepiri/diva/issues/54) span diagnostics | Multi-file errors useless without locations — **MVP landed** (`path:line:col:`) |
 | **P0** | [#55](https://github.com/Team-Deepiri/diva/issues/55) pure driver / seed promote (**landed**) | Trust root without skip-flag hacks |
 | **P0** | [#61](https://github.com/Team-Deepiri/diva/issues/61) negative suite (**landed**) | Lock failure cases so stacked PRs don't regress |
