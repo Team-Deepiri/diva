@@ -307,6 +307,7 @@ assert_output_equals "${ROOT_DIR}/examples/flux_range.diva" "10
 1
 0
 0"
+assert_output_equals "${ROOT_DIR}/examples/flux_array.diva" "30"
 assert_output_equals "${ROOT_DIR}/examples/imports/main.diva" "42"
 assert_output_equals "${ROOT_DIR}/examples/generics_traits.diva" "7"
 assert_output_equals "${ROOT_DIR}/examples/method_call.diva" "7

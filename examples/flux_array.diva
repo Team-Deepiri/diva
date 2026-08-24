@@ -1,0 +1,12 @@
+// Flux over fixed-length int[] (Issue #56). Sums nums via language-spec style.
+extern func print_int(x: int): void
+
+func main(): int {
+    var nums: int[] = [3, 6, 9, 12]
+    var total = 0
+    flux value in nums {
+        total = total + value
+    }
+    print_int(total)
+    return 0
+}

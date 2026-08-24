@@ -18,7 +18,7 @@ trustworthy promote path.
 | **P0** | [#54](https://github.com/Team-Deepiri/diva/issues/54) span diagnostics | Multi-file errors useless without locations — **MVP landed** (`path:line:col:`) |
 | **P0** | [#55](https://github.com/Team-Deepiri/diva/issues/55) pure driver / seed promote | Trust root without skip-flag hacks |
 | **P0** | [#61](https://github.com/Team-Deepiri/diva/issues/61) negative suite | Lock failure cases so stacked PRs don't regress |
-| P1 | [#56](https://github.com/Team-Deepiri/diva/issues/56) array flux, [#58](https://github.com/Team-Deepiri/diva/issues/58) bounds traps, [#64](https://github.com/Team-Deepiri/diva/issues/64) non-int arrays | Collection surface people expect |
+| P1 | [#56](https://github.com/Team-Deepiri/diva/issues/56) array flux (**landed**), [#58](https://github.com/Team-Deepiri/diva/issues/58) bounds traps, [#64](https://github.com/Team-Deepiri/diva/issues/64) non-int arrays | Collection surface people expect |
 | P1 | [#57](https://github.com/Team-Deepiri/diva/issues/57) class methods + `self` | OOP as documented (not free-fn only) |
 | P1 | [#62](https://github.com/Team-Deepiri/diva/issues/62) heap + growable buffer | Unblocks real [#28](https://github.com/Team-Deepiri/diva/issues/28) stdlib |
 | P2 | [#60](https://github.com/Team-Deepiri/diva/issues/60) `diva watch`, [#63](https://github.com/Team-Deepiri/diva/issues/63) DWARF | Dev UX |

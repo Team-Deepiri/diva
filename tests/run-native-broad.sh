@@ -77,6 +77,7 @@ expected_output() {
     examples/array_mutation.diva)   printf '16\n' ;;
     examples/array_dynamic.diva)    printf '9\n99\n6\n' ;;
     examples/flux_range.diva)       printf '10\n5\n1\n0\n0\n' ;;
+    examples/flux_array.diva)       printf '30\n' ;;
     examples/generics.diva)         printf '42\n10\n14\n2\n30\nhi\n' ;;
     examples/generics_traits.diva)  printf '7\n' ;;
     examples/method_call.diva)      printf '7\n6\n' ;;

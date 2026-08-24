@@ -752,12 +752,9 @@ func lower_while_stmt(ctx: int, src: str, node: int): int {
     return 0
 }
 
-// Lower nd_flux (range iteration). `flux v in start..end { body }` desugars to
-// the half-open range loop [start, end):
-//   v = start
-//   while (v < end) { body; v = v + 1 }
-// Bounds are evaluated once before the loop (same as examples/stdlib_demo.diva).
-// Array iteration is a separate subset; range over ints is the supported native path.
+// Lower nd_flux. Supported iterables:
+// - `start..end` → half-open range [start, end) (Issue #20)
+// - local `int[]` ident → index loop i in 0..len; v = arr[i] (Issue #56)
 func lower_stmt_flux(ctx: int, src: str, node: int): int {
     var vtok = ast_child(node, 0)
     var iterable = ast_child(node, 1)
@@ -819,6 +816,77 @@ func lower_stmt_flux(ctx: int, src: str, node: int): int {
             return 1
         }
         ib_set_blk(ctx, end_handle)
+    } else {
+        if ast_kind(iterable) == nd_ident() {
+            var aname = ib_tok_text(ctx, src, ast_child(iterable, 0))
+            var base = ib_lookup_local(ctx, src, aname)
+            var alen = ib_lookup_array_len(ctx, src, aname)
+            // alen > 1: fixed int[] (alen==1 is scalar marker in this IR builder).
+            if ((base < 0) == 0) & (alen > 1) {
+                var idx_tok = vtok
+                // Index temp (anonymous): reuse vreg without name for loop counter;
+                // bind loop variable `v` to element value each iteration.
+                var idx_slot = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_alloca(), idx_slot, 0, 0, 0))
+                var zero = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_const(), zero, 0, 0, 0))
+                ib_emit(ctx, ir_inst(ir_store(), idx_slot, zero, 0, 0))
+
+                var lenr = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_const(), lenr, alen, 0, 0))
+                var one2 = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_const(), one2, 1, 0, 0))
+
+                var val_slot = ib_define_local(ctx, idx_tok)
+                ib_emit(ctx, ir_inst(ir_alloca(), val_slot, 0, 0, 0))
+
+                var cond_lbl2 = ib_fresh_label(ctx)
+                var body_lbl2 = ib_fresh_label(ctx)
+                var end_lbl2 = ib_fresh_label(ctx)
+                ib_add_blk(ctx, ir_block_new(cond_lbl2))
+                ib_add_blk(ctx, ir_block_new(body_lbl2))
+                ib_add_blk(ctx, ir_block_new(end_lbl2))
+                ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl2, 0, 0))
+
+                var ch2 = ib_find_blk_by_label(ctx, cond_lbl2)
+                if (ch2 < 0) {
+                    stderr("ir-builder error: missing array-flux-cond block handle\n")
+                    return 1
+                }
+                ib_set_blk(ctx, ch2)
+                var icur = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_load(), icur, idx_slot, 0, 0))
+                var icmp = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_lt(), icmp, icur, lenr, 0))
+                ib_emit(ctx, ir_inst(ir_br_cond(), icmp, body_lbl2, end_lbl2, 0))
+
+                var bh2 = ib_find_blk_by_label(ctx, body_lbl2)
+                if (bh2 < 0) {
+                    stderr("ir-builder error: missing array-flux-body block handle\n")
+                    return 1
+                }
+                ib_set_blk(ctx, bh2)
+                var icur2 = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_load(), icur2, idx_slot, 0, 0))
+                var elem = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_array_load(), elem, base, icur2, 0))
+                ib_emit(ctx, ir_inst(ir_store(), val_slot, elem, 0, 0))
+                lower_block(ctx, src, body)
+                var icur3 = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_load(), icur3, idx_slot, 0, 0))
+                var inext = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_add(), inext, icur3, one2, 0))
+                ib_emit(ctx, ir_inst(ir_store(), idx_slot, inext, 0, 0))
+                ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl2, 0, 0))
+
+                var eh2 = ib_find_blk_by_label(ctx, end_lbl2)
+                if (eh2 < 0) {
+                    stderr("ir-builder error: missing array-flux-end block handle\n")
+                    return 1
+                }
+                ib_set_blk(ctx, eh2)
+            }
+        }
     }
     ib_scope_pop(ctx, scope)
     return 0
