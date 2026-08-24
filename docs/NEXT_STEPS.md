@@ -40,7 +40,7 @@ Still open from earlier track: merge the feature stack to `dev`/`main`, finish
 See `docs/diva-roadmap.md`. Highlights still partial/seed:
 
 1. **OOP:** class-body methods / `self` (#57); trait objects later (#27 residual).
-2. **Collections:** array flux (#56), bounds traps (#58), `bool[]`/`str[]`/struct arrays (#64).
+2. **Collections:** bounds traps (#58), `bool[]`/`str[]`/struct arrays (#64); array flux (#56) landed.
 3. **Imports / modules:** full graph/cache (#24); import merge already in flight (#17).
 4. **Generics:** monomorphization / generic classes (#26).
 5. **IR Stage 2 / backends:** #25 status doc; kernel path #59 + #30.
