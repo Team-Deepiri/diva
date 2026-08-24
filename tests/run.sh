@@ -296,16 +296,16 @@ assert_output_equals "${ROOT_DIR}/examples/arrays.diva" "9"
 assert_output_equals "${ROOT_DIR}/examples/array_mutation.diva" "16"
 assert_output_equals "${ROOT_DIR}/examples/imports/main.diva" "42"
 assert_output_equals "${ROOT_DIR}/examples/generics_traits.diva" "7"
-<<<<<<< HEAD
 assert_output_equals "${ROOT_DIR}/examples/method_call.diva" "7
 6"
 assert_output_equals "${ROOT_DIR}/examples/traits_static.diva" "7"
-=======
 assert_output_equals "${ROOT_DIR}/examples/globals.diva" "5
 10
 11
 11"
->>>>>>> e5df4d4 (fix: module-level globals read/write in native + asm pipelines (Issue #21))
+assert_output_equals "${ROOT_DIR}/examples/globals_str.diva" "hello
+world
+"
 assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.diva" "12
 10
 10

@@ -1,0 +1,12 @@
+// Module-level string globals: literal init, read, write, and reassignment.
+
+extern func print_str(s: str): void
+
+var msg = "hello\n"
+
+func main(): int {
+    print_str(msg)
+    msg = "world\n"
+    print_str(msg)
+    return 0
+}

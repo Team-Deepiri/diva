@@ -80,6 +80,7 @@ expected_output() {
     examples/method_call.diva)      printf '7\n6\n' ;;
     examples/traits_static.diva)    printf '7\n' ;;
     examples/globals.diva)          printf '5\n10\n11\n11\n' ;;
+    examples/globals_str.diva)      printf 'hello\nworld\n' ;;
     examples/stdlib_demo.diva)      printf '12\n10\n10\n5\n1\n1\n' ;;
     examples/utils_demo.diva)       printf '1\n6\ntrue\ntrue\nutil0x0000000000000004\n1\n1\n' ;;
     *) printf '' ;;

@@ -13,6 +13,7 @@ examples/escape_smoke.diva
 examples/generics.diva
 examples/generics_traits.diva
 examples/globals.diva
+examples/globals_str.diva
 examples/hello.diva
 examples/hello_di.diva
 examples/host_argv.diva

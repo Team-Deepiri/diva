@@ -1070,25 +1070,32 @@ func lower_global(ctx: int, src: str, node: int): int {
             if ik == nd_bool_lit() {
                 init_val = ast_child(init, 0)
             } else {
-                if ik == nd_unary() {
-                    var uo = ast_child(init, 0)
-                    var uoperand = ast_child(init, 1)
-                    if (uo == unop_neg()) & (ast_kind(uoperand) == nd_int_lit()) {
-                        init_val = 0 - ast_child(uoperand, 0)
-                    }
-                }
-                if ik == nd_unary() {
+                if ik == nd_str_lit() {
+                    var tok_idx = ast_child(init, 0)
+                    init_val = int_vec_len(bctx_str_vec(ctx))
+                    int_vec_push(bctx_str_vec(ctx), tok_idx)
+                    gtype = ir_ty_str()
                 } else {
-                    var r = lower_expr(ctx, src, init)
-                    var i = 0
-                    while (i < int_vec_len(bctx_global_vals(ctx))) {
-                        var gval = int_vec_get(bctx_global_vals(ctx), i)
-                        if (gval == r) {
-                            init_val = 0
+                    if ik == nd_unary() {
+                        var uo = ast_child(init, 0)
+                        var uoperand = ast_child(init, 1)
+                        if (uo == unop_neg()) & (ast_kind(uoperand) == nd_int_lit()) {
+                            init_val = 0 - ast_child(uoperand, 0)
                         }
-                        i = i + 1
                     }
-                    init_val = 0
+                    if ik == nd_unary() {
+                    } else {
+                        var r = lower_expr(ctx, src, init)
+                        var i = 0
+                        while (i < int_vec_len(bctx_global_vals(ctx))) {
+                            var gval = int_vec_get(bctx_global_vals(ctx), i)
+                            if (gval == r) {
+                                init_val = 0
+                            }
+                            i = i + 1
+                        }
+                        init_val = 0
+                    }
                 }
             }
         }

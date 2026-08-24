@@ -538,7 +538,12 @@ func cg_module_to_str(m: int, src: str, toks: int, str_toks: int, nl: str): str 
             lp_add(lp, gname) lp_add(lp, ":") lp_flush_sb(lp, sb, nl)
             var ginit = global_init(g)
             lp_add(lp, "    .quad ")
-            lp_add_int(lp, ginit)
+            if global_type(g) == ir_ty_str() {
+                lp_add(lp, ".Lstr")
+                lp_add_int(lp, ginit)
+            } else {
+                lp_add_int(lp, ginit)
+            }
             lp_flush_sb(lp, sb, nl)
             gi = gi + 1
         }
@@ -1500,11 +1505,34 @@ func cg_p2_func(p2fctx: int, src: str, f: int, brtab: int, p2out_ctx: int): int 
     return 0
 }
 
-// Entry stub bytes with |gc| globals: fixed tail (mov r15,rsp; call; mov rdi; mov eax; syscall)
-// is 18 bytes; with globals we also emit sub rsp (7) + one movq $init,disp(%r15) (11) each.
-func native_entry_stub_size(gc: int): int {
+// Bytes for one global init in the entry stub: int/bool use movq $imm (11); str uses
+// lea pool(%rip),%rax + movq %rax,disp(%r15) (14).
+func native_global_init_bytes(m: int, gi: int): int {
+    if global_type(mod_get_global(m, gi)) == ir_ty_str() { return 14 }
+    return 11
+}
+
+// Entry stub bytes: fixed tail (mov r15,rsp; call; mov rdi; mov eax; syscall) is 18 bytes;
+// with globals also sub rsp (7) + per-global init (11 or 14).
+func native_entry_stub_size(m: int): int {
+    var gc = mod_global_count(m)
     if gc == 0 { return 18 }
-    return 25 + gc * 11
+    var sum = 0
+    var gi = 0
+    while (gi < gc) {
+        sum = sum + native_global_init_bytes(m, gi)
+        gi = gi + 1
+    }
+    return 25 + sum
+}
+
+// Emit lea of string pool entry |str_id| into %rax (same RIP math as cg_p2_cstr).
+func emit_lea_str_to_rax(out: int, str_id: int, str_cum: int, instr_total: int): int {
+    var lea_off = int_vec_len(out)
+    var rel = instr_total + int_vec_get(str_cum, str_id) - (lea_off + 7)
+    int_vec_push(out, 72) int_vec_push(out, 141) int_vec_push(out, 5)
+    emit_i32(out, rel)
+    return 7
 }
 
 // Stack bytes reserved below the initial rsp for globals, rounded to 16 (ABI alignment for the
@@ -1542,11 +1570,11 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
     // Pass 1: Label resolution
     var brtab = brtab_new()
     var func_offsets = int_vec_new()
-    // Entry stub: mov r15,rsp ; [sub rsp, globals ; movq $init, disp(%r15) xN] ; call main ;
+    // Entry stub: mov r15,rsp ; [sub rsp, globals ; init slots] ; call main ;
     // mov rdi,rax ; mov eax,60 ; syscall.
     // — call pushes a return address to the exit trampoline so a mistaken `ret` from main
     // (jmp entry had none) cannot pop garbage → RIP 0. Pure host_* builtins still use r15.
-    var current_offset = native_entry_stub_size(glob_count)
+    var current_offset = native_entry_stub_size(m)
 
     var fi = 0
     while (fi < fc) {
@@ -1579,7 +1607,8 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
     // Emit entry stub before all functions.
     // 49 89 E7                mov r15, rsp
     // 48 81 EC imm32          sub rsp, globals_reserve   (only when globals exist)
-    // 49 C7 87 disp32 imm32   movq $init, disp(%r15)     (per global)
+    // int: 49 C7 87 disp32 imm32   movq $init, disp(%r15)
+    // str: lea pool(%rip),%rax ; movq %rax, disp(%r15)
     // E8 rel32               call main
     // 48 89 C7               mov rdi, rax
     // B8 3C 00 00 00         mov eax, 60
@@ -1591,15 +1620,21 @@ func cg_module_to_bin(m: int, src: str, toks: int, str_toks: int, out: int): int
         emit_i32(out, gres)
         var gii = 0
         while (gii < glob_count) {
-            var ginit = global_init(mod_get_global(m, gii))
-            int_vec_push(out, 73) int_vec_push(out, 199) int_vec_push(out, 135)
-            emit_i32(out, global_slot_disp(gii))
-            emit_i32(out, ginit)
+            var gg = mod_get_global(m, gii)
+            var ginit = global_init(gg)
+            if global_type(gg) == ir_ty_str() {
+                emit_lea_str_to_rax(out, ginit, str_cum, instr_total)
+                emit_mov_rax_to_gslot(out, gii)
+            } else {
+                int_vec_push(out, 73) int_vec_push(out, 199) int_vec_push(out, 135)
+                emit_i32(out, global_slot_disp(gii))
+                emit_i32(out, ginit)
+            }
             gii = gii + 1
         }
     }
     int_vec_push(out, 232)
-    emit_i32(out, main_off - (native_entry_stub_size(glob_count) - 10))
+    emit_i32(out, main_off - (native_entry_stub_size(m) - 10))
     int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 199)
     int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
     int_vec_push(out, 15) int_vec_push(out, 5)

@@ -18,7 +18,7 @@ This document maps AST node kinds ([compiler/src/ast.diva](compiler/src/ast.diva
 | `nd_call` | yes | yes | yes | |
 | `nd_binop` / `nd_unary` | yes | yes | yes | |
 | `nd_int_lit` / `nd_bool_lit` / `nd_str_lit` | yes | yes | yes | |
-| `nd_ident` | yes | partial | partial | Locals + params; globals → stub |
+| `nd_ident` | yes | yes | yes | Locals, params, and module globals (int/bool/str) |
 | `nd_assign` | yes | partial | partial | Ident and `nd_index` (const index) |
 | `nd_field` | yes | yes | yes | Locals with struct type; field assign supported |
 | `nd_index` | yes | partial | partial | Constant index into stack `int[]` |
