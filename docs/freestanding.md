@@ -1,12 +1,29 @@
-# Freestanding mode (Issue #30 — stub for system template)
+# Freestanding mode (Issue #30)
 
-Freestanding packages use `diva new --system` (`kind = "system"`). They target
-environments without a full hosted libc contract:
+Freestanding/system packages target environments without a full hosted libc.
 
-- Entry: `src/system.diva` with `main` or a custom symbol documented in your linker script.
-- Declare platform hooks as `extern` (see `docs/ffi-abi.md`).
-- Set `DIVA_FREESTANDING=1` when building to skip hosted runtime assumptions (WIP).
+## Scaffold
 
-Kernel packages (`--kernel`, `kmain`) remain the path for `#59` bring-up images.
+```bash
+diva new mysys --system
+```
 
-See also: `docs/ffi-abi.md`, `docs/kernel-packages.md`.
+Writes `kind = "system"`, entry `src/system.diva`, and documents syscall-first hooks.
+
+## Build flags
+
+| Variable | Effect |
+|----------|--------|
+| `DIVA_FREESTANDING=1` | Documented preference for pure-ELF + syscall wrappers; use with `DIVA_NO_EXTERNAL=1`. |
+| `DIVA_NO_EXTERNAL=1` | Default in tests — no host `cc`/`ld`. |
+
+## Syscall wrappers
+
+Import `std/syscall_linux.diva` for `sys_exit`, `sys_write`, and helpers. See
+`docs/ffi-abi.md` for the AMD64 calling convention.
+
+## Example
+
+`examples/freestanding_demo.diva` writes `freestanding_ok` via `sys_write` and exits with `sys_exit`.
+
+Kernel packages (`--kernel`, `kmain`) remain on the `#59` path for bring-up images without `main`.

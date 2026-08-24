@@ -10,7 +10,7 @@ Stable import surface for SDK consumers. Paths stay under `stdlib/std/*.diva`
 | **io** | Print / panic / streams | `io`, `fmt`, `log`, `color` |
 | **str** | String helpers + builders | `str`, `vec` (`str_builder_*`), `pattern`, `hex`, `base64` |
 | **math** | Numeric helpers | `math`, `random`, `matrix` |
-| **collections** | Growable containers | `collections` (IntBuf on `int_buf_*`), `vec` (`int_vec_*`), `stack`, `queue`, `map`, `table`, `sort` |
+| **collections** | Growable containers | `collections` (IntBuf on `int_buf_*`), `vec` (`int_vec_*`), `stack`, `queue`, `map`, `table`, `sort` — `IntBuf_min` / `int_buf_min` |
 | **iter** | Range / fold helpers | `iter`, `range`, `algo` |
 | **os** | Process / env / files | `os`, `host`, `fs`, `path`, `args`, `process` |
 
