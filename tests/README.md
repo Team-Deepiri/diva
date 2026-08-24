@@ -21,3 +21,4 @@ sh tests/run-negative.sh
 
 - `tests/cases/fail/`: negative compilation / runtime-abort cases (see `tests/cases/fail/README.md`)
 - `tests/negative.list`: path + expected stderr needle + kind (`fail_build` / `runtime_abort`)
+- `tests/manual/`: historical scratch programs (not gated)
