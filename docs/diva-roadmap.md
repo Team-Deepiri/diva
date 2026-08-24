@@ -25,8 +25,8 @@ This document maps AST node kinds ([compiler/src/ast.diva](compiler/src/ast.diva
 | `nd_class` / `nd_trait` / `nd_impl` | yes | partial | partial | Field-only class/struct + obj lit; traits/impls validate + static free-fn methods |
 | `nd_type_name` / `nd_type_array` | yes | partial | partial | Arrays for locals only |
 | `nd_array_lit` | yes | partial | partial | Only as `int[]` initializer |
-| `nd_flux` | yes | no | no | |
-| `nd_range` | yes | no | no | |
+| `nd_flux` | yes | yes | yes | Desugars to while over `nd_range` `[start,end)` |
+| `nd_range` | yes | yes | n/a | Only as `flux` iterable today |
 | `nd_method_call` | yes | yes | yes | Lowers to free fn `method(recv, args...)` |
 | `nd_obj_lit` / `nd_field_init` | yes | yes | yes | Struct init via `Type { f: v }` (type from lit or `::`) |
 | `nd_expr_stmt` | yes | yes | yes | |

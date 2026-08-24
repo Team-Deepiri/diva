@@ -752,6 +752,78 @@ func lower_while_stmt(ctx: int, src: str, node: int): int {
     return 0
 }
 
+// Lower nd_flux (range iteration). `flux v in start..end { body }` desugars to
+// the half-open range loop [start, end):
+//   v = start
+//   while (v < end) { body; v = v + 1 }
+// Bounds are evaluated once before the loop (same as examples/stdlib_demo.diva).
+// Array iteration is a separate subset; range over ints is the supported native path.
+func lower_stmt_flux(ctx: int, src: str, node: int): int {
+    var vtok = ast_child(node, 0)
+    var iterable = ast_child(node, 1)
+    var body = ast_child(node, 2)
+    var scope = ib_scope_push(ctx)
+    if ast_kind(iterable) == nd_range() {
+        var start_node = ast_child(iterable, 0)
+        var end_node = ast_child(iterable, 1)
+
+        var slot = ib_define_local(ctx, vtok)
+        ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
+
+        var start = lower_expr(ctx, src, start_node)
+        var end = lower_expr(ctx, src, end_node)
+        ib_emit(ctx, ir_inst(ir_store(), slot, start, 0, 0))
+
+        var one = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), one, 1, 0, 0))
+
+        var cond_lbl = ib_fresh_label(ctx)
+        var body_lbl = ib_fresh_label(ctx)
+        var end_lbl = ib_fresh_label(ctx)
+
+        ib_add_blk(ctx, ir_block_new(cond_lbl))
+        ib_add_blk(ctx, ir_block_new(body_lbl))
+        ib_add_blk(ctx, ir_block_new(end_lbl))
+
+        ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+
+        var cond_handle = ib_find_blk_by_label(ctx, cond_lbl)
+        if (cond_handle < 0) {
+            stderr("ir-builder error: missing flux-cond block handle\n")
+            return 1
+        }
+        ib_set_blk(ctx, cond_handle)
+        var cur = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), cur, slot, 0, 0))
+        var cmp = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_lt(), cmp, cur, end, 0))
+        ib_emit(ctx, ir_inst(ir_br_cond(), cmp, body_lbl, end_lbl, 0))
+
+        var body_handle = ib_find_blk_by_label(ctx, body_lbl)
+        if (body_handle < 0) {
+            stderr("ir-builder error: missing flux-body block handle\n")
+            return 1
+        }
+        ib_set_blk(ctx, body_handle)
+        lower_block(ctx, src, body)
+        var v2 = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), v2, slot, 0, 0))
+        var v3 = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_add(), v3, v2, one, 0))
+        ib_emit(ctx, ir_inst(ir_store(), slot, v3, 0, 0))
+        ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+
+        var end_handle = ib_find_blk_by_label(ctx, end_lbl)
+        if (end_handle < 0) {
+            stderr("ir-builder error: missing flux-end block handle\n")
+            return 1
+        }
+        ib_set_blk(ctx, end_handle)
+    }
+    ib_scope_pop(ctx, scope)
+    return 0
+}
+
 // Lower nd_var_decl for array types.
 func lower_stmt_var_array(ctx: int, src: str, name_tok: int, init: int): int {
     var elems = ast_child(init, 0)
@@ -971,6 +1043,8 @@ func lower_stmt(ctx: int, src: str, node: int): int {
     if kind == nd_if() { return lower_stmt_if(ctx, src, node) }
 
     if kind == nd_while() { return lower_while_stmt(ctx, src, node) }
+
+    if kind == nd_flux() { return lower_stmt_flux(ctx, src, node) }
 
     if kind == nd_expr_stmt() {
         lower_expr(ctx, src, ast_child(node, 0))

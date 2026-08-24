@@ -19,7 +19,8 @@ subset. These constructs are **parse-only or seed-only** in the native pipeline 
 1. **OOP surface:** field-only struct/class + obj lit + field access/assign work in native;
    traits + impls validate method names and lower impl methods as free functions (Issue #27);
    class-body methods / trait objects still later.
-2. **Control flow:** `nd_flux` / `nd_range` — see feature PRs / Issue #20.
+2. **Control flow:** `nd_flux` / `nd_range` int ranges lower to while (Issue #20);
+   array flux still later.
 3. **Method calls:** receiver-first free-function lowering (Issue #19).
 4. **Imports / multi-file:** merge + diagnostics (Issue #17); dep aliases (Issue #24 phase 1 —
    `docs/module-graph-phase1.md`); full module graph/cache still open.
