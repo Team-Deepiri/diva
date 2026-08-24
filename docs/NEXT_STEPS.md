@@ -22,7 +22,7 @@ path is closed (#55).
 | P1 | [#62](https://github.com/Team-Deepiri/diva/issues/62) heap + growable buffer (**landed**) | Unblocks real [#28](https://github.com/Team-Deepiri/diva/issues/28) stdlib |
 | P1 | [#28](https://github.com/Team-Deepiri/diva/issues/28) stdlib packages (**boundaries landed**) | Documented layers + `collections`/`iter` on IntBuf |
 | P2 | [#60](https://github.com/Team-Deepiri/diva/issues/60) `diva watch` (**landed**), [#63](https://github.com/Team-Deepiri/diva/issues/63) DWARF | Dev UX |
-| P2 | [#59](https://github.com/Team-Deepiri/diva/issues/59) kernel packages | Feeds [#30](https://github.com/Team-Deepiri/diva/issues/30) systems track |
+| P2 | [#59](https://github.com/Team-Deepiri/diva/issues/59) kernel packages (**landed**) | Feeds [#30](https://github.com/Team-Deepiri/diva/issues/30) systems track |
 
 Still open from earlier track: merge the feature stack to `dev`/`main`, finish
 [#24](https://github.com/Team-Deepiri/diva/issues/24) module graph/cache,

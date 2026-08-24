@@ -138,20 +138,33 @@ for entry in \
   fi
 done
 
-echo "[native-broad] category: kernel demo (parse + emit-ir)"
+echo "[native-broad] category: kernel demo (check + emit-ir + build)"
 if ! DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-  DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
-  timeout 60 "${DRIVER}" parse "examples/kernel_demo/src/boot.diva" >"${WORK}/kernel-parse.log" 2>&1; then
-  record_fail "kernel" "examples/kernel_demo/src/boot.diva" "parse failed"
+  timeout 60 "${DRIVER}" check "examples/kernel_demo" >"${WORK}/kernel-check.log" 2>&1; then
+  record_fail "kernel" "examples/kernel_demo" "check failed"
 else
-  echo "[native-broad] OK   kernel parse"
+  echo "[native-broad] OK   kernel check"
 fi
 if ! DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-  DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
-  timeout 60 "${DRIVER}" emit-ir "examples/kernel_demo/src/boot.diva" >"${WORK}/kernel-ir.log" 2>&1; then
-  record_fail "kernel" "examples/kernel_demo/src/boot.diva" "emit-ir failed"
+  timeout 60 "${DRIVER}" emit-ir "examples/kernel_demo" >"${WORK}/kernel-ir.log" 2>&1; then
+  record_fail "kernel" "examples/kernel_demo" "emit-ir failed"
 else
   echo "[native-broad] OK   kernel emit-ir"
+fi
+if ! DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+  DIVA_NATIVE_EXE_OUT="${WORK}/kernel.elf" \
+  timeout 60 "${DRIVER}" build "examples/kernel_demo" >"${WORK}/kernel-build.log" 2>&1; then
+  record_fail "kernel" "examples/kernel_demo" "build failed"
+else
+  set +e
+  "${WORK}/kernel.elf" >"${WORK}/kernel-run.out" 2>&1
+  krc=$?
+  set -e
+  if [ "${krc}" -ne 42 ]; then
+    record_fail "kernel" "examples/kernel_demo" "run exit want 42 got ${krc}"
+  else
+    echo "[native-broad] OK   kernel build+run (exit 42)"
+  fi
 fi
 
 echo "[native-broad] category: stable negative diagnostics"

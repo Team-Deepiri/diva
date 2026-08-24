@@ -444,21 +444,34 @@ fi
 
 if ! (
     cd "${TEST_ROOT}/generated-kernel" &&
-    diva parse src/boot.diva >"${TEST_ROOT}/generated-kernel-check.out" 2>&1
+    diva check . >"${TEST_ROOT}/generated-kernel-check.out" 2>&1
 ); then
     sed -n '1,120p' "${TEST_ROOT}/generated-kernel-check.out" >&2
     fail "generated kernel package failed diva check"
 fi
 
 log "checking kernel package workflow"
-if ! diva parse "${ROOT_DIR}/examples/kernel_demo/src/boot.diva" >"${TEST_ROOT}/kernel-check.out" 2>&1; then
+if ! diva check "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-check.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/kernel-check.out" >&2
     fail "kernel package failed diva check"
 fi
 
-if ! diva emit-ir "${ROOT_DIR}/examples/kernel_demo/src/boot.diva" >"${TEST_ROOT}/kernel-ir.out" 2>&1; then
+if ! diva emit-ir "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-ir.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/kernel-ir.out" >&2
     fail "kernel package failed diva emit-ir"
+fi
+
+kern_elf="${TEST_ROOT}/kernel_demo.elf"
+if ! DIVA_NATIVE_EXE_OUT="${kern_elf}" diva build "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-build.out" 2>&1; then
+    sed -n '1,120p' "${TEST_ROOT}/kernel-build.out" >&2
+    fail "kernel package failed diva build"
+fi
+set +e
+"${kern_elf}" >"${TEST_ROOT}/kernel-run.out" 2>&1
+kern_rc=$?
+set -e
+if [ "${kern_rc}" -ne 42 ]; then
+    fail "kernel_demo expected exit 42, got ${kern_rc}"
 fi
 
     log "all integration checks passed (${_stage})"
