@@ -276,6 +276,7 @@ func main(): int {
 - explicit generic functions with call-site type arguments like `identity[int](7)`
 - class declarations with methods
 - `trait` declarations and `impl Trait for Type` validation
+- **Native sema (MVP):** scoped name resolution rejects unknown identifiers; call/generic-call arity checking; object-literal type names; method-call name lookup (Issue #53). Full type matching and `file:line:col` diagnostics still open (#54).
 - `var` bindings with optional `::` type annotations
 - `if` / `else`
 - `while condition => update`
@@ -294,6 +295,7 @@ func main(): int {
 
 ## Not Implemented Yet
 
+- full assign/return/binop type checking (beyond names/arity)
 - generic classes
 - generic methods
 - trait bounds on generic parameters

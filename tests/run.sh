@@ -267,11 +267,11 @@ run_all_tests() {
     ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
     log "checking semantic failure cases (before long native run smoke)"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva" "duplicate declaration of 'x' in the same scope"
-# unknown_ident: pinned seed lowers free identifiers as const 0 (no lowering error yet).
-# IR lowering rejects unknown idents once the in-tree driver replaces the seed; see ir_builder.diva.
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_ident.diva" "unknown identifier 'missing'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/wrong_arity.diva" "wrong number of arguments for 'add'"
 # duplicate_import_main / package_mismatch_main: seed expected "native build: unsupported surface"; the
-# in-tree driver now accepts package+imports for native build. Re-add a sema-level negative test when
-# duplicate symbols / package entry rules are enforced with stable diagnostics.
+# in-tree driver now accepts package+imports for native build. Re-add when duplicate symbols /
+# package entry rules get stable diagnostics (#61).
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/missing_trait_method.diva" "missing trait method"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_package_dep" "unknown package dependency"
 

@@ -32,7 +32,7 @@ Still open from earlier track: merge the feature stack to `dev`/`main`, finish
 ## Do next (immediate)
 
 1. **Land / merge** stacked native PRs (#47–#52) onto `dev` so mainline matches tip.
-2. **Implement #53** (type checker) — highest leverage for “can we use this.”
+2. **Implement #53** (type checker) — MVP landed: unknown idents + call arity; continue with full types.
 3. Pair **#54** diagnostics + **#61** negative suite with #53 so errors are actionable and locked.
 
 ## Native codegen gaps (remaining)
