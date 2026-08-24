@@ -1,12 +1,8 @@
 extern func print_int(x: int): void
 extern func print_str(x: str): void
 
-// Generic declarations and calls in the native subset are lowered by type erasure:
-// the type-parameter list on a declaration is dropped at parse time and the
-// type-argument list on a call is dropped at IR build, so every generic call site
-// binds to the single monomorphic definition of the same name. This is only sound
-// while erased types never change a function's lowering, so the erasure strategy is
-// the documented subset for now (see docs/diva-roadmap.md `nd_generic_call`).
+// Generic declarations keep type params on the AST; IR uses type erasure so each
+// name has one monomorphic body. See docs/generics-specialization.md (Issue #26).
 
 func twice[T](x: int): int {
     return x * 2

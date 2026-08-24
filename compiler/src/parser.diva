@@ -250,13 +250,11 @@ func parse_postfix(ps: int, src: str, left: int): int {
             var targs = int_vec_new()
             var is_gen = 0
             if p_cur(ps) == tk_int_kw() | p_cur(ps) == tk_str_kw() | p_cur(ps) == tk_bool_kw() | p_cur(ps) == tk_ident() {
-                int_vec_push(targs, p_cur(ps))
-                p_advance(ps)
+                int_vec_push(targs, p_advance(ps))
                 while p_cur(ps) == tk_comma() {
                     p_advance(ps)
                     if p_cur(ps) == tk_int_kw() | p_cur(ps) == tk_str_kw() | p_cur(ps) == tk_bool_kw() | p_cur(ps) == tk_ident() {
-                        int_vec_push(targs, p_cur(ps))
-                        p_advance(ps)
+                        int_vec_push(targs, p_advance(ps))
                     } else {
                         is_gen = 0 - 1
                     }
@@ -550,13 +548,14 @@ func parse_params(ps: int, src: str): int {
 func parse_func_decl(ps: int, src: str): int {
     p_advance(ps)
     var name = p_expect(ps, src, tk_ident())
+    var type_params = int_vec_new()
     if p_cur(ps) == tk_lbrack() {
         p_advance(ps)
         if p_cur(ps) != tk_rbrack() {
-            p_expect(ps, src, tk_ident())
+            int_vec_push(type_params, p_expect(ps, src, tk_ident()))
             while p_cur(ps) == tk_comma() {
                 p_advance(ps)
-                p_expect(ps, src, tk_ident())
+                int_vec_push(type_params, p_expect(ps, src, tk_ident()))
             }
         }
         p_expect(ps, src, tk_rbrack())
@@ -579,7 +578,7 @@ func parse_func_decl(ps: int, src: str): int {
         }
     }
     var body = parse_block(ps, src, void_body)
-    return ast_func(name, params, ret, body)
+    return ast_func_generic(name, type_params, params, ret, body)
 }
 
 func parse_extern_decl(ps: int, src: str): int {

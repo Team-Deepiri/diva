@@ -19,6 +19,7 @@ examples/json_demo.diva
 examples/log_demo.diva
 examples/loop.diva
 examples/matrix_demo.diva
+examples/method_call.diva
 examples/path_demo.diva
 examples/pattern_demo.diva
 examples/print2.diva
