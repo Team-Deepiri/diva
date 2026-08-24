@@ -126,7 +126,7 @@ diva new hello-lib --lib
 Notes:
 
 - `di main.diva` builds and runs a single `.diva` file
-- `di build .` builds the current package directory
+- `diva build . -g` emits minimal DWARF (`.debug_line` / `.debug_info` / `.debug_abbrev`) so `addr2line -e <exe> 0x1000` resolves to the source entry line — see `docs/dwarf-debug.md` (Issue #63). Without `-g`, the loadable ELF layout is unchanged.
 - `di check .` validates a package without native linking
 - `di emit-ir .` writes LLVM IR into `build/`
 - `diva watch .` watches the package entry and its transitive imports (plus `package.diva`), rebuilds on content change (1s poll + 1s debounce), and keeps running after build errors. Set `DIVA_WATCH_MAX_ITERS=N` to exit after N poll cycles (CI smoke).
