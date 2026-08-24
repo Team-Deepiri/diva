@@ -7,8 +7,8 @@
 Feature stack PRs (#46–#52) close much of the **codegen surface** (methods, generics
 erasure, structs, traits static, globals, dynamic `int[]`, flux ranges). That is
 necessary but **not sufficient**: wrong programs still compile (sema is structural),
-diagnostics lack `file:line:col`, and the pure self-hosted driver is not yet a
-trustworthy promote path.
+diagnostics MVP landed (`path:line:col`), and the pure self-hosted driver promote
+path is closed (#55).
 
 ## Production path (do in this order)
 
@@ -16,7 +16,7 @@ trustworthy promote path.
 |----------|-------|-----|
 | **P0** | [#53](https://github.com/Team-Deepiri/diva/issues/53) type checker | Unknown idents → `const 0`; no real programs without reject-bad |
 | **P0** | [#54](https://github.com/Team-Deepiri/diva/issues/54) span diagnostics | Multi-file errors useless without locations — **MVP landed** (`path:line:col:`) |
-| **P0** | [#55](https://github.com/Team-Deepiri/diva/issues/55) pure driver / seed promote | Trust root without skip-flag hacks |
+| **P0** | [#55](https://github.com/Team-Deepiri/diva/issues/55) pure driver / seed promote (**landed**) | Trust root without skip-flag hacks |
 | **P0** | [#61](https://github.com/Team-Deepiri/diva/issues/61) negative suite (**landed**) | Lock failure cases so stacked PRs don't regress |
 | P1 | [#56](https://github.com/Team-Deepiri/diva/issues/56) array flux (**landed**), [#58](https://github.com/Team-Deepiri/diva/issues/58) bounds traps (**landed**), [#57](https://github.com/Team-Deepiri/diva/issues/57) class methods (**landed**), [#64](https://github.com/Team-Deepiri/diva/issues/64) non-int arrays | Collection / OOP surface |
 | P1 | [#62](https://github.com/Team-Deepiri/diva/issues/62) heap + growable buffer | Unblocks real [#28](https://github.com/Team-Deepiri/diva/issues/28) stdlib |

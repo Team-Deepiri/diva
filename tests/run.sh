@@ -334,16 +334,14 @@ assert_output_equals "${ROOT_DIR}/examples/globals.diva" "5
 11
 11"
 assert_output_equals "${ROOT_DIR}/examples/globals_str.diva" "hello
-world
-"
+world"
 assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.diva" "12
 10
 10
 5
 1
 1"
-assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from diva0x0000000000000014
-"
+assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from diva0x0000000000000014"
 assert_output_equals "${ROOT_DIR}/examples/packages/app_with_dep" "42"
 assert_output_equals "${ROOT_DIR}/examples/utils_demo.diva" "1
 6
@@ -468,7 +466,7 @@ else
     BUILD_OUT="${TEST_ROOT}/compiler-selfhost-build.out"
     log "build compiler/ with ${PURE_BUILD_DRIVER} (timeout ${COMPILER_TIMEOUT_SECS}s)"
     if ! timed "${COMPILER_TIMEOUT_SECS}" env ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-        DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-1}" \
+        DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-}" \
         DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
         "${PURE_BUILD_DRIVER}" build "${ROOT_DIR}/compiler" >"${BUILD_OUT}" 2>&1
     then
@@ -493,7 +491,7 @@ else
     BUILD3_OUT="${TEST_ROOT}/compiler-stage3-build.out"
     log "second build compiler/ with ${PURE_BUILD_DRIVER} (timeout ${COMPILER_TIMEOUT_SECS}s)"
     if ! timed "${COMPILER_TIMEOUT_SECS}" env ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-        DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-1}" \
+        DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-}" \
         DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
         "${PURE_BUILD_DRIVER}" build "${ROOT_DIR}/compiler" >"${BUILD3_OUT}" 2>&1
     then

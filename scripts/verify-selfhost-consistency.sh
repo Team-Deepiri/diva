@@ -38,8 +38,8 @@ build_compiler() {
     bash "${ROOT_DIR}/scripts/build-compiler-pure-elf.sh" >>"${LOG}" 2>&1
 }
 
-# Seed may lag new externs until promoted; stage2 is fresh so keep the check on.
-build_compiler "${SEED}" "${STAGE2}" 1
+# Promoted seed matches tip codegen — enforce native externs on both stages (Issue #55).
+build_compiler "${SEED}" "${STAGE2}" ""
 build_compiler "${STAGE2}" "${STAGE3}" ""
 
 H2=$(sha256sum "${STAGE2}" | awk '{print $1}')
