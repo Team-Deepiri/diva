@@ -129,7 +129,7 @@ Notes:
 - `di build .` builds the current package directory
 - `di check .` validates a package without native linking
 - `di emit-ir .` writes LLVM IR into `build/`
-- `diva watch .` watches the package entry file from `package.diva`
+- `diva watch .` watches the package entry and its transitive imports (plus `package.diva`), rebuilds on content change (1s poll + 1s debounce), and keeps running after build errors. Set `DIVA_WATCH_MAX_ITERS=N` to exit after N poll cycles (CI smoke).
 - `diva new hello-di` creates an app package
 - `diva new hello-lib --lib` creates a library package
 - `diva new --kernel` creates a kernel scaffold in the native driver. **`diva build` / `diva run`** use pure ELF by default; set **`DIVA_ALLOW_HOSTED_LINK=1`** to use **`cc` + `DI_RUNTIME_O`** when you need the hosted runtime link path.

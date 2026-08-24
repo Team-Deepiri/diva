@@ -579,3 +579,50 @@ func merge_package_sources(root: str): str {
     str_builder_free(b)
     return merged
 }
+
+// Absolute paths (newline-separated) for `diva watch`: transitive imports + package.diva.
+func collect_watch_files(path: str): str {
+    var path_p = path
+    var stdroot = loader_stdlib_dir()
+    var std_hold = stdroot
+    var nl = loader_newline()
+    var entry = path_p
+    var man = ""
+    if path_is_package_dir(path_p) == 1 {
+        man = path_join_dir(path_p, "package.diva")
+        var ent = package_entry_relative(man)
+        var ent_hold = ent
+        if str_len(ent_hold) == 0 {
+            return ""
+        }
+        entry = path_join_dir(path_p, ent_hold)
+    } else {
+        var pn = str_len(path_p)
+        if pn < 5 {
+            return ""
+        }
+        if str_eq(str_slice(path_p, pn - 5, 5), ".diva") == 0 {
+            return ""
+        }
+    }
+    var throwaway = str_builder_new()
+    var done = ""
+    var r = merge_emit_file(entry, done, "", std_hold, throwaway)
+    str_builder_free(throwaway)
+    var r_hold = r
+    if str_len(r_hold) == 0 {
+        return ""
+    }
+    if str_len(man) > 0 {
+        if path_in_done(r_hold, man, nl) == 0 {
+            var b = str_builder_new()
+            str_builder_append(b, r_hold)
+            str_builder_append(b, man)
+            str_builder_append(b, nl)
+            var out = str_builder_to_str(b)
+            str_builder_free(b)
+            return out
+        }
+    }
+    return r_hold
+}

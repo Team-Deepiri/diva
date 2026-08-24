@@ -31,9 +31,10 @@ func cmd_print_usage(): int {
     stderr("usage: diva <command> [args]\n")
     stderr("  lex <file.diva> | parse <file.diva> | ir <file.diva> | asm <file.diva>\n")
     stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast] | run <...>\n")
-    stderr("  check <package-dir> | new <path> [--lib|--kernel]\n")
+    stderr("  watch <file.diva|package-dir> | check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline\n")
     stderr("Environment: DI_STDLIB_DIR (stdlib search path)\n")
+    stderr("  DIVA_WATCH_MAX_ITERS=N exits after N poll cycles (CI smoke)\n")
     stderr("  diva new <path> [--lib|--kernel] (native scaffolding)\n")
     return 1
 }
@@ -1060,6 +1061,11 @@ func cmd_build(): int {
         }
         return cmd_build_ast(path)
     }
+    return native_build_path(path, 0)
+}
+
+// Shared by `build` and `watch`. quiet=1 suppresses the success line (watch prints its own).
+func native_build_path(path: str, quiet: int): int {
     if build_path_is_package_dir(path) == 1 {
         if package_is_kernel_dir(path) == 1 {
             err_line("build: kernel packages are not supported in the native driver")
@@ -1080,7 +1086,6 @@ func cmd_build(): int {
             err_line("build: expected a .diva file or a package directory containing package.diva")
             return 1
         }
-        // Use merged source to handle imports
         merged = merge_file_sources(path)
         var merged_try = merged
         var merged_try_len = str_len(merged_try)
@@ -1099,12 +1104,151 @@ func cmd_build(): int {
         return 1
     }
     var exe_out = pick_build_out_path()
-    if native_compile_and_link(merged_out_hold, 0, exe_out) != 0 {
+    if native_compile_and_link(merged_out_hold, quiet, exe_out) != 0 {
         return 1
     }
-    var built_msg = str_concat("[native] built executable at ", exe_out)
-    print_str(built_msg)
-    stdout(newline_str())
+    if quiet == 0 {
+        var built_msg = str_concat("[native] built executable at ", exe_out)
+        print_str(built_msg)
+        stdout(newline_str())
+    }
+    return 0
+}
+
+func watch_file_fp(path: str): int {
+    var sz = file_size(path)
+    if sz < 0 {
+        return 0 - 1
+    }
+    var s = read_file(path)
+    var h = sz + 1
+    var i = 0
+    var n = str_len(s)
+    while (i < n) {
+        h = h * 131 + str_byte(s, i)
+        i = i + 1
+    }
+    return h
+}
+
+func watch_make_snapshot(files: str): str {
+    var nl = newline_str()
+    var b = str_builder_new()
+    var pos = 0
+    var n = str_len(files)
+    while (pos < n) {
+        var le = pos
+        while (le < n & str_byte(files, le) != 10) {
+            le = le + 1
+        }
+        var p = str_slice(files, pos, le - pos)
+        pos = le + 1
+        if str_len(p) > 0 {
+            str_builder_append(b, p)
+            str_builder_append(b, "|")
+            str_builder_append(b, int_to_str(watch_file_fp(p)))
+            str_builder_append(b, nl)
+        }
+    }
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+func watch_count_lines(s: str): int {
+    var n = str_len(s)
+    var c = 0
+    var i = 0
+    while (i < n) {
+        if str_byte(s, i) == 10 {
+            c = c + 1
+        }
+        i = i + 1
+    }
+    return c
+}
+
+func watch_poll_sleep(): int {
+    host_system("sleep 1")
+    return 0
+}
+
+func watch_max_iters(): int {
+    var v = host_getenv("DIVA_WATCH_MAX_ITERS")
+    var v_hold = v
+    if str_len(v_hold) == 0 {
+        return 0
+    }
+    return str_to_int(v_hold)
+}
+
+func cmd_watch(): int {
+    if host_argc() < 3 {
+        err_line("usage: diva watch <file.diva|package-dir>")
+        return 1
+    }
+    var path = host_argv(2)
+    var path_h = path
+    if build_path_is_package_dir(path_h) == 0 {
+        if path_is_diva_file(path_h) == 0 {
+            err_line("watch: expected a .diva file or a package directory")
+            return 1
+        }
+    }
+    if build_path_is_package_dir(path_h) == 1 {
+        if package_is_kernel_dir(path_h) == 1 {
+            err_line("watch: kernel packages are not supported in the native driver")
+            return 1
+        }
+    }
+    var files = collect_watch_files(path_h)
+    var files_h = files
+    if str_len(files_h) == 0 {
+        err_line("watch: could not resolve dependency files (see loader messages above)")
+        return 1
+    }
+    var nfiles = watch_count_lines(files_h)
+    err_line(str_concat("[watch] watching ", str_concat(int_to_str(nfiles), " files (poll 1s; DIVA_WATCH_MAX_ITERS to exit)")))
+    err_line("[watch] building...")
+    if native_build_path(path_h, 1) != 0 {
+        err_line("[watch] build failed (continuing)")
+    } else {
+        err_line(str_concat("[watch] ok -> ", pick_build_out_path()))
+    }
+    var snap = watch_make_snapshot(files_h)
+    var iters = 0
+    var max_i = watch_max_iters()
+    while (1 == 1) {
+        if max_i > 0 {
+            if iters >= max_i {
+                err_line("[watch] max iters reached; exiting")
+                return 0
+            }
+        }
+        watch_poll_sleep()
+        iters = iters + 1
+        files = collect_watch_files(path_h)
+        files_h = files
+        if str_len(files_h) == 0 {
+            err_line("[watch] dependency resolve failed (continuing)")
+        } else {
+            var snap2 = watch_make_snapshot(files_h)
+            if str_eq(snap, snap2) == 0 {
+                err_line("[watch] change detected; debouncing...")
+                watch_poll_sleep()
+                files = collect_watch_files(path_h)
+                files_h = files
+                snap2 = watch_make_snapshot(files_h)
+                err_line("[watch] rebuilding...")
+                if native_build_path(path_h, 1) != 0 {
+                    err_line("[watch] build failed (continuing)")
+                } else {
+                    err_line(str_concat("[watch] ok -> ", pick_build_out_path()))
+                }
+                snap = snap2
+            }
+        }
+    }
     return 0
 }
 
@@ -1206,6 +1350,10 @@ func main(): int {
 
     if str_eq(a1, "build") == 1 {
         return cmd_build()
+    }
+
+    if str_eq(a1, "watch") == 1 {
+        return cmd_watch()
     }
 
     if str_eq(a1, "run") == 1 {

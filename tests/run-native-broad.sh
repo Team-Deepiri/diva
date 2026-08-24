@@ -160,6 +160,13 @@ else
   echo "[native-broad] OK   tests/run-negative.sh (locked suite)"
 fi
 
+echo "[native-broad] category: diva watch smoke"
+if ! DIVA="${DRIVER}" bash "${ROOT_DIR}/tests/run-watch-smoke.sh"; then
+  record_fail "watch" "tests/run-watch-smoke.sh" "watch smoke failed"
+else
+  echo "[native-broad] OK   tests/run-watch-smoke.sh"
+fi
+
 echo "[native-broad] totals: examples=${total} multi-file=${total_pkg} failed=${failed}"
 if [ "${failed}" -ne 0 ]; then
   echo "[native-broad] failing entries:"
