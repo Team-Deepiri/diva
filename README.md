@@ -42,6 +42,7 @@ Root keeps only `README.md`, `LICENSE`, and `.gitignore` besides those directori
 - install and usage: `docs/install-and-usage.md`
 - syntax guide: `docs/syntax-guide.md`
 - language spec: `docs/language-spec.md`
+- user heap / growable buffer: `docs/heap-mem.md`
 - what is (and is not) Diva source in-tree: `docs/source-language-policy.md`
 
 ## Current Language Surface

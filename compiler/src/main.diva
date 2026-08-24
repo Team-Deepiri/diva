@@ -372,6 +372,10 @@ func native_require_no_externs(m: int, src: str, toks: int): int {
         if str_eq(nm, "unlink") == 1 { supported = 1 }
         if str_eq(nm, "chmod_executable") == 1 { supported = 1 }
         if str_eq(nm, "write_elf_chunk") == 1 { supported = 1 }
+        if str_eq(nm, "mem_alloc") == 1 { supported = 1 }
+        if str_eq(nm, "mem_free") == 1 { supported = 1 }
+        if str_eq(nm, "mem_get") == 1 { supported = 1 }
+        if str_eq(nm, "mem_set") == 1 { supported = 1 }
         if supported == 0 {
             if unresolved == 0 {
                 err_line("native build: unresolved extern runtime dependencies remain:")
