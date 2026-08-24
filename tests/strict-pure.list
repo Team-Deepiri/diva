@@ -31,5 +31,6 @@ examples/struct_mutation.diva
 examples/structs.diva
 examples/systems_hosted.diva
 examples/testing_demo.diva
+examples/traits_static.diva
 examples/utils_demo.diva
 examples/vec_demo.diva

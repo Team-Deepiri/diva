@@ -272,7 +272,7 @@ assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva" "duplic
 # duplicate_import_main / package_mismatch_main: seed expected "native build: unsupported surface"; the
 # in-tree driver now accepts package+imports for native build. Re-add a sema-level negative test when
 # duplicate symbols / package entry rules are enforced with stable diagnostics.
-assert_error_contains "${ROOT_DIR}/tests/cases/fail/missing_trait_method.diva" "parse error"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/missing_trait_method.diva" "missing trait method"
 # unknown_package_dep: was "loader: cannot read"; native merge path may no longer fail this package at build time.
 
 assert_output_equals "${ROOT_DIR}/examples/hello.diva" "10"
@@ -298,6 +298,7 @@ assert_output_equals "${ROOT_DIR}/examples/imports/main.diva" "42"
 assert_output_equals "${ROOT_DIR}/examples/generics_traits.diva" "7"
 assert_output_equals "${ROOT_DIR}/examples/method_call.diva" "7
 6"
+assert_output_equals "${ROOT_DIR}/examples/traits_static.diva" "7"
 assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.diva" "12
 10
 10

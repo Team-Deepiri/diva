@@ -78,6 +78,7 @@ expected_output() {
     examples/generics.diva)         printf '42\n10\n14\n2\n30\nhi\n' ;;
     examples/generics_traits.diva)  printf '7\n' ;;
     examples/method_call.diva)      printf '7\n6\n' ;;
+    examples/traits_static.diva)    printf '7\n' ;;
     examples/stdlib_demo.diva)      printf '12\n10\n10\n5\n1\n1\n' ;;
     examples/utils_demo.diva)       printf '1\n6\ntrue\ntrue\nutil0x0000000000000004\n1\n1\n' ;;
     *) printf '' ;;
@@ -160,7 +161,7 @@ check_fail() {
   fi
 }
 check_fail "tests/cases/fail/duplicate_decl.diva" "duplicate declaration of 'x' in the same scope"
-check_fail "tests/cases/fail/missing_trait_method.diva" "parse error"
+check_fail "tests/cases/fail/missing_trait_method.diva" "missing trait method"
 
 echo "[native-broad] totals: examples=${total} multi-file=${total_pkg} failed=${failed}"
 if [ "${failed}" -ne 0 ]; then

@@ -1104,6 +1104,17 @@ func lower_file(ctx: int, src: str, file_node: int): int {
         if kind == nd_func() {
             lower_func(ctx, src, child)
         }
+        if kind == nd_impl() {
+            var methods = ast_child(child, 2)
+            var mi = 0
+            while (mi < int_vec_len(methods)) {
+                var m = int_vec_get(methods, mi)
+                if ast_kind(m) == nd_func() {
+                    lower_func(ctx, src, m)
+                }
+                mi = mi + 1
+            }
+        }
         if kind == nd_extern_func() {
             lower_extern(ctx, src, child)
         }

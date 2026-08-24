@@ -357,6 +357,25 @@ func ast_class(name_tok: int, members: int): int {
     return n
 }
 
+// Trait: [kind, name_tok, methods_handle (int_vec of nd_func, body may be empty)]
+func ast_trait(name_tok: int, methods: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_trait())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, methods)
+    return n
+}
+
+// Impl: [kind, trait_tok, type_tok, methods_handle (int_vec of nd_func)]
+func ast_impl(trait_tok: int, type_tok: int, methods: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_impl())
+    int_vec_push(n, trait_tok)
+    int_vec_push(n, type_tok)
+    int_vec_push(n, methods)
+    return n
+}
+
 // Class field: [kind, name_tok, type_node]
 func ast_class_field(name_tok: int, type_node: int): int {
     var n = int_vec_new()

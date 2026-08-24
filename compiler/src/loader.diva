@@ -149,6 +149,134 @@ func package_is_kernel_dir(root: str): int {
     return str_eq(package_manifest_kind_value(root), "kernel")
 }
 
+// Look up `dep.<name> = "..."` in package.diva. Returns relative path or "".
+func package_manifest_dep_value(root: str, dep_name: str): str {
+    var mf = path_join_dir(root, "package.diva")
+    if (file_size(mf) < 0) {
+        return ""
+    }
+    var text = read_file(mf)
+    var text_hold = text
+    var text_len = str_len(text_hold)
+    if text_len == 0 {
+        return ""
+    }
+    var key_b = str_builder_new()
+    str_builder_append(key_b, "dep.")
+    str_builder_append(key_b, dep_name)
+    var key = str_builder_to_str(key_b)
+    str_builder_free(key_b)
+    var key_len = str_len(key)
+    var n = text_len
+    var i = 0
+    while (i < n) {
+        var line_end = i
+        while (line_end < n & str_byte(text, line_end) != 10) {
+            line_end = line_end + 1
+        }
+        var line = str_slice(text, i, line_end - i)
+        var ln = str_len(line)
+        while (ln > 0 & str_byte(line, ln - 1) == 13) {
+            ln = ln - 1
+        }
+        if (ln > 0) {
+            var j = 0
+            while (j < ln & (str_byte(line, j) == 32 | str_byte(line, j) == 9)) {
+                j = j + 1
+            }
+            if !((j + key_len) > ln) {
+                if str_eq(str_slice(line, j, key_len), key) == 1 {
+                    var k = j + key_len
+                    while (k < ln & (str_byte(line, k) == 32 | str_byte(line, k) == 9)) {
+                        k = k + 1
+                    }
+                    if (k < ln & str_byte(line, k) == 61) {
+                        k = k + 1
+                        while (k < ln & (str_byte(line, k) == 32 | str_byte(line, k) == 9)) {
+                            k = k + 1
+                        }
+                        if (k < ln & str_byte(line, k) == 34) {
+                            var q = k + 1
+                            while (q < ln & str_byte(line, q) != 34) {
+                                q = q + 1
+                            }
+                            if (q > k + 1) {
+                                return str_slice(line, k + 1, q - k - 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i = line_end + 1
+    }
+    return ""
+}
+
+// Walk parents of a source file until a directory containing package.diva is found.
+func find_enclosing_package_root(file_path: str): str {
+    var dir = dirname_of_file(file_path)
+    var guard = 0
+    while (guard < 32) {
+        if path_is_package_dir(dir) == 1 {
+            return dir
+        }
+        if str_eq(dir, ".") == 1 | str_eq(dir, "/") == 1 {
+            return ""
+        }
+        var climb = dirname_of_file(dir)
+        if str_eq(climb, dir) == 1 {
+            return ""
+        }
+        dir = climb
+        guard = guard + 1
+    }
+    return ""
+}
+
+func import_looks_like_dep_alias(imp: str): int {
+    var n = str_len(imp)
+    if n == 0 {
+        return 0
+    }
+    var i = 0
+    while (i < n) {
+        var b = str_byte(imp, i)
+        if b == 47 {
+            return 0
+        }
+        if b == 46 {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+func resolve_dep_alias_import(cur_file: str, imp: str): str {
+    if import_looks_like_dep_alias(imp) == 0 {
+        return ""
+    }
+    var root = find_enclosing_package_root(cur_file)
+    if str_len(root) == 0 {
+        return ""
+    }
+    var rel = package_manifest_dep_value(root, imp)
+    if str_len(rel) == 0 {
+        return ""
+    }
+    var target = path_join_dir(root, rel)
+    if path_is_package_dir(target) == 1 {
+        var man = path_join_dir(target, "package.diva")
+        var ent = package_entry_relative(man)
+        if str_len(ent) == 0 {
+            return ""
+        }
+        return path_join_dir(target, ent)
+    }
+    return target
+}
+
 func package_entry_relative(manifest_path: str): str {
     var text = read_file(manifest_path)
     var text_hold = text
@@ -210,6 +338,10 @@ func resolve_import_path(cur_file: str, imp: str, stdroot: str): str {
         if str_eq(str_slice(imp_p, 0, 4), "std/") == 1 {
             return path_join_dir(std_p, imp_p)
         }
+    }
+    var via_dep = resolve_dep_alias_import(cur_p, imp_p)
+    if str_len(via_dep) > 0 {
+        return via_dep
     }
     return path_join_dir(dirname_of_file(cur_p), imp_p)
 }

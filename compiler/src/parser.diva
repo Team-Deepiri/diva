@@ -545,7 +545,7 @@ func parse_params(ps: int, src: str): int {
     return params
 }
 
-func parse_func_decl(ps: int, src: str): int {
+func parse_func_decl_opts(ps: int, src: str, allow_empty_body: int): int {
     p_advance(ps)
     var name = p_expect(ps, src, tk_ident())
     var type_params = int_vec_new()
@@ -577,8 +577,66 @@ func parse_func_decl(ps: int, src: str): int {
             }
         }
     }
-    var body = parse_block(ps, src, void_body)
+    var body = 0
+    if p_cur(ps) == tk_lbrace() {
+        body = parse_block(ps, src, void_body)
+    } else {
+        if allow_empty_body == 1 {
+            body = ast_block(int_vec_new())
+        } else {
+            body = parse_block(ps, src, void_body)
+        }
+    }
     return ast_func_generic(name, type_params, params, ret, body)
+}
+
+func parse_func_decl(ps: int, src: str): int {
+    return parse_func_decl_opts(ps, src, 0)
+}
+
+func parse_trait_decl(ps: int, src: str): int {
+    p_advance(ps)
+    var name = p_expect(ps, src, tk_ident())
+    p_expect(ps, src, tk_lbrace())
+    var methods = int_vec_new()
+    while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
+        if ps_err(ps) != 0 { return ast_trait(name, methods) }
+        if p_cur(ps) == tk_func() {
+            int_vec_push(methods, parse_func_decl_opts(ps, src, 1))
+        } else {
+            p_advance(ps)
+        }
+    }
+    p_expect(ps, src, tk_rbrace())
+    return ast_trait(name, methods)
+}
+
+func parse_impl_decl(ps: int, src: str): int {
+    p_advance(ps)
+    var trait_tok = p_expect(ps, src, tk_ident())
+    var for_tok = p_expect(ps, src, tk_ident())
+    var for_sp = p_text(ps, src, for_tok)
+    if str_eq(for_sp, "for") == 0 {
+        if ps_quiet(ps) == 0 {
+            stderr("parse error: expected 'for' in impl header, got '")
+            stderr(for_sp)
+            stderr("'\n")
+        }
+        ps_set_err(ps)
+    }
+    var type_tok = p_expect(ps, src, tk_ident())
+    p_expect(ps, src, tk_lbrace())
+    var methods = int_vec_new()
+    while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
+        if ps_err(ps) != 0 { return ast_impl(trait_tok, type_tok, methods) }
+        if p_cur(ps) == tk_func() {
+            int_vec_push(methods, parse_func_decl(ps, src))
+        } else {
+            p_advance(ps)
+        }
+    }
+    p_expect(ps, src, tk_rbrace())
+    return ast_impl(trait_tok, type_tok, methods)
 }
 
 func parse_extern_decl(ps: int, src: str): int {
@@ -680,22 +738,10 @@ func parse_top_level(ps: int, src: str): int {
             int_vec_push(children, parse_class_decl(ps, src))
         } else {
         if kind == tk_trait() {
-            int_vec_push(children, parse_class_decl(ps, src))
+            int_vec_push(children, parse_trait_decl(ps, src))
         } else {
         if kind == tk_impl() {
-            p_advance(ps)
-            p_expect(ps, src, tk_ident())
-            p_expect(ps, src, tk_ident())
-            p_expect(ps, src, tk_ident())
-            p_expect(ps, src, tk_lbrace())
-            while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
-                if p_cur(ps) == tk_func() {
-                    parse_func_decl(ps, src)
-                } else {
-                    p_advance(ps)
-                }
-            }
-            p_expect(ps, src, tk_rbrace())
+            int_vec_push(children, parse_impl_decl(ps, src))
         } else {
         if kind == tk_var() | kind == tk_let() | kind == tk_const() {
             int_vec_push(children, parse_var_decl(ps, src))
