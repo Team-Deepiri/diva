@@ -248,12 +248,14 @@ func parse_postfix(ps: int, src: str, left: int): int {
             p_advance(ps)
             if p_cur(ps) == tk_int_kw() | p_cur(ps) == tk_str_kw() | p_cur(ps) == tk_bool_kw() | p_cur(ps) == tk_ident() {
                 var save = ps_pos(ps)
-                p_advance(ps)
+                var ttok = p_advance(ps)
                 if p_cur(ps) == tk_rbrack() {
                     p_advance(ps)
                     if p_cur(ps) == tk_lparen() {
+                        var type_args = int_vec_new()
+                        int_vec_push(type_args, ttok)
                         var args = parse_args(ps, src)
-                        var gnode = ast_call(node, args)
+                        var gnode = ast_generic_call(node, type_args, args)
                         node = gnode
                     } else {
                         ps_set_pos(ps, save)

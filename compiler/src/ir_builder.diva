@@ -546,20 +546,49 @@ func lower_expr_field(ctx: int, src: str, node: int): int {
     return r2
 }
 
+// Lower obj.method(args) as method(obj, args...) — free-function receiver convention.
+// ir_call layout matches lower_expr_call: [op, res, fname_tok, argc, arg|args_vec].
 func lower_expr_method_call(ctx: int, src: str, node: int): int {
     var obj_reg = lower_expr(ctx, src, ast_child(node, 0))
     var method_tok = ast_child(node, 1)
     var args_h = ast_child(node, 2)
     var argc = int_vec_len(args_h)
+    var total = argc + 1
     var r = ib_fresh_vreg(ctx)
+    if total == 1 {
+        var c1 = int_vec_new()
+        int_vec_push(c1, ir_call())
+        int_vec_push(c1, r)
+        int_vec_push(c1, method_tok)
+        int_vec_push(c1, 1)
+        int_vec_push(c1, obj_reg)
+        ib_emit(ctx, c1)
+        return r
+    }
+    var arg_regs = int_vec_new()
+    int_vec_push(arg_regs, obj_reg)
+    var i = 0
+    while (i < argc) {
+        var av = lower_expr(ctx, src, int_vec_get(args_h, i))
+        int_vec_push(arg_regs, av)
+        i = i + 1
+    }
     var minst = int_vec_new()
     int_vec_push(minst, ir_call())
     int_vec_push(minst, r)
     int_vec_push(minst, method_tok)
-    int_vec_push(minst, argc + 1)
-    int_vec_push(minst, obj_reg)
+    int_vec_push(minst, total)
+    int_vec_push(minst, arg_regs)
     ib_emit(ctx, minst)
     return r
+}
+
+// Lower name[T](args) like a plain call; type args are parse-time only for now.
+func lower_expr_generic_call(ctx: int, src: str, node: int): int {
+    var callee = ast_child(node, 0)
+    var args_h = ast_child(node, 2)
+    var fake = ast_call(callee, args_h)
+    return lower_expr_call(ctx, src, fake)
 }
 
 func lower_expr_index(ctx: int, src: str, node: int): int {
@@ -628,6 +657,7 @@ func lower_expr(ctx: int, src: str, node: int): int {
 
     if kind == nd_call() { return lower_expr_call(ctx, src, node) }
     if kind == nd_method_call() { return lower_expr_method_call(ctx, src, node) }
+    if kind == nd_generic_call() { return lower_expr_generic_call(ctx, src, node) }
     if kind == nd_index() { return lower_expr_index(ctx, src, node) }
     if kind == nd_field() { return lower_expr_field(ctx, src, node) }
 
