@@ -1081,7 +1081,11 @@ func cmd_build(): int {
         var merged_try = merged
         var merged_try_len = str_len(merged_try)
         if merged_try_len == 0 {
-            merged = read_source(path)
+            // merge_file_sources returns "" only for an empty file or a loader error
+            // (import cycle / unreadable dep), which already printed to stderr. Do NOT
+            // fall back to the bare top file: that silently drops imports (Issue #17).
+            err_line("build: could not merge file sources (see loader messages above)")
+            return 1
         }
     }
     var merged_out = merged
@@ -1124,7 +1128,10 @@ func cmd_run_file(path: str): int {
         var merged_try = merged
         var merged_try_len = str_len(merged_try)
         if merged_try_len == 0 {
-            merged = read_source(path)
+            // Loader errors (import cycle / unreadable dep) already printed to stderr;
+            // do not fall back to the bare top file (Issue #17).
+            err_line("run: could not merge file sources (see loader messages above)")
+            return 1
         }
     }
     var merged_out = merged

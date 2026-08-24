@@ -20,8 +20,9 @@ subset. These constructs are **parse-only or seed-only** in the native pipeline 
    — no IR lowering, no codegen.
 2. **Control flow:** `nd_flux` / `nd_range` — no IR lowering, no codegen.
 3. **Method calls:** `nd_method_call` — IR shape fragile; prefers `nd_call`.
-4. **Imports / multi-file:** `nd_import` skipped in native IR — pure pipeline is single-file.
-   `nd_package_decl` also skipped.
+4. **Imports / multi-file:** source-merged TU (`merge_file_sources` / `merge_package_sources`).
+   `nd_import`/`nd_package_decl` are parsed; sema enforces duplicate funcs + package-name
+   agreement across the merged TU (Issue #17 done).
 5. **Globals:** `nd_ident` globals → stub (locals + params only).
 6. **Arrays:** `nd_array_lit` only as `int[]` initializer; `nd_index` const-index only.
 7. **Generic calls:** `nd_generic_call` — no codegen.

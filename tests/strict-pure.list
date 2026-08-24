@@ -1,5 +1,7 @@
 # Single-file examples that pass `DIVA_NO_EXTERNAL=1` native build.
 # Broader than the original 21; still excludes package-only / multi-file demos.
+# examples/imports/main.diva is multi-file by import (source-merged) — Issue #17.
+examples/imports/main.diva
 examples/algo_demo.diva
 examples/array_mutation.diva
 examples/arrays.diva

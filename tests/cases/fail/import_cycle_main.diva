@@ -1,0 +1,5 @@
+import "import_cycle_a.diva";
+
+func main(): int {
+    return helper_a();
+}
