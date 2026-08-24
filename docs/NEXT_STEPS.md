@@ -18,7 +18,7 @@ trustworthy promote path.
 | **P0** | [#54](https://github.com/Team-Deepiri/diva/issues/54) span diagnostics | Multi-file errors useless without locations — **MVP landed** (`path:line:col:`) |
 | **P0** | [#55](https://github.com/Team-Deepiri/diva/issues/55) pure driver / seed promote | Trust root without skip-flag hacks |
 | **P0** | [#61](https://github.com/Team-Deepiri/diva/issues/61) negative suite | Lock failure cases so stacked PRs don't regress |
-| P1 | [#56](https://github.com/Team-Deepiri/diva/issues/56) array flux (**landed**), [#58](https://github.com/Team-Deepiri/diva/issues/58) bounds traps, [#64](https://github.com/Team-Deepiri/diva/issues/64) non-int arrays | Collection surface people expect |
+| P1 | [#56](https://github.com/Team-Deepiri/diva/issues/56) array flux (**landed**), [#58](https://github.com/Team-Deepiri/diva/issues/58) bounds traps (**landed**), [#64](https://github.com/Team-Deepiri/diva/issues/64) non-int arrays | Collection surface people expect |
 | P1 | [#57](https://github.com/Team-Deepiri/diva/issues/57) class methods + `self` | OOP as documented (not free-fn only) |
 | P1 | [#62](https://github.com/Team-Deepiri/diva/issues/62) heap + growable buffer | Unblocks real [#28](https://github.com/Team-Deepiri/diva/issues/28) stdlib |
 | P2 | [#60](https://github.com/Team-Deepiri/diva/issues/60) `diva watch`, [#63](https://github.com/Team-Deepiri/diva/issues/63) DWARF | Dev UX |
@@ -40,7 +40,7 @@ Still open from earlier track: merge the feature stack to `dev`/`main`, finish
 See `docs/diva-roadmap.md`. Highlights still partial/seed:
 
 1. **OOP:** class-body methods / `self` (#57); trait objects later (#27 residual).
-2. **Collections:** bounds traps (#58), `bool[]`/`str[]`/struct arrays (#64); array flux (#56) landed.
+2. **Collections:** `bool[]`/`str[]`/struct arrays (#64); array flux (#56) + bounds traps (#58) landed.
 3. **Imports / modules:** full graph/cache (#24); import merge already in flight (#17).
 4. **Generics:** monomorphization / generic classes (#26).
 5. **IR Stage 2 / backends:** #25 status doc; kernel path #59 + #30.

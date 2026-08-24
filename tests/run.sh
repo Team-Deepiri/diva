@@ -302,6 +302,20 @@ assert_output_equals "${ROOT_DIR}/examples/array_mutation.diva" "16"
 assert_output_equals "${ROOT_DIR}/examples/array_dynamic.diva" "9
 99
 6"
+# Dynamic OOB index must abort (exit non-zero), not silently corrupt.
+oob_exe="${TEST_ROOT}/array_oob"
+if ! diva build "${ROOT_DIR}/tests/cases/fail/array_oob_runtime.diva" "${oob_exe}" >"${TEST_ROOT}/oob_build.out" 2>&1; then
+    sed -n '1,80p' "${TEST_ROOT}/oob_build.out" >&2
+    fail "array_oob_runtime failed to build"
+fi
+set +e
+"${oob_exe}" >"${TEST_ROOT}/oob_run.out" 2>&1
+oob_rc=$?
+set -e
+if [ "${oob_rc}" -eq 0 ]; then
+    fail "array_oob_runtime expected non-zero exit"
+fi
+log "array_oob_runtime aborted as expected (rc=${oob_rc})"
 assert_output_equals "${ROOT_DIR}/examples/flux_range.diva" "10
 5
 1

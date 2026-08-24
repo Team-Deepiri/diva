@@ -171,6 +171,25 @@ check_fail "tests/cases/fail/wrong_arity.diva" "wrong number of arguments for 'a
 check_fail "tests/cases/fail/parse_bad_params.diva" "parse_bad_params.diva:1:"
 check_fail "tests/cases/fail/missing_trait_method.diva" "missing trait method"
 
+echo "[native-broad] category: runtime bounds trap"
+total=$((total + 1))
+if DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+  DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
+  timeout 30 "${DRIVER}" build "tests/cases/fail/array_oob_runtime.diva" "${WORK}/oob-exe" >"${WORK}/oob-build.log" 2>&1; then
+  set +e
+  timeout 5 "${WORK}/oob-exe" >"${WORK}/oob-run.log" 2>&1
+  oob_rc=$?
+  set -e
+  if [ "${oob_rc}" -eq 0 ]; then
+    record_fail "runtime" "array_oob_runtime.diva" "expected non-zero exit on OOB index"
+  else
+    echo "[native-broad] OK   tests/cases/fail/array_oob_runtime.diva (aborts as expected, rc=${oob_rc})"
+  fi
+else
+  record_fail "runtime" "array_oob_runtime.diva" "build failed"
+  sed -n '1,40p' "${WORK}/oob-build.log" >&2 || true
+fi
+
 echo "[native-broad] totals: examples=${total} multi-file=${total_pkg} failed=${failed}"
 if [ "${failed}" -ne 0 ]; then
   echo "[native-broad] failing entries:"

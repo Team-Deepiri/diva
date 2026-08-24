@@ -614,7 +614,7 @@ func lower_expr_index(ctx: int, src: str, node: int): int {
                 // Dynamic index: no compile-time bounds check (see docs/array-bounds.md).
                 var idx = lower_expr(ctx, src, idx_node)
                 var r = ib_fresh_vreg(ctx)
-                ib_emit(ctx, ir_inst(ir_array_load(), r, base, idx, 0))
+                ib_emit(ctx, ir_inst(ir_array_load(), r, base, idx, alen))
                 return r
             }
         }
@@ -869,7 +869,7 @@ func lower_stmt_flux(ctx: int, src: str, node: int): int {
                 var icur2 = ib_fresh_vreg(ctx)
                 ib_emit(ctx, ir_inst(ir_load(), icur2, idx_slot, 0, 0))
                 var elem = ib_fresh_vreg(ctx)
-                ib_emit(ctx, ir_inst(ir_array_load(), elem, base, icur2, 0))
+                ib_emit(ctx, ir_inst(ir_array_load(), elem, base, icur2, alen))
                 ib_emit(ctx, ir_inst(ir_store(), val_slot, elem, 0, 0))
                 lower_block(ctx, src, body)
                 var icur3 = ib_fresh_vreg(ctx)
@@ -1038,7 +1038,7 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
                     // Dynamic index store: unchecked (see docs/array-bounds.md).
                     var idx = lower_expr(ctx, src, idx_node)
                     var val = lower_expr(ctx, src, value)
-                    ib_emit(ctx, ir_inst(ir_array_store(), base, idx, val, 0))
+                    ib_emit(ctx, ir_inst(ir_array_store(), base, idx, val, alen))
                 }
             }
         }

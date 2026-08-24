@@ -212,6 +212,7 @@ func cg_inst_mem(ctx: int, src: str, nl: str, inst: int): int {
     var op = inst_op(inst)
     var res = inst_result(inst)
     var a = inst_a(inst)
+    var bv = inst_b(inst)
     if op == ir_const() {
         lp_add(lp, "    movq $") lp_add_int(lp, a) lp_add(lp, ", ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 1
@@ -232,6 +233,20 @@ func cg_inst_mem(ctx: int, src: str, nl: str, inst: int): int {
         return 1
     }
     if op == ir_array_load() {
+        var alen = inst_extra(inst)
+        if (alen > 0) & (alen < 128) {
+            lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    cmpq $0, %rax") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    jl 1f") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    cmpq $") lp_add_int(lp, alen) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    jge 1f") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    jmp 2f") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "1:") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    movl $1, %edi") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    movl $60, %eax") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    syscall") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "2:") lp_flush_sb(lp, sb, nl)
+        }
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rdx") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    negq %rdx") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    leaq -") lp_add_int(lp, (a + 1) * 8) lp_add(lp, "(%rbp,%rdx,8), %rax") lp_flush_sb(lp, sb, nl)
@@ -240,6 +255,20 @@ func cg_inst_mem(ctx: int, src: str, nl: str, inst: int): int {
         return 1
     }
     if op == ir_array_store() {
+        var alen2 = inst_extra(inst)
+        if (alen2 > 0) & (alen2 < 128) {
+            lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    cmpq $0, %rax") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    jl 1f") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    cmpq $") lp_add_int(lp, alen2) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    jge 1f") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    jmp 2f") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "1:") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    movl $1, %edi") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    movl $60, %eax") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "    syscall") lp_flush_sb(lp, sb, nl)
+            lp_add(lp, "2:") lp_flush_sb(lp, sb, nl)
+        }
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rdx") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    negq %rdx") lp_flush_sb(lp, sb, nl)
@@ -1097,7 +1126,7 @@ func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
     if op_is2(op, ir_shl(), ir_shr()) == 1 { return 24 }
     if op_is3(op, ir_load(), ir_store(), ir_copy()) == 1 { return 14 }
     if op_is2(op, ir_global_load(), ir_global_store()) == 1 { return 14 }
-    if op_is2(op, ir_array_load(), ir_array_store()) == 1 { return 28 }
+    if op_is2(op, ir_array_load(), ir_array_store()) == 1 { return 61 }
     if op == ir_alloca() { return 11 }
     if op == ir_param() { return 7 }
     if (op == ir_ret()) & ((fi == main_fi) == 1) { return 24 }
@@ -1202,8 +1231,32 @@ func cg_p2_param(out: int, a: int, res: int): int {
     return 0
 }
 
+// Emit bounds check for dynamic index: if idx < 0 or idx >= alen, exit(1).
+// Prefixed before array.load/store body. |alen| must be 1..127 (imm8). Returns 33.
+func emit_array_bounds_check(out: int, idx_slot: int, alen: int): int {
+    // jmp over trap stub
+    int_vec_push(out, 235) int_vec_push(out, 12)
+    // trap: mov $1,%edi ; mov $60,%eax ; syscall  (exit 1)
+    int_vec_push(out, 191) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 15) int_vec_push(out, 5)
+    // movq idx(%rbp), %rax
+    int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 133) emit_i32(out, stack_disp32(idx_slot))
+    // cmpq $0, %rax
+    int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, 0)
+    // jl trap (rel8 backward to trap at +2 from start; here pos after jl = 2+12+7+4+2 = 27, trap at 2)
+    // distance = 2 - 27 = -25 = 0xE7
+    int_vec_push(out, 124) int_vec_push(out, 231)
+    // cmpq $alen, %rax
+    int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 248) int_vec_push(out, alen)
+    // jge trap: after this insn at 2+12+7+4+2+4+2=33, trap at 2 → 2-33=-31=0xE1
+    int_vec_push(out, 125) int_vec_push(out, 225)
+    return 33
+}
+
 // Emit bitwise / shift / unary / memory / alloca instructions. Returns 0.
-func cg_p2_bitops(out: int, op: int, res: int, a: int, bv: int): int {
+// |extra| is array length for ir_array_load/store (0 = skip bounds check).
+func cg_p2_bitops(out: int, op: int, res: int, a: int, bv: int, extra: int): int {
     if op_is2(op, ir_and(), ir_or()) == 1 {
         emit_mov_stack_to_rax(out, a)
         if op == ir_and() { int_vec_push(out, 72) int_vec_push(out, 35) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
@@ -1228,6 +1281,9 @@ func cg_p2_bitops(out: int, op: int, res: int, a: int, bv: int): int {
         emit_mov_rax_to_stack(out, res)
     }
     if op == ir_array_load() {
+        if (extra > 0) & (extra < 128) {
+            emit_array_bounds_check(out, bv, extra)
+        }
         // movq idx(%rbp), %rdx
         int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 149) emit_i32(out, stack_disp32(bv))
         // negq %rdx
@@ -1240,6 +1296,9 @@ func cg_p2_bitops(out: int, op: int, res: int, a: int, bv: int): int {
         int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 149) emit_i32(out, stack_disp32(res))
     }
     if op == ir_array_store() {
+        if (extra > 0) & (extra < 128) {
+            emit_array_bounds_check(out, a, extra)
+        }
         // movq val(%rbp), %rax
         int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv))
         // movq idx(%rbp), %rdx
@@ -1257,7 +1316,7 @@ func cg_p2_bitops(out: int, op: int, res: int, a: int, bv: int): int {
 }
 
 // Emit arithmetic / memory instructions (not param). Returns 0.
-func cg_p2_arith(out: int, op: int, res: int, a: int, bv: int): int {
+func cg_p2_arith(out: int, op: int, res: int, a: int, bv: int, extra: int): int {
     if op == ir_const() { emit_mov_imm32_to_stack(out, res, a) }
     if op == ir_global_load() {
         emit_mov_gslot_to_rax(out, a)
@@ -1284,7 +1343,7 @@ func cg_p2_arith(out: int, op: int, res: int, a: int, bv: int): int {
             int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 149) emit_i32(out, stack_disp32(res))
         }
     }
-    cg_p2_bitops(out, op, res, a, bv)
+    cg_p2_bitops(out, op, res, a, bv, extra)
     return 0
 }
 
@@ -1474,9 +1533,10 @@ func cg_p2_inst(p2fctx: int, src: str, brtab: int, p2out_ctx: int, inst: int): i
     var res = inst_result(inst)
     var a = inst_a(inst)
     var bv = inst_b(inst)
+    var extra = inst_extra(inst)
     var code_ptr = int_vec_len(out)
     if op == ir_const_str() { cg_p2_cstr(out, res, a, str_cum, instr_total) }
-    cg_p2_arith(out, op, res, a, bv)
+    cg_p2_arith(out, op, res, a, bv, extra)
     cg_p2_cmp(out, op, res, a, bv)
     if op == ir_br() {
         var br_rc = cg_p2_br(p2fctx, brtab, out, inst, code_ptr)
