@@ -296,14 +296,16 @@ assert_output_equals "${ROOT_DIR}/examples/arrays.diva" "9"
 assert_output_equals "${ROOT_DIR}/examples/array_mutation.diva" "16"
 assert_output_equals "${ROOT_DIR}/examples/imports/main.diva" "42"
 assert_output_equals "${ROOT_DIR}/examples/generics_traits.diva" "7"
+assert_output_equals "${ROOT_DIR}/examples/method_call.diva" "8
+21
+17"
 assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.diva" "12
 10
 10
 5
 1
 1"
-assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from diva0x0000000000000014
-"
+assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from diva0x0000000000000014"
 assert_output_equals "${ROOT_DIR}/examples/packages/app_with_dep" "42"
 assert_output_equals "${ROOT_DIR}/examples/utils_demo.diva" "1
 6
@@ -332,6 +334,9 @@ log "checking Diva IR smoke output (emit-ir)"
 assert_ir_contains "${ROOT_DIR}/examples/loop.diva" "br.cond"
 assert_ir_contains "${ROOT_DIR}/examples/arrays.diva" "store"
 assert_ir_contains "${ROOT_DIR}/examples/array_mutation.diva" "store"
+assert_ir_contains "${ROOT_DIR}/examples/method_call.diva" "call incr argc=1"
+assert_ir_contains "${ROOT_DIR}/examples/method_call.diva" "call scale argc=2"
+assert_ir_contains "${ROOT_DIR}/examples/method_call.diva" "call mix argc=3"
 
 log "checking generated project workflow"
 rm -rf "${TEST_ROOT}/generated-app"
