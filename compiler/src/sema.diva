@@ -939,7 +939,15 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
             }
         }
         if k == nd_var_decl() {
-            var gty = sema_type_from_node(ast_child(ch, 1), src, toks)
+            var g_type_node = ast_child(ch, 1)
+            var gty = sema_type_from_node(g_type_node, src, toks)
+            // Untyped globals: infer from initializer (same as local var decls).
+            if (g_type_node < 0) {
+                var g_init = ast_child(ch, 2)
+                if (g_init < 0) == 0 {
+                    gty = sema_expr_type(c, src, toks, g_init)
+                }
+            }
             if sctx_add_global(c, src, toks, ast_child(ch, 0), gty) != 0 {
                 return 1
             }
