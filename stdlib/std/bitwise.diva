@@ -97,7 +97,10 @@ func is_power_of_two(x: int): int {
     if (x <= 0) {
         return 0
     }
-    return bit_count(x) == 1
+    if bit_count(x) == 1 {
+        return 1
+    }
+    return 0
 }
 
 func next_power_of_two(x: int): int {
