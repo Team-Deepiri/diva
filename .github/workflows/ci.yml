@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  strict-pure:
+    name: strict-pure (31 single-file)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run strict-pure gate
+        run: sh tests/run-strict-pure.sh
+
+  native-broad:
+    name: native-broad (all examples + packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run broad native gate
+        run: sh tests/run-native-broad.sh
+
+  selfhost-consistency:
+    name: selfhost consistency (stage2 = stage3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run self-host consistency gate
+        run: sh scripts/verify-selfhost-consistency.sh
