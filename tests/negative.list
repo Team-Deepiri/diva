@@ -1,0 +1,14 @@
+# path	needle	kind
+# kind: fail_build = compile must fail with needle in stderr/stdout
+#       runtime_abort = compile must succeed; run must exit non-zero
+# All paths relative to repo root. Native pure-ELF driver (Issue #61).
+tests/cases/fail/duplicate_decl.diva	duplicate declaration of 'x' in the same scope	fail_build
+tests/cases/fail/unknown_ident.diva	unknown_ident.diva:2:	fail_build
+tests/cases/fail/wrong_arity.diva	wrong number of arguments for 'add'	fail_build
+tests/cases/fail/parse_bad_params.diva	parse_bad_params.diva:1:	fail_build
+tests/cases/fail/missing_trait_method.diva	missing trait method	fail_build
+tests/cases/fail/duplicate_func.diva	duplicate function 'foo'	fail_build
+tests/cases/fail/self_outside_method.diva	unknown identifier 'self'	fail_build
+tests/cases/fail/duplicate_import_main.diva	duplicate function 'clash'	fail_build
+tests/cases/fail/unknown_package_dep	unknown package dependency	fail_build
+tests/cases/fail/array_oob_runtime.diva		runtime_abort

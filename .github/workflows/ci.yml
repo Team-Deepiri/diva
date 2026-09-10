@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE*'
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  strict-pure:
+    name: strict-pure (31 single-file)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run strict-pure gate
+        run: sh tests/run-strict-pure.sh
+
+  native-broad:
+    name: native-broad (all examples + packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run broad native gate
+        run: sh tests/run-native-broad.sh
+
+  selfhost-consistency:
+    name: selfhost consistency (stage2 = stage3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run self-host consistency gate
+        run: sh scripts/verify-selfhost-consistency.sh
+
+  pure-only-full:
+    name: pure-only driver full (ir/asm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build pure-elf driver
+        run: bash scripts/build-compiler-pure-elf.sh
+      - name: Verify pure-only full gate
+        run: DIVA_PURE_FULL=1 ./scripts/verify-pure-only-driver.sh

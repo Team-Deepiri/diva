@@ -66,6 +66,23 @@ func dump_expr(node: int, depth: int, src: str, toks: int, nl: str): int {
         }
         return 0
     }
+    if (k == nd_generic_call()) {
+        dump_line(depth, "GenericCall", nl)
+        dump_expr(ast_child(node, 0), depth + 1, src, toks, nl)
+        var targs = ast_child(node, 1)
+        var ti = 0
+        while (ti < int_vec_len(targs)) {
+            dump_line(depth + 1, tok_text(src, toks, int_vec_get(targs, ti)), nl)
+            ti = ti + 1
+        }
+        var args2 = ast_child(node, 2)
+        var i2 = 0
+        while (i2 < int_vec_len(args2)) {
+            dump_expr(int_vec_get(args2, i2), depth + 1, src, toks, nl)
+            i2 = i2 + 1
+        }
+        return 0
+    }
     return 0
 }
 

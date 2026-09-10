@@ -1,0 +1,11 @@
+extern func print_int(x: int): void
+
+func main(): int {
+    var flags: bool[] = [true, false, true]
+    var i = 1
+    print_int(flags[0])
+    print_int(flags[i])
+    flags[i] = true
+    print_int(flags[i])
+    return 0
+}

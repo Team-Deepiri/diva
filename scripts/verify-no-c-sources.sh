@@ -1,11 +1,12 @@
 #!/usr/bin/env sh
 # Fail if the repository tracks C/C++-family sources or legacy .mod manifests.
 # Goal: compiler and libraries are authored only in .diva (plus non-code assets).
+# Exception: compiler/res/legacy/ may ship hosted cc-link helpers (see README.txt there).
 set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "${ROOT_DIR}"
 
-bad=$(git ls-files | grep -E '\.(c|h|cc|cxx|cpp|hpp|hh)$' || true)
+bad=$(git ls-files | grep -E '\.(c|h|cc|cxx|cpp|hpp|hh)$' | grep -v '^compiler/res/legacy/' || true)
 if [ -n "${bad}" ]; then
   printf 'verify-no-c-sources: tracked C/C++ sources found:\n%s\n' "${bad}" >&2
   exit 1

@@ -14,9 +14,9 @@ The first `Diva` runtime model is intentionally conventional.
 
 `Diva` currently has three package kinds through `package.diva`:
 
-- `app`: requires `main` and links a hosted executable
+- `app`: requires `main` and links a hosted / pure-ELF executable
 - `lib`: validates and emits IR without requiring `main`
-- `kernel`: validates without `main` and builds a freestanding object file
+- `kernel`: validates without `main`; entry is `kmain`; `diva build` emits a pure ELF entered at `kmain` (see `docs/kernel-packages.md`)
 
 ## Why Start Conventional
 

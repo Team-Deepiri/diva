@@ -1,29 +1,38 @@
 # Diva Standard Library
 
-The standard library starts small on purpose, but it is now shipped as real `Diva` modules.
+Shipped as real Diva modules under `stdlib/std/`. Logical package map for SDK
+consumers: **`docs/stdlib-packages.md`** (Issue #28).
 
-Available modules:
+## Layers (quick)
 
-- `std/math.diva`: `abs`, `max`, `min`, `clamp`
-- `std/logic.diva`: `all`, `any`, `bool_to_int`
-- `std/range.diva`: `sum_range`, `count_range`, `contains_range`
-- `std/io.diva`: `stdout`, `stderr`, `print_bool`, `panic`
-- `std/int.diva`: `sign`, `is_even`, `is_odd`, `gcd`
-- `std/assert.diva`: `assert_true`, `assert_eq_int`
+| Package | Import examples |
+|---------|-----------------|
+| core | `std/core.diva`, `std/assert.diva`, `std/math.diva`, `std/logic.diva` |
+| mem | `std/mem.diva` — `mem_*`, `int_buf_*` (`docs/heap-mem.md`) |
+| io | `std/io.diva`, `std/fmt.diva` |
+| str | `std/str.diva`, `std/vec.diva` |
+| math | `std/math.diva`, `std/random.diva` |
+| collections | `std/collections.diva` (IntBuf), `std/stack.diva`, `std/queue.diva` |
+| iter | `std/iter.diva`, `std/range.diva` |
+| os | `std/os.diva`, `std/fs.diva`, `std/path.diva` |
 
-Usage:
+## Usage
 
 ```di
-import "std/math.diva"
-import "std/range.diva"
-import "std/io.diva"
+import "std/mem.diva"
+import "std/collections.diva"
+import "std/iter.diva"
 
 func main(): int {
-    print_int(sum_range(0, 5))
-    print_int(clamp(99, 0, 10))
-    print_hex(stdout("ok"))
+    var b = IntBuf_new()
+    IntBuf_push(b, 10)
+    IntBuf_push(b, 20)
+    // int_buf_sum → 30
+    IntBuf_free(b)
     return 0
 }
 ```
+
+Example: `examples/stdlib_packages.diva` → `35\n20\n10`.
 
 The install scripts copy `stdlib/` alongside the compiler so `import "std/..."` works from user projects.
