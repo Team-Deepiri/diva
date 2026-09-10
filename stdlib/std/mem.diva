@@ -1,0 +1,79 @@
+// User-program heap (pure ELF mmap). Issue #62.
+//
+// Lifetime:
+// - `mem_alloc(n)` returns a pointer (as int) to at least `n` bytes, or 0 on failure.
+// - The runtime stores the mapped size in a hidden header; call `mem_free(p)` exactly once
+//   on a non-zero pointer from `mem_alloc`. Do not free stack addresses or string literals.
+// - `mem_get` / `mem_set` treat `ptr` as an array of 8-byte ints (`ptr[index]`).
+// - There is no GC: leaking until process exit is fine for short tools; long-lived servers
+//   should free.
+//
+// Growable buffer: `int_buf_*` handle is a small mem block `[data_ptr, len, cap]`.
+
+extern func mem_alloc(nbytes: int): int
+extern func mem_free(ptr: int): int
+extern func mem_get(ptr: int, index: int): int
+extern func mem_set(ptr: int, index: int, value: int): int
+
+func int_buf_new(): int {
+    var h = mem_alloc(24)
+    var p = mem_alloc(32)
+    if (h == 0) | (p == 0) {
+        return 0
+    }
+    mem_set(h, 0, p)
+    mem_set(h, 1, 0)
+    mem_set(h, 2, 4)
+    return h
+}
+
+func int_buf_len(h: int): int {
+    return mem_get(h, 1)
+}
+
+func int_buf_get(h: int, i: int): int {
+    var p = mem_get(h, 0)
+    return mem_get(p, i)
+}
+
+func int_buf_push(h: int, v: int): int {
+    var p = mem_get(h, 0)
+    var len = mem_get(h, 1)
+    var cap = mem_get(h, 2)
+    if len == cap {
+        var ncap = cap + cap
+        if ncap < 4 {
+            ncap = 4
+        }
+        var np = mem_alloc(ncap * 8)
+        if np == 0 {
+            return 1
+        }
+        var i = 0
+        while (i < len) {
+            mem_set(np, i, mem_get(p, i))
+            i = i + 1
+        }
+        if p != 0 {
+            mem_free(p)
+        }
+        mem_set(h, 0, np)
+        mem_set(h, 2, ncap)
+        p = np
+    }
+    mem_set(p, len, v)
+    mem_set(h, 1, len + 1)
+    return 0
+}
+
+func int_buf_free(h: int): int {
+    if h == 0 {
+        return 0
+    }
+    var p = mem_get(h, 0)
+    if p != 0 {
+        mem_free(p)
+    }
+    mem_free(h)
+    return 0
+}

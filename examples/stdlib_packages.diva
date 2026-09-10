@@ -1,0 +1,18 @@
+import "std/mem.diva"
+import "std/collections.diva"
+import "std/iter.diva"
+
+extern func print_int(x: int): void
+
+func main(): int {
+    var b = IntBuf_new()
+    IntBuf_push(b, 10)
+    IntBuf_push(b, 20)
+    IntBuf_push(b, 5)
+    print_int(int_buf_sum(b))
+    print_int(int_buf_max(b))
+    print_int(IntBuf_min(b))
+    print_int(iter_sum_range(0, 5))
+    IntBuf_free(b)
+    return 0
+}

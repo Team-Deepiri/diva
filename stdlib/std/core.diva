@@ -1,0 +1,17 @@
+// Core layer facade (Issue #28) — stable entry for primitives.
+import "std/logic.diva"
+import "std/int.diva"
+
+func core_min(a: int, b: int): int {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+func core_max(a: int, b: int): int {
+    if a > b {
+        return a
+    }
+    return b
+}

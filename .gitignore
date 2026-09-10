@@ -5,3 +5,4 @@ compiler/src/_bootstrap_merged.diva
 !compiler/res/legacy/runtime_int_to_str.c
 *.exe
 .cursor
+bootstrap/diva-linux-amd64.bak-*

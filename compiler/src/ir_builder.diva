@@ -10,6 +10,7 @@ import "tokens.diva"
 import "ast.diva"
 import "ir.diva"
 import "cell.diva"
+import "name_pool.diva"
 
 func ib_trace_on(): int {
     var v = host_getenv("DIVA_IR_TRACE")
@@ -100,10 +101,13 @@ func ib_find_blk_by_label(ctx: int, label: int): int {
 //   [12] = global_vals_cell (global var init values)
 //   [13] = file_ast_cell (root AST handle for struct layout lookup)
 //   [14] = struct_ty_cell (int_vec parallel to names: type_name_tok or -1)
+//   [15] = array_strides_cell (0 = not an array; 1 = scalar elems; W = struct-elem stride)
 
 func bctx_new(src: str, toks: int): int {
     var ctx = int_vec_new()
-    int_vec_push(ctx, ir_module_new())       // [0] mod
+    var mod = ir_module_new()
+    mod_set_name_pool(mod, name_pool_new())
+    int_vec_push(ctx, mod)                   // [0] mod
     int_vec_push(ctx, mut_new(0))            // [1] func_cell
     int_vec_push(ctx, mut_new(0))            // [2] blk_cell
     int_vec_push(ctx, mut_new(0))            // [3] vreg_cell
@@ -118,6 +122,7 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, mut_new(int_vec_new())) // [12] global_vals_cell
     int_vec_push(ctx, mut_new(0))            // [13] file_ast handle
     int_vec_push(ctx, mut_new(int_vec_new())) // [14] struct type name tok per local (-1 = not struct)
+    int_vec_push(ctx, mut_new(int_vec_new())) // [15] array strides (0 = non-array)
     return ctx
 }
 
@@ -146,6 +151,12 @@ func bctx_set_global_vals(ctx: int, v: int): int { return mut_set(int_vec_get(ct
 
 func bctx_struct_ty(ctx: int): int {
     return mut_get(int_vec_get(ctx, 14))
+}
+func bctx_array_strides(ctx: int): int {
+    return mut_get(int_vec_get(ctx, 15))
+}
+func bctx_set_array_strides(ctx: int, v: int): int {
+    return mut_set(int_vec_get(ctx, 15), v)
 }
 
 // --- String table (counter stored in strtab_cell) ---
@@ -212,27 +223,32 @@ func ib_scope_pop(ctx: int, mark: int): int {
     var slots = bctx_slots(ctx)
     var lens = bctx_array_lens(ctx)
     var sty = bctx_struct_ty(ctx)
+    var strides = bctx_array_strides(ctx)
     if (int_vec_len(names) > mark) {
         var fresh_n = int_vec_new()
         var fresh_s = int_vec_new()
         var fresh_l = int_vec_new()
         var fresh_sty = int_vec_new()
+        var fresh_st = int_vec_new()
         var i = 0
         while (i < mark) {
             int_vec_push(fresh_n, int_vec_get(names, i))
             int_vec_push(fresh_s, int_vec_get(slots, i))
             int_vec_push(fresh_l, int_vec_get(lens, i))
             int_vec_push(fresh_sty, int_vec_get(sty, i))
+            int_vec_push(fresh_st, int_vec_get(strides, i))
             i = i + 1
         }
         int_vec_free(names)
         int_vec_free(slots)
         int_vec_free(lens)
         int_vec_free(sty)
+        int_vec_free(strides)
         bctx_set_names(ctx, fresh_n)
         bctx_set_slots(ctx, fresh_s)
         bctx_set_array_lens(ctx, fresh_l)
         mut_set(int_vec_get(ctx, 14), fresh_sty)
+        bctx_set_array_strides(ctx, fresh_st)
     }
     return 0
 }
@@ -247,21 +263,26 @@ func ib_define_local(ctx: int, def_name_tok: int): int {
     int_vec_push(bctx_slots(ctx), slot)
     int_vec_push(bctx_array_lens(ctx), 1)
     int_vec_push(bctx_struct_ty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_array_strides(ctx), 0)
     return slot
 }
 
-// Reserve n consecutive vregs; record one name -> base slot and array length n.
-func ib_define_array_local(ctx: int, def_name_tok: int, n: int): int {
+// Reserve n*stride consecutive vregs. |n| = element count; |stride| slots per element
+// (1 for int/bool/str; struct width for Point[]). |elem_sty| is element struct type or none.
+func ib_define_array_local(ctx: int, def_name_tok: int, n: int, stride: int, elem_sty: int): int {
+    var total = n * stride
+    if (total < 1) { total = 1 }
     var base = ib_fresh_vreg(ctx)
     var j = 1
-    while (j < n) {
+    while (j < total) {
         ib_fresh_vreg(ctx)
         j = j + 1
     }
     int_vec_push(bctx_names(ctx), def_name_tok)
     int_vec_push(bctx_slots(ctx), base)
     int_vec_push(bctx_array_lens(ctx), n)
-    int_vec_push(bctx_struct_ty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_struct_ty(ctx), elem_sty)
+    int_vec_push(bctx_array_strides(ctx), stride)
     return base
 }
 
@@ -277,6 +298,7 @@ func ib_define_struct_local(ctx: int, def_name_tok: int, n: int, type_name_tok: 
     int_vec_push(bctx_slots(ctx), base)
     int_vec_push(bctx_array_lens(ctx), n)
     int_vec_push(bctx_struct_ty(ctx), type_name_tok)
+    int_vec_push(bctx_array_strides(ctx), 0)
     return base
 }
 
@@ -320,6 +342,22 @@ func ib_lookup_array_len(ctx: int, src: str, name: str): int {
     while (j < n2) {
         if str_eq_tok_spelling(name, src, toks, int_vec_get(names, j)) == 1 {
             found = int_vec_get(lens, j)
+        }
+        j = j + 1
+    }
+    return found
+}
+
+func ib_lookup_array_stride(ctx: int, src: str, name: str): int {
+    var toks = bctx_toks(ctx)
+    var names = bctx_names(ctx)
+    var strides = bctx_array_strides(ctx)
+    var n2 = int_vec_len(names)
+    var found = 0
+    var j = 0
+    while (j < n2) {
+        if str_eq_tok_spelling(name, src, toks, int_vec_get(names, j)) == 1 {
+            found = int_vec_get(strides, j)
         }
         j = j + 1
     }
@@ -415,28 +453,28 @@ func ib_struct_field_index(ctx: int, src: str, typename_tok: int, field_tok: int
 
 // --- Expression lowering ---
 
+// Find the module-level global index for an identifier token, or -1 if not a global.
+func ib_find_global_index(ctx: int, src: str, name_tok: int): int {
+    var h = ib_name_hash(ib_tok_text(ctx, src, name_tok))
+    var gnames = bctx_global_names(ctx)
+    var gcount = int_vec_len(gnames)
+    var i = 0
+    while (i < gcount) {
+        if (int_vec_get(gnames, i) == h) { return i }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
 // Lower nd_ident node. Handles global lookup fallback.
 func lower_expr_ident(ctx: int, src: str, node: int): int {
     var tok_idx = ast_child(node, 0)
     var slot = ib_lookup_by_name_tok(ctx, src, tok_idx)
     if (slot < 0) {
-        var h = ib_name_hash(ib_tok_text(ctx, src, tok_idx))
-        var gnames = bctx_global_names(ctx)
-        var gvals = bctx_global_vals(ctx)
-        var gcount = int_vec_len(gnames)
-        var gfound = 0
-        var gval = 0
-        var i = 0
-        while (i < gcount) {
-            if (int_vec_get(gnames, i) == h) {
-                gfound = 1
-                gval = int_vec_get(gvals, i)
-            }
-            i = i + 1
-        }
-        if gfound == 1 {
+        var gi = ib_find_global_index(ctx, src, tok_idx)
+        if (gi < 0) == 0 {
             var r = ib_fresh_vreg(ctx)
-            ib_emit(ctx, ir_inst(ir_const(), r, gval, 0, 0))
+            ib_emit(ctx, ir_inst(ir_global_load(), r, gi, 0, 0))
             return r
         }
         var r = ib_fresh_vreg(ctx)
@@ -518,16 +556,120 @@ func lower_expr_call(ctx: int, src: str, node: int): int {
     return r
 }
 
+// Lower nd_generic_call: monomorphize callee name (Issue #26) and emit call.
+func ib_mangle_generic(ctx: int, src: str, base_tok: int, targs: int): str {
+    var b = str_builder_new()
+    str_builder_append(b, ib_tok_text(ctx, src, base_tok))
+    var i = 0
+    while (i < int_vec_len(targs)) {
+        str_builder_append(b, "_")
+        str_builder_append(b, ib_tok_text(ctx, src, int_vec_get(targs, i)))
+        i = i + 1
+    }
+    var r = str_builder_to_str(b)
+    str_builder_free(b)
+    return r
+}
+
+func ib_func_name_str(ctx: int, src: str, name_tok: int): str {
+    if name_pool_is_synthetic(name_tok) == 1 {
+        var pool = mod_name_pool(bctx_mod(ctx))
+        return name_pool_text(pool, name_tok)
+    }
+    return ib_tok_text(ctx, src, name_tok)
+}
+
+func ib_find_func_by_name(ctx: int, src: str, want: str): int {
+    var m = bctx_mod(ctx)
+    var fc = mod_func_count(m)
+    var i = 0
+    while (i < fc) {
+        var f = mod_get_func(m, i)
+        if str_eq(ib_func_name_str(ctx, src, func_name_tok(f)), want) == 1 {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func ib_ensure_specialized(ctx: int, src: str, base_tok: int, mangled: str, syn_tok: int): int {
+    if mod_alias_lookup(bctx_mod(ctx), syn_tok) >= 0 {
+        return 0
+    }
+    var base_name = ib_tok_text(ctx, src, base_tok)
+    var bi = ib_find_func_by_name(ctx, src, base_name)
+    if bi < 0 {
+        return 1
+    }
+    mod_add_alias(bctx_mod(ctx), syn_tok, bi)
+    return 0
+}
+
+// Lower nd_generic_call: emit plain call (type erasure). Codegen synthetic-name
+// paths remain for future monomorphization once alias lookup is seed-stable.
+func lower_expr_generic_call(ctx: int, src: str, node: int): int {
+    var callee = ast_child(node, 0)
+    var args = ast_child(node, 2)
+    var cnode = ast_call(callee, args)
+    var r = lower_expr_call(ctx, src, cnode)
+    int_vec_free(cnode)
+    return r
+}
+
 // Lower nd_field node.
 func lower_expr_field(ctx: int, src: str, node: int): int {
     var obj_node = ast_child(node, 0)
     var field_tok = ast_child(node, 1)
+
+    // pts[i].x — struct-element array (Issue #64)
+    if ast_kind(obj_node) == nd_index() {
+        var arr_node = ast_child(obj_node, 0)
+        var idx_node = ast_child(obj_node, 1)
+        if ast_kind(arr_node) == nd_ident() {
+            var arr_name = ib_tok_text(ctx, src, ast_child(arr_node, 0))
+            var base = ib_lookup_local(ctx, src, arr_name)
+            var nelem = ib_lookup_array_len(ctx, src, arr_name)
+            var stride = ib_lookup_array_stride(ctx, src, arr_name)
+            var sty = ib_lookup_struct_ty(ctx, src, arr_name)
+            if ((base < 0) == 0) & (stride > 1) & (sty != ib_struct_ty_none()) & (nelem > 0) {
+                var fidx = ib_struct_field_index(ctx, src, sty, field_tok)
+                if ((fidx < 0) == 0) & (fidx < stride) {
+                    var total = nelem * stride
+                    if ast_kind(idx_node) == nd_int_lit() {
+                        var off_e = ast_child(idx_node, 0)
+                        if ((off_e < 0) == 0) & (off_e < nelem) {
+                            var r = ib_fresh_vreg(ctx)
+                            ib_emit(ctx, ir_inst(ir_load(), r, base + off_e * stride + fidx, 0, 0))
+                            return r
+                        }
+                    } else {
+                        var idx = lower_expr(ctx, src, idx_node)
+                        var sr = ib_fresh_vreg(ctx)
+                        ib_emit(ctx, ir_inst(ir_const(), sr, stride, 0, 0))
+                        var scaled = ib_fresh_vreg(ctx)
+                        ib_emit(ctx, ir_inst(ir_mul(), scaled, idx, sr, 0))
+                        var fr = ib_fresh_vreg(ctx)
+                        ib_emit(ctx, ir_inst(ir_const(), fr, fidx, 0, 0))
+                        var off = ib_fresh_vreg(ctx)
+                        ib_emit(ctx, ir_inst(ir_add(), off, scaled, fr, 0))
+                        var r2 = ib_fresh_vreg(ctx)
+                        ib_emit(ctx, ir_inst(ir_array_load(), r2, base, off, total))
+                        return r2
+                    }
+                }
+            }
+        }
+    }
+
     if ast_kind(obj_node) == nd_ident() {
         var obj_name = ib_tok_text(ctx, src, ast_child(obj_node, 0))
         var base = ib_lookup_local(ctx, src, obj_name)
         var alen = ib_lookup_array_len(ctx, src, obj_name)
+        var stride = ib_lookup_array_stride(ctx, src, obj_name)
         var sty = ib_lookup_struct_ty(ctx, src, obj_name)
-        if ((base < 0) == 0 & sty != ib_struct_ty_none()) {
+        // Scalar struct only (stride 0). Struct arrays use index+field above.
+        if ((base < 0) == 0) & (stride == 0) & (sty != ib_struct_ty_none()) {
             var fidx = ib_struct_field_index(ctx, src, sty, field_tok)
             if ((fidx < 0) == 0 & fidx < alen) {
                 var r3 = ib_fresh_vreg(ctx)
@@ -535,7 +677,7 @@ func lower_expr_field(ctx: int, src: str, node: int): int {
                 return r3
             }
         }
-        if ((base < 0) == 0 & alen == 1) {
+        if ((base < 0) == 0) & (stride == 0) & (alen == 1) {
             var r = ib_fresh_vreg(ctx)
             ib_emit(ctx, ir_inst(ir_load(), r, base, 0, 0))
             return r
@@ -546,18 +688,39 @@ func lower_expr_field(ctx: int, src: str, node: int): int {
     return r2
 }
 
+// Lower obj.method(args) as method(obj, args...) — free-function receiver convention.
+// ir_call layout matches lower_expr_call: [op, res, fname_tok, argc, arg|args_vec].
 func lower_expr_method_call(ctx: int, src: str, node: int): int {
     var obj_reg = lower_expr(ctx, src, ast_child(node, 0))
     var method_tok = ast_child(node, 1)
     var args_h = ast_child(node, 2)
     var argc = int_vec_len(args_h)
+    var total = argc + 1
     var r = ib_fresh_vreg(ctx)
+    if total == 1 {
+        var c1 = int_vec_new()
+        int_vec_push(c1, ir_call())
+        int_vec_push(c1, r)
+        int_vec_push(c1, method_tok)
+        int_vec_push(c1, 1)
+        int_vec_push(c1, obj_reg)
+        ib_emit(ctx, c1)
+        return r
+    }
+    var arg_regs = int_vec_new()
+    int_vec_push(arg_regs, obj_reg)
+    var i = 0
+    while (i < argc) {
+        var av = lower_expr(ctx, src, int_vec_get(args_h, i))
+        int_vec_push(arg_regs, av)
+        i = i + 1
+    }
     var minst = int_vec_new()
     int_vec_push(minst, ir_call())
     int_vec_push(minst, r)
     int_vec_push(minst, method_tok)
-    int_vec_push(minst, argc + 1)
-    int_vec_push(minst, obj_reg)
+    int_vec_push(minst, total)
+    int_vec_push(minst, arg_regs)
     ib_emit(ctx, minst)
     return r
 }
@@ -569,7 +732,9 @@ func lower_expr_index(ctx: int, src: str, node: int): int {
         var name = ib_tok_text(ctx, src, ast_child(obj, 0))
         var base = ib_lookup_local(ctx, src, name)
         var alen = ib_lookup_array_len(ctx, src, name)
-        if ((base < 0) == 0 & alen > 1) {
+        var stride = ib_lookup_array_stride(ctx, src, name)
+        // Scalar-element arrays only (int[]/bool[]/str[]). Struct arrays use arr[i].field.
+        if ((base < 0) == 0) & (stride == 1) & (alen > 1) {
             if ast_kind(idx_node) == nd_int_lit() {
                 var off = ast_child(idx_node, 0)
                 if ((off < 0) == 0 & off < alen) {
@@ -577,6 +742,11 @@ func lower_expr_index(ctx: int, src: str, node: int): int {
                     ib_emit(ctx, ir_inst(ir_load(), r, base + off, 0, 0))
                     return r
                 }
+            } else {
+                var idx = lower_expr(ctx, src, idx_node)
+                var r = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_array_load(), r, base, idx, alen))
+                return r
             }
         }
     }
@@ -627,6 +797,7 @@ func lower_expr(ctx: int, src: str, node: int): int {
     }
 
     if kind == nd_call() { return lower_expr_call(ctx, src, node) }
+    if kind == nd_generic_call() { return lower_expr_generic_call(ctx, src, node) }
     if kind == nd_method_call() { return lower_expr_method_call(ctx, src, node) }
     if kind == nd_index() { return lower_expr_index(ctx, src, node) }
     if kind == nd_field() { return lower_expr_field(ctx, src, node) }
@@ -712,23 +883,208 @@ func lower_while_stmt(ctx: int, src: str, node: int): int {
     return 0
 }
 
-// Lower nd_var_decl for array types.
-func lower_stmt_var_array(ctx: int, src: str, name_tok: int, init: int): int {
+// Lower nd_flux. Supported iterables:
+// - `start..end` → half-open range [start, end) (Issue #20)
+// - local `int[]` ident → index loop i in 0..len; v = arr[i] (Issue #56)
+func lower_stmt_flux(ctx: int, src: str, node: int): int {
+    var vtok = ast_child(node, 0)
+    var iterable = ast_child(node, 1)
+    var body = ast_child(node, 2)
+    var scope = ib_scope_push(ctx)
+    if ast_kind(iterable) == nd_range() {
+        var start_node = ast_child(iterable, 0)
+        var end_node = ast_child(iterable, 1)
+
+        var slot = ib_define_local(ctx, vtok)
+        ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
+
+        var start = lower_expr(ctx, src, start_node)
+        var end = lower_expr(ctx, src, end_node)
+        ib_emit(ctx, ir_inst(ir_store(), slot, start, 0, 0))
+
+        var one = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), one, 1, 0, 0))
+
+        var cond_lbl = ib_fresh_label(ctx)
+        var body_lbl = ib_fresh_label(ctx)
+        var end_lbl = ib_fresh_label(ctx)
+
+        ib_add_blk(ctx, ir_block_new(cond_lbl))
+        ib_add_blk(ctx, ir_block_new(body_lbl))
+        ib_add_blk(ctx, ir_block_new(end_lbl))
+
+        ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+
+        var cond_handle = ib_find_blk_by_label(ctx, cond_lbl)
+        if (cond_handle < 0) {
+            stderr("ir-builder error: missing flux-cond block handle\n")
+            return 1
+        }
+        ib_set_blk(ctx, cond_handle)
+        var cur = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), cur, slot, 0, 0))
+        var cmp = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_lt(), cmp, cur, end, 0))
+        ib_emit(ctx, ir_inst(ir_br_cond(), cmp, body_lbl, end_lbl, 0))
+
+        var body_handle = ib_find_blk_by_label(ctx, body_lbl)
+        if (body_handle < 0) {
+            stderr("ir-builder error: missing flux-body block handle\n")
+            return 1
+        }
+        ib_set_blk(ctx, body_handle)
+        lower_block(ctx, src, body)
+        var v2 = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), v2, slot, 0, 0))
+        var v3 = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_add(), v3, v2, one, 0))
+        ib_emit(ctx, ir_inst(ir_store(), slot, v3, 0, 0))
+        ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+
+        var end_handle = ib_find_blk_by_label(ctx, end_lbl)
+        if (end_handle < 0) {
+            stderr("ir-builder error: missing flux-end block handle\n")
+            return 1
+        }
+        ib_set_blk(ctx, end_handle)
+    } else {
+        if ast_kind(iterable) == nd_ident() {
+            var aname = ib_tok_text(ctx, src, ast_child(iterable, 0))
+            var base = ib_lookup_local(ctx, src, aname)
+            var alen = ib_lookup_array_len(ctx, src, aname)
+            var stride = ib_lookup_array_stride(ctx, src, aname)
+            // Fixed scalar-element arrays (int[]/bool[]/str[]); alen==1 is scalar marker.
+            if ((base < 0) == 0) & (stride == 1) & (alen > 1) {
+                var idx_tok = vtok
+                // Index temp (anonymous): reuse vreg without name for loop counter;
+                // bind loop variable `v` to element value each iteration.
+                var idx_slot = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_alloca(), idx_slot, 0, 0, 0))
+                var zero = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_const(), zero, 0, 0, 0))
+                ib_emit(ctx, ir_inst(ir_store(), idx_slot, zero, 0, 0))
+
+                var lenr = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_const(), lenr, alen, 0, 0))
+                var one2 = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_const(), one2, 1, 0, 0))
+
+                var val_slot = ib_define_local(ctx, idx_tok)
+                ib_emit(ctx, ir_inst(ir_alloca(), val_slot, 0, 0, 0))
+
+                var cond_lbl2 = ib_fresh_label(ctx)
+                var body_lbl2 = ib_fresh_label(ctx)
+                var end_lbl2 = ib_fresh_label(ctx)
+                ib_add_blk(ctx, ir_block_new(cond_lbl2))
+                ib_add_blk(ctx, ir_block_new(body_lbl2))
+                ib_add_blk(ctx, ir_block_new(end_lbl2))
+                ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl2, 0, 0))
+
+                var ch2 = ib_find_blk_by_label(ctx, cond_lbl2)
+                if (ch2 < 0) {
+                    stderr("ir-builder error: missing array-flux-cond block handle\n")
+                    return 1
+                }
+                ib_set_blk(ctx, ch2)
+                var icur = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_load(), icur, idx_slot, 0, 0))
+                var icmp = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_lt(), icmp, icur, lenr, 0))
+                ib_emit(ctx, ir_inst(ir_br_cond(), icmp, body_lbl2, end_lbl2, 0))
+
+                var bh2 = ib_find_blk_by_label(ctx, body_lbl2)
+                if (bh2 < 0) {
+                    stderr("ir-builder error: missing array-flux-body block handle\n")
+                    return 1
+                }
+                ib_set_blk(ctx, bh2)
+                var icur2 = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_load(), icur2, idx_slot, 0, 0))
+                var elem = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_array_load(), elem, base, icur2, alen))
+                ib_emit(ctx, ir_inst(ir_store(), val_slot, elem, 0, 0))
+                lower_block(ctx, src, body)
+                var icur3 = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_load(), icur3, idx_slot, 0, 0))
+                var inext = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_add(), inext, icur3, one2, 0))
+                ib_emit(ctx, ir_inst(ir_store(), idx_slot, inext, 0, 0))
+                ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl2, 0, 0))
+
+                var eh2 = ib_find_blk_by_label(ctx, end_lbl2)
+                if (eh2 < 0) {
+                    stderr("ir-builder error: missing array-flux-end block handle\n")
+                    return 1
+                }
+                ib_set_blk(ctx, eh2)
+            }
+        }
+    }
+    ib_scope_pop(ctx, scope)
+    return 0
+}
+
+// Lower nd_var_decl for array types (int[]/bool[]/str[] or struct-element arrays).
+func lower_stmt_var_array(ctx: int, src: str, name_tok: int, type_node: int, init: int): int {
     var elems = ast_child(init, 0)
     var ne = int_vec_len(elems)
-    if (ne > 0) {
-        var base = ib_define_array_local(ctx, name_tok, ne)
+    if (ne > 0) == 0 { return 0 }
+
+    var stride = 1
+    var elem_sty = ib_struct_ty_none()
+    var elem_ty = ast_child(type_node, 0)
+    if (elem_ty < 0) == 0 {
+        if ast_kind(elem_ty) == nd_type_name() {
+            var etok = ast_child(elem_ty, 0)
+            var sw = ib_type_struct_width(ctx, src, etok)
+            if (sw > 0) {
+                stride = sw
+                elem_sty = etok
+            }
+        }
+    }
+
+    var base = ib_define_array_local(ctx, name_tok, ne, stride, elem_sty)
+    var total = ne * stride
+    var si = 0
+    while (si < total) {
+        ib_emit(ctx, ir_inst(ir_alloca(), base + si, 0, 0, 0))
+        si = si + 1
+    }
+
+    if (stride == 1) {
         var j = 0
         while (j < ne) {
-            var slot = base + j
-            ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
             var ev = lower_expr(ctx, src, int_vec_get(elems, j))
-            ib_emit(ctx, ir_inst(ir_store(), slot, ev, 0, 0))
+            ib_emit(ctx, ir_inst(ir_store(), base + j, ev, 0, 0))
             j = j + 1
         }
         return 1
     }
-    return 0
+
+    // Struct-element array: each elem is an obj lit; store fields into stride slots.
+    var k = 0
+    while (k < ne) {
+        var elem = int_vec_get(elems, k)
+        if ast_kind(elem) == nd_obj_lit() {
+            var fields_vec = ast_child(elem, 1)
+            var nf = int_vec_len(fields_vec)
+            var kf = 0
+            while (kf < nf) {
+                var finit = int_vec_get(fields_vec, kf)
+                var fexpr = ast_child(finit, 1)
+                var fname_tok = ast_child(finit, 0)
+                var idx2 = ib_struct_field_index(ctx, src, elem_sty, fname_tok)
+                if ((idx2 < 0) == 0) & (idx2 < stride) {
+                    var ev2 = lower_expr(ctx, src, fexpr)
+                    ib_emit(ctx, ir_inst(ir_store(), base + k * stride + idx2, ev2, 0, 0))
+                }
+                kf = kf + 1
+            }
+        }
+        k = k + 1
+    }
+    return 1
 }
 
 // Lower nd_var_decl for struct types.
@@ -814,6 +1170,66 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
         var val = lower_expr(ctx, src, value)
         if (slot < 0) == 0 {
             ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+        } else {
+            var gi = ib_find_global_index(ctx, src, name_tok)
+            if (gi < 0) == 0 {
+                ib_emit(ctx, ir_inst(ir_global_store(), gi, val, 0, 0))
+            }
+        }
+        return 0
+    }
+    if ast_kind(target) == nd_field() {
+        var obj_node = ast_child(target, 0)
+        var field_tok = ast_child(target, 1)
+        if ast_kind(obj_node) == nd_index() {
+            var arr_node = ast_child(obj_node, 0)
+            var idx_node = ast_child(obj_node, 1)
+            if ast_kind(arr_node) == nd_ident() {
+                var arr_name = ib_tok_text(ctx, src, ast_child(arr_node, 0))
+                var base = ib_lookup_local(ctx, src, arr_name)
+                var nelem = ib_lookup_array_len(ctx, src, arr_name)
+                var stride = ib_lookup_array_stride(ctx, src, arr_name)
+                var sty = ib_lookup_struct_ty(ctx, src, arr_name)
+                if ((base < 0) == 0) & (stride > 1) & (sty != ib_struct_ty_none()) & (nelem > 0) {
+                    var fidx = ib_struct_field_index(ctx, src, sty, field_tok)
+                    if ((fidx < 0) == 0) & (fidx < stride) {
+                        var total = nelem * stride
+                        var val = lower_expr(ctx, src, value)
+                        if ast_kind(idx_node) == nd_int_lit() {
+                            var off_e = ast_child(idx_node, 0)
+                            if ((off_e < 0) == 0) & (off_e < nelem) {
+                                ib_emit(ctx, ir_inst(ir_store(), base + off_e * stride + fidx, val, 0, 0))
+                            }
+                        } else {
+                            var idx = lower_expr(ctx, src, idx_node)
+                            var sr = ib_fresh_vreg(ctx)
+                            ib_emit(ctx, ir_inst(ir_const(), sr, stride, 0, 0))
+                            var scaled = ib_fresh_vreg(ctx)
+                            ib_emit(ctx, ir_inst(ir_mul(), scaled, idx, sr, 0))
+                            var fr = ib_fresh_vreg(ctx)
+                            ib_emit(ctx, ir_inst(ir_const(), fr, fidx, 0, 0))
+                            var off = ib_fresh_vreg(ctx)
+                            ib_emit(ctx, ir_inst(ir_add(), off, scaled, fr, 0))
+                            ib_emit(ctx, ir_inst(ir_array_store(), base, off, val, total))
+                        }
+                    }
+                }
+            }
+            return 0
+        }
+        if ast_kind(obj_node) == nd_ident() {
+            var obj_name = ib_tok_text(ctx, src, ast_child(obj_node, 0))
+            var base = ib_lookup_local(ctx, src, obj_name)
+            var alen = ib_lookup_array_len(ctx, src, obj_name)
+            var stride = ib_lookup_array_stride(ctx, src, obj_name)
+            var sty = ib_lookup_struct_ty(ctx, src, obj_name)
+            if ((base < 0) == 0) & (stride == 0) & (sty != ib_struct_ty_none()) {
+                var fidx = ib_struct_field_index(ctx, src, sty, field_tok)
+                if ((fidx < 0) == 0 & fidx < alen) {
+                    var val = lower_expr(ctx, src, value)
+                    ib_emit(ctx, ir_inst(ir_store(), base + fidx, val, 0, 0))
+                }
+            }
         }
         return 0
     }
@@ -824,16 +1240,22 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
             var name = ib_tok_text(ctx, src, ast_child(obj, 0))
             var base = ib_lookup_local(ctx, src, name)
             var alen = ib_lookup_array_len(ctx, src, name)
-            if ((base < 0) == 0 & alen > 1) {
+            var stride = ib_lookup_array_stride(ctx, src, name)
+            if ((base < 0) == 0) & (stride == 1) & (alen > 1) {
                 if ast_kind(idx_node) == nd_int_lit() {
                     var off = ast_child(idx_node, 0)
                     if ((off < 0) == 0 & off < alen) {
                         var val = lower_expr(ctx, src, value)
                         ib_emit(ctx, ir_inst(ir_store(), base + off, val, 0, 0))
                     }
+                } else {
+                    var idx = lower_expr(ctx, src, idx_node)
+                    var val = lower_expr(ctx, src, value)
+                    ib_emit(ctx, ir_inst(ir_array_store(), base, idx, val, alen))
                 }
             }
         }
+        return 0
     }
     return 0
 }
@@ -853,7 +1275,7 @@ func lower_stmt(ctx: int, src: str, node: int): int {
             if ast_kind(type_node) == nd_type_array() {
                 if (init < 0) == 0 {
                     if ast_kind(init) == nd_array_lit() {
-                        if lower_stmt_var_array(ctx, src, name_tok, init) == 1 { return 0 }
+                        if lower_stmt_var_array(ctx, src, name_tok, type_node, init) == 1 { return 0 }
                     }
                 }
             }
@@ -867,6 +1289,14 @@ func lower_stmt(ctx: int, src: str, node: int): int {
                         if lower_stmt_var_struct(ctx, src, name_tok, type_name_tok, init) == 1 { return 0 }
                     }
                 }
+            }
+        }
+
+        // Infer struct type from `var p = Point { ... }` when no `::` annotation.
+        if (init < 0) == 0 {
+            if ast_kind(init) == nd_obj_lit() {
+                var lit_ty = ast_child(init, 0)
+                if lower_stmt_var_struct(ctx, src, name_tok, lit_ty, init) == 1 { return 0 }
             }
         }
 
@@ -895,6 +1325,8 @@ func lower_stmt(ctx: int, src: str, node: int): int {
     if kind == nd_if() { return lower_stmt_if(ctx, src, node) }
 
     if kind == nd_while() { return lower_while_stmt(ctx, src, node) }
+
+    if kind == nd_flux() { return lower_stmt_flux(ctx, src, node) }
 
     if kind == nd_expr_stmt() {
         lower_expr(ctx, src, ast_child(node, 0))
@@ -931,12 +1363,22 @@ func lower_block(ctx: int, src: str, node: int): int {
 // --- Function lowering ---
 
 func lower_func(ctx: int, src: str, node: int): int {
+    return lower_func_opts(ctx, src, node, 0 - 1, 0)
+}
+
+// Lower a function. If |class_type_tok| >= 0, inject implicit `self` as param 0
+// (struct receiver for class-body methods, Issue #57).
+func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_self: int): int {
     var name_tok = ast_child(node, 0)
     var params_h = ast_child(node, 1)
     var ret_type = ast_child(node, 2)
     var body     = ast_child(node, 3)
 
     var pcount = int_vec_len(params_h)
+    var total_params = pcount
+    if inject_self == 1 {
+        total_params = pcount + 1
+    }
 
     var ret_ty = ir_ty_int()
     if (ret_type < 0) == 0 {
@@ -948,7 +1390,7 @@ func lower_func(ctx: int, src: str, node: int): int {
         }
     }
 
-    var f = ir_func_new(name_tok, pcount, ret_ty)
+    var f = ir_func_new(name_tok, total_params, ret_ty)
     bctx_set_func(ctx, f)
     bctx_set_vreg(ctx, 0)
     bctx_set_label(ctx, 0)
@@ -959,11 +1401,29 @@ func lower_func(ctx: int, src: str, node: int): int {
     ib_add_blk(ctx, entry)
     ib_set_blk(ctx, entry)
 
+    var pi = 0
+    if inject_self == 1 {
+        var self_tok = ib_find_self_tok(body, bctx_toks(ctx))
+        if (self_tok < 0) {
+            self_tok = name_tok
+        }
+        var sw = ib_type_struct_width(ctx, src, class_type_tok)
+        if (sw > 0) {
+            var base = ib_define_struct_local(ctx, self_tok, sw, class_type_tok)
+            ib_emit(ctx, ir_inst(ir_param(), base, 0, 0, 0))
+        } else {
+            var slot0 = ib_define_local(ctx, self_tok)
+            ib_emit(ctx, ir_inst(ir_param(), slot0, 0, 0, 0))
+        }
+        pi = 1
+    }
+
     var i = 0
     while (i < pcount) {
         var p = int_vec_get(params_h, i)
         var slot = ib_define_local(ctx, ast_child(p, 0))
-        ib_emit(ctx, ir_inst(ir_param(), slot, i, 0, 0))
+        ib_emit(ctx, ir_inst(ir_param(), slot, pi, 0, 0))
+        pi = pi + 1
         i = i + 1
     }
 
@@ -972,6 +1432,81 @@ func lower_func(ctx: int, src: str, node: int): int {
     ib_scope_pop(ctx, scope)
     mod_add_func(bctx_mod(ctx), f)
     return 0
+}
+
+// Find first `self` identifier token under |node|, or -1.
+func ib_find_self_tok(node: int, toks: int): int {
+    if (node < 0) { return 0 - 1 }
+    var kind = ast_kind(node)
+    if kind == nd_ident() {
+        var t = ast_child(node, 0)
+        if tok_kind(toks, t) == tk_self() {
+            return t
+        }
+        return 0 - 1
+    }
+    if kind == nd_field() {
+        return ib_find_self_tok(ast_child(node, 0), toks)
+    }
+    if kind == nd_assign() {
+        var a = ib_find_self_tok(ast_child(node, 0), toks)
+        if (a < 0) == 0 { return a }
+        return ib_find_self_tok(ast_child(node, 1), toks)
+    }
+    if kind == nd_binop() {
+        var a = ib_find_self_tok(ast_child(node, 1), toks)
+        if (a < 0) == 0 { return a }
+        return ib_find_self_tok(ast_child(node, 2), toks)
+    }
+    if kind == nd_return() {
+        var e = ast_child(node, 0)
+        if (e < 0) == 0 { return ib_find_self_tok(e, toks) }
+        return 0 - 1
+    }
+    if kind == nd_block() {
+        var stmts = ast_child(node, 0)
+        var i = 0
+        while (i < int_vec_len(stmts)) {
+            var f = ib_find_self_tok(int_vec_get(stmts, i), toks)
+            if (f < 0) == 0 { return f }
+            i = i + 1
+        }
+        return 0 - 1
+    }
+    if kind == nd_var_decl() {
+        var init = ast_child(node, 2)
+        if (init < 0) == 0 { return ib_find_self_tok(init, toks) }
+        return 0 - 1
+    }
+    if kind == nd_if() {
+        var a = ib_find_self_tok(ast_child(node, 0), toks)
+        if (a < 0) == 0 { return a }
+        a = ib_find_self_tok(ast_child(node, 1), toks)
+        if (a < 0) == 0 { return a }
+        var els = ast_child(node, 2)
+        if (els < 0) == 0 {
+            if (els == 2147483647) == 0 {
+                return ib_find_self_tok(els, toks)
+            }
+        }
+        return 0 - 1
+    }
+    if kind == nd_expr_stmt() {
+        return ib_find_self_tok(ast_child(node, 0), toks)
+    }
+    if kind == nd_call() {
+        var a = ib_find_self_tok(ast_child(node, 0), toks)
+        if (a < 0) == 0 { return a }
+        var args = ast_child(node, 1)
+        var ai = 0
+        while (ai < int_vec_len(args)) {
+            var f = ib_find_self_tok(int_vec_get(args, ai), toks)
+            if (f < 0) == 0 { return f }
+            ai = ai + 1
+        }
+        return 0 - 1
+    }
+    return 0 - 1
 }
 
 func lower_extern(ctx: int, src: str, node: int): int {
@@ -1005,16 +1540,33 @@ func lower_global(ctx: int, src: str, node: int): int {
             if ik == nd_bool_lit() {
                 init_val = ast_child(init, 0)
             } else {
-                var r = lower_expr(ctx, src, init)
-                var i = 0
-                while (i < int_vec_len(bctx_global_vals(ctx))) {
-                    var gval = int_vec_get(bctx_global_vals(ctx), i)
-                    if (gval == r) {
+                if ik == nd_str_lit() {
+                    var tok_idx = ast_child(init, 0)
+                    init_val = int_vec_len(bctx_str_vec(ctx))
+                    int_vec_push(bctx_str_vec(ctx), tok_idx)
+                    gtype = ir_ty_str()
+                } else {
+                    if ik == nd_unary() {
+                        var uo = ast_child(init, 0)
+                        var uoperand = ast_child(init, 1)
+                        if (uo == unop_neg()) & (ast_kind(uoperand) == nd_int_lit()) {
+                            init_val = 0 - ast_child(uoperand, 0)
+                        }
+                    }
+                    if ik == nd_unary() {
+                    } else {
+                        var r = lower_expr(ctx, src, init)
+                        var i = 0
+                        while (i < int_vec_len(bctx_global_vals(ctx))) {
+                            var gval = int_vec_get(bctx_global_vals(ctx), i)
+                            if (gval == r) {
+                                init_val = 0
+                            }
+                            i = i + 1
+                        }
                         init_val = 0
                     }
-                    i = i + 1
                 }
-                init_val = 0
             }
         }
     }
@@ -1043,6 +1595,29 @@ func lower_file(ctx: int, src: str, file_node: int): int {
         }
         if kind == nd_func() {
             lower_func(ctx, src, child)
+        }
+        if kind == nd_impl() {
+            var methods = ast_child(child, 2)
+            var mi = 0
+            while (mi < int_vec_len(methods)) {
+                var m = int_vec_get(methods, mi)
+                if ast_kind(m) == nd_func() {
+                    lower_func(ctx, src, m)
+                }
+                mi = mi + 1
+            }
+        }
+        if kind == nd_class() {
+            var class_tok = ast_child(child, 0)
+            var members = ast_child(child, 1)
+            var mj = 0
+            while (mj < int_vec_len(members)) {
+                var mem = int_vec_get(members, mj)
+                if ast_kind(mem) == nd_func() {
+                    lower_func_opts(ctx, src, mem, class_tok, 1)
+                }
+                mj = mj + 1
+            }
         }
         if kind == nd_extern_func() {
             lower_extern(ctx, src, child)

@@ -2,7 +2,13 @@
 # Broader than the original 21; still excludes package-only / multi-file demos.
 examples/algo_demo.diva
 examples/array_mutation.diva
+examples/array_dynamic.diva
 examples/arrays.diva
+examples/array_bool.diva
+examples/array_str.diva
+examples/array_struct.diva
+examples/heap_buf.diva
+examples/stdlib_packages.diva
 examples/beautiful_logic.diva
 examples/branching.diva
 examples/branch_stress.diva
@@ -10,7 +16,13 @@ examples/color_demo.diva
 examples/csv_demo.diva
 examples/escape_println.diva
 examples/escape_smoke.diva
+examples/flux_range.diva
+examples/flux_array.diva
+examples/class_methods.diva
+examples/generics.diva
 examples/generics_traits.diva
+examples/globals.diva
+examples/globals_str.diva
 examples/hello.diva
 examples/hello_di.diva
 examples/host_argv.diva
@@ -18,6 +30,7 @@ examples/json_demo.diva
 examples/log_demo.diva
 examples/loop.diva
 examples/matrix_demo.diva
+examples/method_call.diva
 examples/path_demo.diva
 examples/pattern_demo.diva
 examples/print2.diva
@@ -29,5 +42,6 @@ examples/struct_mutation.diva
 examples/structs.diva
 examples/systems_hosted.diva
 examples/testing_demo.diva
+examples/traits_static.diva
 examples/utils_demo.diva
 examples/vec_demo.diva

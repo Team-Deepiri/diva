@@ -30,12 +30,9 @@ export ROOT_DIR
 export DI_STDLIB_DIR="${DI_STDLIB_DIR:-${ROOT_DIR}/stdlib}"
 export DIVA_NO_EXTERNAL=1
 export DI_RUNTIME_O="${DI_RUNTIME_O:-${ROOT_DIR}/bootstrap/runtime-linux-amd64.o}"
-# Pinned seed may lag new externs until promoted; gcc-linked stage2 does not. Default skip only for seed.
-if [ "${DRIVER}" = "${SEED}" ]; then
-  export DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-1}"
-else
-  export DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-}"
-fi
+# Seed and tip drivers enforce native externs; override with DIVA_SKIP_NATIVE_EXTERN_CHECK=1
+# only if a lagging pin needs a one-shot rebuild (see bootstrap/README.md).
+export DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-}"
 
 LOG="${LOG:-${ROOT_DIR}/build/.pure-elf-compiler/verify-build.log}"
 mkdir -p "$(dirname "${LOG}")"

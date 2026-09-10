@@ -126,13 +126,21 @@ diva new hello-lib --lib
 Notes:
 
 - `di main.diva` builds and runs a single `.diva` file
-- `di build .` builds the current package directory
+- `diva build . -g` emits minimal DWARF (`.debug_line` / `.debug_info` / `.debug_abbrev`) so `addr2line -e <exe> 0x1000` resolves to the source entry line — see `docs/dwarf-debug.md` (Issue #63). Without `-g`, the loadable ELF layout is unchanged.
 - `di check .` validates a package without native linking
 - `di emit-ir .` writes LLVM IR into `build/`
-- `diva watch .` watches the package entry file from `package.diva`
+- `diva watch .` watches the package entry and its transitive imports (plus `package.diva`), rebuilds on content change (1s poll + 1s debounce), and keeps running after build errors. Set `DIVA_WATCH_MAX_ITERS=N` to exit after N poll cycles (CI smoke).
 - `diva new hello-di` creates an app package
 - `diva new hello-lib --lib` creates a library package
-- `diva new --kernel` creates a kernel scaffold in the native driver. **`diva build` / `diva run`** use pure ELF by default; set **`DIVA_ALLOW_HOSTED_LINK=1`** to use **`cc` + `DI_RUNTIME_O`** when you need the hosted runtime link path.
+- `diva new --kernel` creates a kernel scaffold (`kmain` in `src/boot.diva`). Use `diva check` / `emit-ir` / `build` on the package dir — see `docs/kernel-packages.md`. Hosted **`cc` + `DI_RUNTIME_O`** only when **`DIVA_ALLOW_HOSTED_LINK=1`**.
+
+## Kernel vs app
+
+| | App | Kernel |
+|--|-----|--------|
+| Manifest `kind` | `app` | `kernel` |
+| Entry func | `main` | `kmain` |
+| `diva check` / `emit-ir` / `build` | yes | yes (Issue #59) |
 
 ## Create A New Project
 
@@ -182,6 +190,18 @@ import "pkg/math_lib"
 cmake -S . -B build
 cmake --build build
 ```
+
+## Diagnostics
+
+Parser and semantic errors print:
+
+```text
+<path>:<line>:<col>: <message>
+```
+
+Lines and columns are **1-based** and refer to the originating source file (not the
+merged translation unit). Multi-file builds insert `//@diva-file:<abs-path>` markers
+when merging imports so diagnostics resolve back to the real file.
 
 ## Testing
 

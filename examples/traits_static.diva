@@ -1,0 +1,24 @@
+extern func print_int(x: int): void
+
+// Native MVP (Issue #27): trait + impl validate method names; impl methods lower as
+// free functions; `obj.method()` uses receiver-first call convention.
+
+trait Measure {
+    func measure(): int
+}
+
+struct Box {
+    value: int
+}
+
+impl Measure for Box {
+    func measure(recv: int): int {
+        return recv
+    }
+}
+
+func main(): int {
+    var b = Box { value: 7 }
+    print_int(b.measure())
+    return 0
+}

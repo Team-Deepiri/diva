@@ -4,9 +4,11 @@
 
 ## `write_elf_chunk` and promoting the seed
 
-The driver materializes pure ELF output using `write_elf_chunk` (hosted `di_runtime_write_elf_chunk` in `compiler/res/legacy/runtime_extra.s`, pure builtin id 32 in `pure_elf_builtins.diva`). The **pinned** `diva-linux-amd64` may still be an older trust root that does not implement `DIVA_SKIP_NATIVE_EXTERN_CHECK` in `native_require_no_externs`; until you promote a driver built from current sources, `scripts/install.sh`, `scripts/verify-pure-compiler-build.sh`, and `tests/run.sh` (slow path) export that skip for `diva build compiler/`. After a successful promote, clear the skip (empty `DIVA_SKIP_NATIVE_EXTERN_CHECK`) so CI enforces that the seed matches codegen.
+The driver materializes pure ELF output using `write_elf_chunk` (hosted `di_runtime_write_elf_chunk` in `compiler/res/legacy/runtime_extra.s`, pure builtin id 32 in `pure_elf_builtins.diva`).
 
-Pure ELF smoke vs full pipeline (`ir`/`asm`) is documented in `docs/pure-only-driver.md` (`scripts/verify-pure-only-driver.sh`; use `DIVA_PURE_FULL=1` for the stricter gate).
+**Issue #55 closed:** the pinned seed matches tip codegen. Install / verify / self-host scripts **do not** default `DIVA_SKIP_NATIVE_EXTERN_CHECK=1`. Set that env only for a one-shot rebuild if a temporary pin lags new externs.
+
+Pure ELF full pipeline (`ir`/`asm`) is gated by `DIVA_PURE_FULL=1 ./scripts/verify-pure-only-driver.sh` — see `docs/pure-only-driver.md`.
 
 ## What is *not* in this repository
 

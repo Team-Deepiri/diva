@@ -57,7 +57,7 @@ while IFS= read -r rel || [ -n "${rel}" ]; do
   if [ "${rc}" -eq 0 ]; then
     run_mode=0
     case "${rel}" in
-      examples/branching.diva|examples/loop.diva|examples/beautiful_logic.diva|examples/json_demo.diva|examples/branch_stress.diva)
+      examples/branching.diva|examples/loop.diva|examples/beautiful_logic.diva|examples/json_demo.diva|examples/branch_stress.diva|examples/globals.diva|examples/globals_str.diva)
         run_mode=1
         ;;
     esac

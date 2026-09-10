@@ -1,18 +1,59 @@
-# Next steps — after string arena
+# Next steps — path to a usable production language
 
-**Leave-off:** `docs/LEAVE_OFF.md` (RSS ~567 MiB; seed promoted).
+**Leave-off:** `docs/LEAVE_OFF.md` (RSS ~168 MiB; seed promoted to arena fixed point).
 
-## Do next
+## Honest status
 
-1. Bump arena for tiny AST `int_vec` objects (cut remaining ~0.5 GiB page tax).
-2. Broader CI beyond `tests/strict-pure.list`.
-3. Optional: skip per-call `FIXED_NOREPLACE` probes once arena/HT are live (micro-opt).
+Feature stack PRs (#46–#52) close much of the **codegen surface** (methods, generics
+erasure, structs, traits static, globals, dynamic `int[]`, flux ranges). That is
+necessary but **not sufficient**: wrong programs still compile (sema is structural),
+diagnostics MVP landed (`path:line:col`), and the pure self-hosted driver promote
+path is closed (#55).
+
+## Production path (do in this order)
+
+| Priority | Issue | Why |
+|----------|-------|-----|
+| **P0** | [#53](https://github.com/Team-Deepiri/diva/issues/53) type checker (**landed** assign/return/binop + sema suite) | Unknown idents → `const 0`; no real programs without reject-bad |
+| P1 | [#24](https://github.com/Team-Deepiri/diva/issues/24) module graph/cache (**landed** merge cache + graph trace) | Package identity + `.diva/cache` reuse |
+| **P0** | [#54](https://github.com/Team-Deepiri/diva/issues/54) span diagnostics | Multi-file errors useless without locations — **MVP landed** (`path:line:col:`) |
+| **P0** | [#55](https://github.com/Team-Deepiri/diva/issues/55) pure driver / seed promote (**landed**) | Trust root without skip-flag hacks |
+| **P0** | [#61](https://github.com/Team-Deepiri/diva/issues/61) negative suite (**landed**) | Lock failure cases so stacked PRs don't regress |
+| P1 | [#56](https://github.com/Team-Deepiri/diva/issues/56) array flux (**landed**), [#58](https://github.com/Team-Deepiri/diva/issues/58) bounds traps (**landed**), [#57](https://github.com/Team-Deepiri/diva/issues/57) class methods (**landed**), [#64](https://github.com/Team-Deepiri/diva/issues/64) non-int arrays (**landed**) | Collection / OOP surface |
+| P1 | [#62](https://github.com/Team-Deepiri/diva/issues/62) heap + growable buffer (**landed**) | Unblocks real [#28](https://github.com/Team-Deepiri/diva/issues/28) stdlib |
+| P1 | [#28](https://github.com/Team-Deepiri/diva/issues/28) stdlib packages (**boundaries landed**) | Documented layers + `collections`/`iter` on IntBuf |
+| P2 | [#60](https://github.com/Team-Deepiri/diva/issues/60) `diva watch` (**landed**), [#63](https://github.com/Team-Deepiri/diva/issues/63) DWARF (**landed**) | Dev UX |
+| P2 | [#59](https://github.com/Team-Deepiri/diva/issues/59) kernel packages (**landed**) | Feeds [#30](https://github.com/Team-Deepiri/diva/issues/30) systems track |
+
+Still open from earlier track: merge the feature stack to `dev`/`main`, finish
+[#24](https://github.com/Team-Deepiri/diva/issues/24) module graph/cache,
+[#26](https://github.com/Team-Deepiri/diva/issues/26) monomorphization / generic classes,
+[#28](https://github.com/Team-Deepiri/diva/issues/28)–[#31](https://github.com/Team-Deepiri/diva/issues/31) stdlib/SDK/FFI/runtime-research.
+
+## Do next (immediate)
+
+1. **Land / merge** stacked native PRs (#47–#52) onto `dev` so mainline matches tip.
+2. **Implement #53** (type checker) — MVP landed: unknown idents + call arity; continue with full types.
+3. Pair **#54** diagnostics + **#61** negative suite (**landed**: `tests/negative.list` + `run-negative.sh`) with #53 so errors stay actionable.
+
+## Native codegen gaps (remaining)
+
+See `docs/diva-roadmap.md`. Highlights still partial/seed:
+
+1. **OOP:** class-body methods / `self` (#57 landed — value receiver); trait objects later (#27 residual).
+2. **Collections:** `bool[]`/`str[]`/struct arrays (#64 landed); array flux (#56) + bounds traps (#58) landed.
+3. **Imports / modules:** full graph/cache (#24); import merge already in flight (#17).
+4. **Generics:** monomorphization / generic classes (#26).
+5. **IR Stage 2 / backends:** #25 status doc; kernel path #59 + #30.
+6. **Runtime/stdlib:** heap (#62 landed — `mem_*` + `int_buf_*`); grow packages (#28).
 
 ## Footguns
 
 | Symptom | Cause / fix |
 |---------|-------------|
 | ~28 GiB RSS | page-rounded string `mmap` — STRA arena |
+| ~0.5 GiB AST RSS floor | 4 KiB per-`int_vec` mmap — ASTA bump arena (cap 13 slots, promote-on-grow) |
 | Emit size drift | sync return + `pure_builtin_call_size` |
 | `0xc3` in pure blob | NO ret on inlined builtins |
 | Don’t commit | `bootstrap/*.bak-*` |
+| Silent wrong results | no type checker yet — #53 |

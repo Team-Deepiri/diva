@@ -267,13 +267,18 @@ run_all_tests() {
     ln -sf diva "${BIN_DIR}/di" 2>/dev/null || true
     log "checking semantic failure cases (before long native run smoke)"
 assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_decl.diva" "duplicate declaration of 'x' in the same scope"
-# unknown_ident: pinned seed lowers free identifiers as const 0 (no lowering error yet).
-# IR lowering rejects unknown idents once the in-tree driver replaces the seed; see ir_builder.diva.
-# duplicate_import_main / package_mismatch_main: seed expected "native build: unsupported surface"; the
-# in-tree driver now accepts package+imports for native build. Re-add a sema-level negative test when
-# duplicate symbols / package entry rules are enforced with stable diagnostics.
-assert_error_contains "${ROOT_DIR}/tests/cases/fail/missing_trait_method.diva" "parse error"
-# unknown_package_dep: was "loader: cannot read"; native merge path may no longer fail this package at build time.
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_ident.diva" "unknown identifier 'missing'"
+# Span diagnostics (Issue #54): path:line:col: prefix on parser + sema errors.
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_ident.diva" "unknown_ident.diva:2:"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/parse_bad_params.diva" "parse error: expected"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/parse_bad_params.diva" "parse_bad_params.diva:1:"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/wrong_arity.diva" "wrong number of arguments for 'add'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/wrong_arity.diva" "wrong_arity.diva:"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_func.diva" "duplicate function 'foo'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/self_outside_method.diva" "unknown identifier 'self'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/duplicate_import_main.diva" "duplicate function 'clash'"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/missing_trait_method.diva" "missing trait method"
+assert_error_contains "${ROOT_DIR}/tests/cases/fail/unknown_package_dep" "unknown package dependency"
 
 assert_output_equals "${ROOT_DIR}/examples/hello.diva" "10"
 assert_output_equals "${ROOT_DIR}/examples/escape_smoke.diva" "$(printf '1\n')"
@@ -294,16 +299,66 @@ assert_output_equals "${ROOT_DIR}/examples/structs.diva" "18
 assert_output_equals "${ROOT_DIR}/examples/struct_mutation.diva" "10"
 assert_output_equals "${ROOT_DIR}/examples/arrays.diva" "9"
 assert_output_equals "${ROOT_DIR}/examples/array_mutation.diva" "16"
+assert_output_equals "${ROOT_DIR}/examples/array_dynamic.diva" "9
+99
+6"
+assert_output_equals "${ROOT_DIR}/examples/array_bool.diva" "1
+0
+1"
+assert_output_equals "${ROOT_DIR}/examples/array_str.diva" "hi
+ok
+zz"
+assert_output_equals "${ROOT_DIR}/examples/array_struct.diva" "1
+4
+5
+9"
+assert_output_equals "${ROOT_DIR}/examples/heap_buf.diva" "5
+10
+50"
+assert_output_equals "${ROOT_DIR}/examples/stdlib_packages.diva" "35
+20
+5
+10"
+# Dynamic OOB index must abort (exit non-zero), not silently corrupt.
+oob_exe="${TEST_ROOT}/array_oob"
+if ! diva build "${ROOT_DIR}/tests/cases/fail/array_oob_runtime.diva" "${oob_exe}" >"${TEST_ROOT}/oob_build.out" 2>&1; then
+    sed -n '1,80p' "${TEST_ROOT}/oob_build.out" >&2
+    fail "array_oob_runtime failed to build"
+fi
+set +e
+"${oob_exe}" >"${TEST_ROOT}/oob_run.out" 2>&1
+oob_rc=$?
+set -e
+if [ "${oob_rc}" -eq 0 ]; then
+    fail "array_oob_runtime expected non-zero exit"
+fi
+log "array_oob_runtime aborted as expected (rc=${oob_rc})"
+assert_output_equals "${ROOT_DIR}/examples/flux_range.diva" "10
+5
+1
+0
+0"
+assert_output_equals "${ROOT_DIR}/examples/flux_array.diva" "30"
+assert_output_equals "${ROOT_DIR}/examples/class_methods.diva" "3
+7"
 assert_output_equals "${ROOT_DIR}/examples/imports/main.diva" "42"
 assert_output_equals "${ROOT_DIR}/examples/generics_traits.diva" "7"
+assert_output_equals "${ROOT_DIR}/examples/method_call.diva" "7
+6"
+assert_output_equals "${ROOT_DIR}/examples/traits_static.diva" "7"
+assert_output_equals "${ROOT_DIR}/examples/globals.diva" "5
+10
+11
+11"
+assert_output_equals "${ROOT_DIR}/examples/globals_str.diva" "hello
+world"
 assert_output_equals "${ROOT_DIR}/examples/stdlib_demo.diva" "12
 10
 10
 5
 1
 1"
-assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from diva0x0000000000000014
-"
+assert_output_equals "${ROOT_DIR}/examples/systems_hosted.diva" "systems io from diva0x0000000000000014"
 assert_output_equals "${ROOT_DIR}/examples/packages/app_with_dep" "42"
 assert_output_equals "${ROOT_DIR}/examples/utils_demo.diva" "1
 6
@@ -332,6 +387,7 @@ log "checking Diva IR smoke output (emit-ir)"
 assert_ir_contains "${ROOT_DIR}/examples/loop.diva" "br.cond"
 assert_ir_contains "${ROOT_DIR}/examples/arrays.diva" "store"
 assert_ir_contains "${ROOT_DIR}/examples/array_mutation.diva" "store"
+assert_ir_contains "${ROOT_DIR}/examples/flux_range.diva" "br.cond"
 
 log "checking generated project workflow"
 rm -rf "${TEST_ROOT}/generated-app"
@@ -389,21 +445,34 @@ fi
 
 if ! (
     cd "${TEST_ROOT}/generated-kernel" &&
-    diva parse src/boot.diva >"${TEST_ROOT}/generated-kernel-check.out" 2>&1
+    diva check . >"${TEST_ROOT}/generated-kernel-check.out" 2>&1
 ); then
     sed -n '1,120p' "${TEST_ROOT}/generated-kernel-check.out" >&2
     fail "generated kernel package failed diva check"
 fi
 
 log "checking kernel package workflow"
-if ! diva parse "${ROOT_DIR}/examples/kernel_demo/src/boot.diva" >"${TEST_ROOT}/kernel-check.out" 2>&1; then
+if ! diva check "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-check.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/kernel-check.out" >&2
     fail "kernel package failed diva check"
 fi
 
-if ! diva emit-ir "${ROOT_DIR}/examples/kernel_demo/src/boot.diva" >"${TEST_ROOT}/kernel-ir.out" 2>&1; then
+if ! diva emit-ir "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-ir.out" 2>&1; then
     sed -n '1,120p' "${TEST_ROOT}/kernel-ir.out" >&2
     fail "kernel package failed diva emit-ir"
+fi
+
+kern_elf="${TEST_ROOT}/kernel_demo.elf"
+if ! DIVA_NATIVE_EXE_OUT="${kern_elf}" diva build "${ROOT_DIR}/examples/kernel_demo" >"${TEST_ROOT}/kernel-build.out" 2>&1; then
+    sed -n '1,120p' "${TEST_ROOT}/kernel-build.out" >&2
+    fail "kernel package failed diva build"
+fi
+set +e
+"${kern_elf}" >"${TEST_ROOT}/kernel-run.out" 2>&1
+kern_rc=$?
+set -e
+if [ "${kern_rc}" -ne 42 ]; then
+    fail "kernel_demo expected exit 42, got ${kern_rc}"
 fi
 
     log "all integration checks passed (${_stage})"
@@ -427,7 +496,7 @@ else
     BUILD_OUT="${TEST_ROOT}/compiler-selfhost-build.out"
     log "build compiler/ with ${PURE_BUILD_DRIVER} (timeout ${COMPILER_TIMEOUT_SECS}s)"
     if ! timed "${COMPILER_TIMEOUT_SECS}" env ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-        DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-1}" \
+        DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-}" \
         DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
         "${PURE_BUILD_DRIVER}" build "${ROOT_DIR}/compiler" >"${BUILD_OUT}" 2>&1
     then
@@ -452,7 +521,7 @@ else
     BUILD3_OUT="${TEST_ROOT}/compiler-stage3-build.out"
     log "second build compiler/ with ${PURE_BUILD_DRIVER} (timeout ${COMPILER_TIMEOUT_SECS}s)"
     if ! timed "${COMPILER_TIMEOUT_SECS}" env ROOT_DIR="${ROOT_DIR}" DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
-        DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-1}" \
+        DIVA_SKIP_NATIVE_EXTERN_CHECK="${DIVA_SKIP_NATIVE_EXTERN_CHECK:-}" \
         DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
         "${PURE_BUILD_DRIVER}" build "${ROOT_DIR}/compiler" >"${BUILD3_OUT}" 2>&1
     then
