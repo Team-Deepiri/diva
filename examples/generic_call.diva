@@ -1,0 +1,12 @@
+extern func print_int(x: int): void
+
+// Native subset: identity[int](x) parses as nd_generic_call and lowers like identity(x).
+func identity(x: int): int {
+    return x
+}
+
+func main(): int {
+    print_int(identity[int](7))
+    print_int(identity(3 + 4))
+    return 0
+}
