@@ -835,6 +835,23 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
             }
         }
     }
+    if ast_kind(target) == nd_field() {
+        var obj_node = ast_child(target, 0)
+        var field_tok = ast_child(target, 1)
+        if ast_kind(obj_node) == nd_ident() {
+            var obj_name = ib_tok_text(ctx, src, ast_child(obj_node, 0))
+            var base2 = ib_lookup_local(ctx, src, obj_name)
+            var alen2 = ib_lookup_array_len(ctx, src, obj_name)
+            var sty = ib_lookup_struct_ty(ctx, src, obj_name)
+            if ((base2 < 0) == 0 & sty != ib_struct_ty_none()) {
+                var fidx = ib_struct_field_index(ctx, src, sty, field_tok)
+                if ((fidx < 0) == 0 & fidx < alen2) {
+                    var val2 = lower_expr(ctx, src, value)
+                    ib_emit(ctx, ir_inst(ir_store(), base2 + fidx, val2, 0, 0))
+                }
+            }
+        }
+    }
     return 0
 }
 

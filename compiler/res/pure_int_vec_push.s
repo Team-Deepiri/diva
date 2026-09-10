@@ -1,6 +1,11 @@
-/* Pure ELF int_vec_push — handle is table index. Grows with mremap(MAYMOVE). NO ret. */
+/* Pure ELF int_vec_push — handle is table index. If the object is an arena slot
+   (map_bytes == 0) and full, promote it to a fresh 4KiB mmap (copy header + data,
+   update handle table), then continue. Real mmaps grow via mremap(MAYMOVE). NO ret. */
 .equ HT_BASE, 0x500000000000
 .equ HT_MAX, 1048575
+.equ INIT_BYTES, 0x1000
+.equ MAP_PRIVATE_ANON, 0x22
+.equ PROT_RW, 3
 .equ MREMAP_MAYMOVE, 1
 
 .section .note.GNU-stack,"",@progbits
@@ -32,7 +37,41 @@ pure_int_vec_push:
 	movq	%rax, (%rbx)
 	jmp	.Lok
 .Lgrow:
-	movq	16(%rbx), %rsi			/* old_bytes */
+	movq	16(%rbx), %rsi			/* map_bytes */
+	testq	%rsi, %rsi
+	jne	.Lgrow_mmap			/* real mmap: mremap */
+	/* arena slot full: promote to a fresh 4KiB mmap */
+	xorl	%edi, %edi
+	movl	$INIT_BYTES, %esi
+	movl	$PROT_RW, %edx
+	movl	$MAP_PRIVATE_ANON, %r10d
+	movq	$-1, %r8
+	xorl	%r9d, %r9d
+	movl	$9, %eax
+	syscall
+	cmpq	$-4096, %rax
+	ja	.Lfull
+	movq	%rax, %r14			/* new object */
+	movq	(%rbx), %rcx			/* len (cap == len here) */
+	movq	%rcx, (%r14)
+	movl	$((INIT_BYTES - 24) / 8), %ecx
+	movq	%rcx, 8(%r14)			/* cap */
+	movl	$INIT_BYTES, %ecx
+	movq	%rcx, 16(%r14)			/* map_bytes */
+	/* copy existing payload: SLOT_BYTES - 24 qwords max; copy len qwords */
+	movq	(%rbx), %rcx			/* len */
+	testq	%rcx, %rcx
+	je	.Lcopied
+	leaq	0x18(%rbx), %rsi		/* src payload */
+	leaq	0x18(%r14), %rdi		/* dst payload */
+	shlq	$3, %rcx
+	rep movsb
+.Lcopied:
+	movabs	$HT_BASE, %rcx
+	movq	%r14, (%rcx,%r12,8)		/* update table */
+	movq	%r14, %rbx
+	jmp	.Ltry
+.Lgrow_mmap:
 	leaq	(%rsi,%rsi), %r14		/* new_bytes = old*2 */
 	movq	%rbx, %rdi
 	movq	%r14, %rdx
