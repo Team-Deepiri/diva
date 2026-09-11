@@ -2,21 +2,15 @@
 
 Issue: [#26](https://github.com/Team-Deepiri/diva/issues/26). Call-site IR: [#23](https://github.com/Team-Deepiri/diva/issues/23).
 
-## Current strategy: type erasure
+## Current strategy: call-site monomorphization (infrastructure)
 
-1. **Declarations** — `func id[T](x: T): T` parses type parameters into the AST
-   (`ast_func_generic` / `ast_func_type_params`). IR lowering still emits **one**
-   monomorphic function under the base name (`id`). Type parameters do not change
-   codegen layout while every use of `T` is treated like an opaque name that does
-   not affect register/memory lowering (pass-through bodies such as `return x`).
+`name_pool.diva` + alias map + codegen hooks are landed. **IR lowering still uses type
+erasure** (plain call to the template name) until alias lookup is verified in the
+self-hosted seed; then lowering will emit mangled synthetic callees again.
 
-2. **Call sites** — `id[int](30)` parses as `nd_generic_call` (type-argument token
-   indices kept on the AST). IR build **erases** the type-argument list and lowers
-   as a plain `nd_call` to the same base name.
+## Previous strategy: type erasure
 
-3. **Soundness bound** — erasure is only sound while type arguments never change
-   instruction selection or ABI. Do not rely on it for type-dependent sizes,
-   overloads, or distinct specializations of the same name.
+Erasure remains the fallback when monomorphization cannot resolve a template.
 
 ## Next strategy: monomorphization
 
@@ -34,6 +28,6 @@ When erasure is no longer enough:
 
 ## Out of scope here
 
-- Generic classes / methods
 - Trait bounds on type parameters ([#27](https://github.com/Team-Deepiri/diva/issues/27))
 - Inference of type arguments
+- AST substitution for type-dependent bodies (full monomorphization)

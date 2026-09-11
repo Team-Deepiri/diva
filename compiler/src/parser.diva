@@ -682,6 +682,16 @@ func parse_extern_decl(ps: int, src: str): int {
 func parse_class_decl(ps: int, src: str): int {
     p_advance(ps)
     var name = p_expect(ps, src, tk_ident())
+    var type_params = int_vec_new()
+    if p_cur(ps) == tk_lbrack() {
+        p_advance(ps)
+        int_vec_push(type_params, p_expect(ps, src, tk_ident()))
+        while p_cur(ps) == tk_comma() {
+            p_advance(ps)
+            int_vec_push(type_params, p_expect(ps, src, tk_ident()))
+        }
+        p_expect(ps, src, tk_rbrack())
+    }
     p_expect(ps, src, tk_lbrace())
     var members = int_vec_new()
     while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
@@ -710,7 +720,7 @@ func parse_class_decl(ps: int, src: str): int {
         }
     }
     p_expect(ps, src, tk_rbrace())
-    return ast_class(name, members)
+    return ast_class_generic(name, type_params, members)
 }
 
 func parse_struct_lit(ps: int, src: str, type_tok: int): int {

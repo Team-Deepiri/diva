@@ -5,14 +5,14 @@ Stable import surface for SDK consumers. Paths stay under `stdlib/std/*.diva`
 
 | Package | Role | Modules today |
 |---------|------|----------------|
-| **core** | Primitives, asserts, conversion | `assert`, `conv`, `logic`, `int`, `char`, `bitwise` |
+| **core** | Primitives, asserts, conversion | `core`, `assert`, `conv`, `logic`, `int`, `char`, `bitwise` |
 | **mem** | Heap + growable buffers (pure ELF) | `mem` (`mem_*`, `int_buf_*`) — see `docs/heap-mem.md` |
 | **io** | Print / panic / streams | `io`, `fmt`, `log`, `color` |
 | **str** | String helpers + builders | `str`, `vec` (`str_builder_*`), `pattern`, `hex`, `base64` |
 | **math** | Numeric helpers | `math`, `random`, `matrix` |
-| **collections** | Growable containers | `collections` (IntBuf on `int_buf_*`), `vec` (`int_vec_*`), `stack`, `queue`, `map`, `table`, `sort` |
+| **collections** | Growable containers | `collections` (IntBuf on `int_buf_*`), `vec` (`int_vec_*`), `stack`, `queue`, `map`, `table`, `sort` — `IntBuf_min` / `int_buf_min` |
 | **iter** | Range / fold helpers | `iter`, `range`, `algo` |
-| **os** | Process / env / files | `os`, `host`, `fs`, `path`, `args`, `process` |
+| **os** | Process / env / files | `os`, `host`, `fs`, `path`, `args`, `process`, `syscall_linux` |
 
 ## Rules
 

@@ -317,6 +317,7 @@ assert_output_equals "${ROOT_DIR}/examples/heap_buf.diva" "5
 50"
 assert_output_equals "${ROOT_DIR}/examples/stdlib_packages.diva" "35
 20
+5
 10"
 # Dynamic OOB index must abort (exit non-zero), not silently corrupt.
 oob_exe="${TEST_ROOT}/array_oob"

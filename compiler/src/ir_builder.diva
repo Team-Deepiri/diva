@@ -10,6 +10,7 @@ import "tokens.diva"
 import "ast.diva"
 import "ir.diva"
 import "cell.diva"
+import "name_pool.diva"
 
 func ib_trace_on(): int {
     var v = host_getenv("DIVA_IR_TRACE")
@@ -104,7 +105,9 @@ func ib_find_blk_by_label(ctx: int, label: int): int {
 
 func bctx_new(src: str, toks: int): int {
     var ctx = int_vec_new()
-    int_vec_push(ctx, ir_module_new())       // [0] mod
+    var mod = ir_module_new()
+    mod_set_name_pool(mod, name_pool_new())
+    int_vec_push(ctx, mod)                   // [0] mod
     int_vec_push(ctx, mut_new(0))            // [1] func_cell
     int_vec_push(ctx, mut_new(0))            // [2] blk_cell
     int_vec_push(ctx, mut_new(0))            // [3] vreg_cell
@@ -553,9 +556,58 @@ func lower_expr_call(ctx: int, src: str, node: int): int {
     return r
 }
 
-// Lower nd_generic_call by erasing the type-argument list and lowering as a plain call.
-// Type parameters are parse-only in the native subset, so a generic call site binds to
-// the single monomorphic definition of the same name.
+// Lower nd_generic_call: monomorphize callee name (Issue #26) and emit call.
+func ib_mangle_generic(ctx: int, src: str, base_tok: int, targs: int): str {
+    var b = str_builder_new()
+    str_builder_append(b, ib_tok_text(ctx, src, base_tok))
+    var i = 0
+    while (i < int_vec_len(targs)) {
+        str_builder_append(b, "_")
+        str_builder_append(b, ib_tok_text(ctx, src, int_vec_get(targs, i)))
+        i = i + 1
+    }
+    var r = str_builder_to_str(b)
+    str_builder_free(b)
+    return r
+}
+
+func ib_func_name_str(ctx: int, src: str, name_tok: int): str {
+    if name_pool_is_synthetic(name_tok) == 1 {
+        var pool = mod_name_pool(bctx_mod(ctx))
+        return name_pool_text(pool, name_tok)
+    }
+    return ib_tok_text(ctx, src, name_tok)
+}
+
+func ib_find_func_by_name(ctx: int, src: str, want: str): int {
+    var m = bctx_mod(ctx)
+    var fc = mod_func_count(m)
+    var i = 0
+    while (i < fc) {
+        var f = mod_get_func(m, i)
+        if str_eq(ib_func_name_str(ctx, src, func_name_tok(f)), want) == 1 {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func ib_ensure_specialized(ctx: int, src: str, base_tok: int, mangled: str, syn_tok: int): int {
+    if mod_alias_lookup(bctx_mod(ctx), syn_tok) >= 0 {
+        return 0
+    }
+    var base_name = ib_tok_text(ctx, src, base_tok)
+    var bi = ib_find_func_by_name(ctx, src, base_name)
+    if bi < 0 {
+        return 1
+    }
+    mod_add_alias(bctx_mod(ctx), syn_tok, bi)
+    return 0
+}
+
+// Lower nd_generic_call: emit plain call (type erasure). Codegen synthetic-name
+// paths remain for future monomorphization once alias lookup is seed-stable.
 func lower_expr_generic_call(ctx: int, src: str, node: int): int {
     var callee = ast_child(node, 0)
     var args = ast_child(node, 2)

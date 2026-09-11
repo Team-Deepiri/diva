@@ -10,6 +10,7 @@ import "ast.diva"
 import "std/host.diva"
 import "cell.diva"
 import "diag.diva"
+import "ir.diva"
 
 func sema_err(msg: str): int {
     stderr("sema: ")
@@ -232,10 +233,7 @@ func sema_check_file(src: str, toks: int, file_node: int): int {
     return 0
 }
 
-// --- Production name / arity checker (Issue #53 MVP) ---
-// Symbol table: globals, funcs/externs (+ arity), type names, impl methods.
-// Walks bodies with nested scopes; rejects unknown idents and bad call arity.
-// Full type matching (assign/return/binop types) is follow-up work.
+// --- Production name / arity + basic type checker (Issue #53) ---
 
 func sctx_new(): int {
     var c = int_vec_new()
@@ -247,6 +245,10 @@ func sctx_new(): int {
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())
     int_vec_push(c, mut_new(0))
+    int_vec_push(c, mut_new(int_vec_new()))
+    int_vec_push(c, mut_new(0))
+    int_vec_push(c, int_vec_new())
+    int_vec_push(c, int_vec_new())
     return c
 }
 
@@ -258,10 +260,15 @@ func sctx_fn_arities(c: int): int { return int_vec_get(c, 4) }
 func sctx_types(c: int): int { return int_vec_get(c, 5) }
 func sctx_methods(c: int): int { return int_vec_get(c, 6) }
 func sctx_self_ok(c: int): int { return mut_get(int_vec_get(c, 7)) }
+func sctx_local_types(c: int): int { return mut_get(int_vec_get(c, 8)) }
+func sctx_cur_ret_ty(c: int): int { return mut_get(int_vec_get(c, 9)) }
+func sctx_global_types(c: int): int { return int_vec_get(c, 10) }
+func sctx_fn_ret_types(c: int): int { return int_vec_get(c, 11) }
 func sctx_set_self_ok(c: int, v: int): int { return mut_set(int_vec_get(c, 7), v) }
-
 func sctx_set_names(c: int, v: int): int { return mut_set(int_vec_get(c, 0), v) }
 func sctx_set_marks(c: int, v: int): int { return mut_set(int_vec_get(c, 1), v) }
+func sctx_set_local_types(c: int, v: int): int { return mut_set(int_vec_get(c, 8), v) }
+func sctx_set_cur_ret_ty(c: int, v: int): int { return mut_set(int_vec_get(c, 9), v) }
 
 func sctx_free(c: int): int {
     int_vec_free(sctx_names(c))
@@ -269,8 +276,11 @@ func sctx_free(c: int): int {
     int_vec_free(sctx_globals(c))
     int_vec_free(sctx_fn_names(c))
     int_vec_free(sctx_fn_arities(c))
+    int_vec_free(sctx_fn_ret_types(c))
     int_vec_free(sctx_types(c))
     int_vec_free(sctx_methods(c))
+    int_vec_free(sctx_local_types(c))
+    int_vec_free(sctx_global_types(c))
     int_vec_free(c)
     return 0
 }
@@ -301,6 +311,10 @@ func sctx_scope_pop(c: int): int {
     if int_vec_len(names) > mark {
         sctx_set_names(c, sctx_truncate_vec(names, mark))
     }
+    var lty = sctx_local_types(c)
+    if int_vec_len(lty) > mark {
+        sctx_set_local_types(c, sctx_truncate_vec(lty, mark))
+    }
     return 0
 }
 
@@ -317,7 +331,208 @@ func sctx_tok_list_has(list: int, src: str, toks: int, want: str): int {
 }
 
 func sctx_define(c: int, name_tok: int): int {
+    return sctx_define_typed(c, name_tok, ir_ty_int())
+}
+
+func sctx_define_typed(c: int, name_tok: int, ty: int): int {
     int_vec_push(sctx_names(c), name_tok)
+    int_vec_push(sctx_local_types(c), ty)
+    return 0
+}
+
+func sctx_ty_name(ty: int): str {
+    if ty == ir_ty_void() { return "void" }
+    if ty == ir_ty_int() { return "int" }
+    if ty == ir_ty_bool() { return "bool" }
+    if ty == ir_ty_str() { return "str" }
+    return "?"
+}
+
+func sema_type_from_node(type_node: int, src: str, toks: int): int {
+    if (type_node < 0) {
+        return ir_ty_int()
+    }
+    if ast_kind(type_node) != nd_type_name() {
+        return ir_ty_int()
+    }
+    var tn = tok_text(src, toks, ast_child(type_node, 0))
+    if str_eq(tn, "int") == 1 { return ir_ty_int() }
+    if str_eq(tn, "bool") == 1 { return ir_ty_bool() }
+    if str_eq(tn, "str") == 1 { return ir_ty_str() }
+    if str_eq(tn, "void") == 1 { return ir_ty_void() }
+    return ir_ty_int()
+}
+
+func sctx_lookup_var_type(c: int, src: str, toks: int, want: str): int {
+    var names = sctx_names(c)
+    var lty = sctx_local_types(c)
+    var i = 0
+    while (i < int_vec_len(names)) {
+        if str_eq(tok_text(src, toks, int_vec_get(names, i)), want) == 1 {
+            return int_vec_get(lty, i)
+        }
+        i = i + 1
+    }
+    var g = sctx_globals(c)
+    var gt = sctx_global_types(c)
+    i = 0
+    while (i < int_vec_len(g)) {
+        if str_eq(tok_text(src, toks, int_vec_get(g, i)), want) == 1 {
+            return int_vec_get(gt, i)
+        }
+        i = i + 1
+    }
+    return ir_ty_int()
+}
+
+func sema_type_mismatch_at(src: str, toks: int, at_tok: int, want: int, got: int): int {
+    diag_emit_loc(src, tok_start(toks, at_tok))
+    stderr("sema: type mismatch: expected ")
+    stderr(sctx_ty_name(want))
+    stderr(", got ")
+    stderr(sctx_ty_name(got))
+    stderr(char_to_str(10))
+    return 1
+}
+
+func sema_binop_is_arith(op: int): int {
+    if op == binop_add() { return 1 }
+    if op == binop_sub() { return 1 }
+    if op == binop_mul() { return 1 }
+    if op == binop_div() { return 1 }
+    if op == binop_mod() { return 1 }
+    return 0
+}
+
+func sema_binop_is_compare(op: int): int {
+    if op == binop_eq() { return 1 }
+    if op == binop_ne() { return 1 }
+    if op == binop_lt() { return 1 }
+    if op == binop_le() { return 1 }
+    if op == binop_gt() { return 1 }
+    if op == binop_ge() { return 1 }
+    return 0
+}
+
+func sema_binop_is_logic(op: int): int {
+    if op == binop_and() { return 1 }
+    if op == binop_or() { return 1 }
+    return 0
+}
+
+func sema_expr_type(c: int, src: str, toks: int, node: int): int {
+    if (node < 0) { return ir_ty_void() }
+    var kind = ast_kind(node)
+    if kind == nd_int_lit() { return ir_ty_int() }
+    if kind == nd_bool_lit() { return ir_ty_bool() }
+    if kind == nd_str_lit() { return ir_ty_str() }
+    if kind == nd_ident() {
+        var itok = ast_child(node, 0)
+        return sctx_lookup_var_type(c, src, toks, tok_text(src, toks, itok))
+    }
+    if kind == nd_binop() {
+        var op = ast_child(node, 0)
+        var lt = sema_expr_type(c, src, toks, ast_child(node, 1))
+        var rt = sema_expr_type(c, src, toks, ast_child(node, 2))
+        if sema_binop_is_arith(op) == 1 { return ir_ty_int() }
+        if sema_binop_is_compare(op) == 1 { return ir_ty_bool() }
+        if sema_binop_is_logic(op) == 1 {
+            if lt == ir_ty_int() {
+                if rt == ir_ty_int() {
+                    return ir_ty_int()
+                }
+            }
+            return ir_ty_bool()
+        }
+        return ir_ty_int()
+    }
+    if kind == nd_unary() {
+        return sema_expr_type(c, src, toks, ast_child(node, 1))
+    }
+    if kind == nd_call() {
+        var callee = ast_child(node, 0)
+        if ast_kind(callee) == nd_ident() {
+            var ctok = ast_child(callee, 0)
+            var rty = sctx_fn_ret_type(c, src, toks, tok_text(src, toks, ctok))
+            if rty >= 0 {
+                return rty
+            }
+        }
+        return ir_ty_int()
+    }
+    if kind == nd_generic_call() {
+        return ir_ty_int()
+    }
+    if kind == nd_method_call() {
+        return ir_ty_int()
+    }
+    if kind == nd_field() {
+        return ir_ty_int()
+    }
+    if kind == nd_index() {
+        return ir_ty_int()
+    }
+    return ir_ty_int()
+}
+
+func sema_compare_operand_ok(lt: int, rt: int): int {
+    if lt == rt {
+        return 1
+    }
+    if lt == ir_ty_bool() {
+        if rt == ir_ty_int() {
+            return 1
+        }
+    }
+    if rt == ir_ty_bool() {
+        if lt == ir_ty_int() {
+            return 1
+        }
+    }
+    return 0
+}
+
+func sema_check_binop_types(c: int, src: str, toks: int, node: int): int {
+    var op = ast_child(node, 0)
+    var left = ast_child(node, 1)
+    var right = ast_child(node, 2)
+    if sema_check_expr(c, src, toks, left) != 0 { return 1 }
+    if sema_check_expr(c, src, toks, right) != 0 { return 1 }
+    var lt = sema_expr_type(c, src, toks, left)
+    var rt = sema_expr_type(c, src, toks, right)
+    var want = ir_ty_int()
+    if sema_binop_is_logic(op) == 1 {
+        if lt == ir_ty_int() {
+            if rt == ir_ty_int() {
+                want = ir_ty_int()
+            } else {
+                want = ir_ty_bool()
+            }
+        } else {
+            want = ir_ty_bool()
+        }
+    }
+    if sema_binop_is_arith(op) == 1 {
+        want = ir_ty_int()
+    }
+    if sema_binop_is_compare(op) == 1 {
+        if sema_compare_operand_ok(lt, rt) == 1 {
+            return 0
+        }
+        want = ir_ty_int()
+    }
+    if lt != want {
+        if ast_kind(left) == nd_ident() {
+            return sema_type_mismatch_at(src, toks, ast_child(left, 0), want, lt)
+        }
+        return sema_err("type mismatch in binary expression (left operand)")
+    }
+    if rt != want {
+        if ast_kind(right) == nd_ident() {
+            return sema_type_mismatch_at(src, toks, ast_child(right, 0), want, rt)
+        }
+        return sema_err("type mismatch in binary expression (right operand)")
+    }
     return 0
 }
 
@@ -343,7 +558,21 @@ func sctx_fn_arity(c: int, src: str, toks: int, want: str): int {
     return 0 - 1
 }
 
-func sctx_add_fn(c: int, src: str, toks: int, name_tok: int, arity: int): int {
+func sctx_fn_ret_type(c: int, src: str, toks: int, want: str): int {
+    var names = sctx_fn_names(c)
+    var rts = sctx_fn_ret_types(c)
+    var i = 0
+    var n = int_vec_len(names)
+    while (i < n) {
+        if str_eq(tok_text(src, toks, int_vec_get(names, i)), want) == 1 {
+            return int_vec_get(rts, i)
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func sctx_add_fn(c: int, src: str, toks: int, name_tok: int, arity: int, ret_ty: int): int {
     var nm = tok_text(src, toks, name_tok)
     if sctx_tok_list_has(sctx_fn_names(c), src, toks, nm) == 1 {
         diag_emit_loc(src, tok_start(toks, name_tok))
@@ -355,10 +584,11 @@ func sctx_add_fn(c: int, src: str, toks: int, name_tok: int, arity: int): int {
     }
     int_vec_push(sctx_fn_names(c), name_tok)
     int_vec_push(sctx_fn_arities(c), arity)
+    int_vec_push(sctx_fn_ret_types(c), ret_ty)
     return 0
 }
 
-func sctx_add_global(c: int, src: str, toks: int, name_tok: int): int {
+func sctx_add_global(c: int, src: str, toks: int, name_tok: int, ty: int): int {
     var nm = tok_text(src, toks, name_tok)
     if sctx_tok_list_has(sctx_globals(c), src, toks, nm) == 1 {
         diag_emit_loc(src, tok_start(toks, name_tok))
@@ -377,6 +607,7 @@ func sctx_add_global(c: int, src: str, toks: int, name_tok: int): int {
         return 1
     }
     int_vec_push(sctx_globals(c), name_tok)
+    int_vec_push(sctx_global_types(c), ty)
     return 0
 }
 
@@ -404,8 +635,7 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
         return 0
     }
     if kind == nd_binop() {
-        if sema_check_expr(c, src, toks, ast_child(node, 1)) != 0 { return 1 }
-        return sema_check_expr(c, src, toks, ast_child(node, 2))
+        return sema_check_binop_types(c, src, toks, node)
     }
     if kind == nd_unary() {
         return sema_check_expr(c, src, toks, ast_child(node, 1))
@@ -556,30 +786,57 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
     if (node < 0) { return 0 }
     var kind = ast_kind(node)
     if kind == nd_var_decl() {
+        var name_tok = ast_child(node, 0)
+        var type_node = ast_child(node, 1)
         var init = ast_child(node, 2)
+        var vty = sema_type_from_node(type_node, src, toks)
         if (init < 0) == 0 {
             if sema_check_expr(c, src, toks, init) != 0 { return 1 }
+            if (type_node < 0) {
+                vty = sema_expr_type(c, src, toks, init)
+            } else {
+                var got = sema_expr_type(c, src, toks, init)
+                if got != vty {
+                    return sema_type_mismatch_at(src, toks, name_tok, vty, got)
+                }
+            }
         }
-        sctx_define(c, ast_child(node, 0))
+        sctx_define_typed(c, name_tok, vty)
         return 0
     }
     if kind == nd_assign() {
         var target = ast_child(node, 0)
+        var value = ast_child(node, 1)
+        if sema_check_expr(c, src, toks, value) != 0 { return 1 }
         if ast_kind(target) == nd_ident() {
             var ttok = ast_child(target, 0)
             var nm = tok_text(src, toks, ttok)
             if sctx_name_known(c, src, toks, nm) == 0 {
                 return sema_unknown_at(src, toks, ttok)
             }
+            var want = sctx_lookup_var_type(c, src, toks, nm)
+            var got = sema_expr_type(c, src, toks, value)
+            if got != want {
+                return sema_type_mismatch_at(src, toks, ttok, want, got)
+            }
         } else {
             if sema_check_expr(c, src, toks, target) != 0 { return 1 }
         }
-        return sema_check_expr(c, src, toks, ast_child(node, 1))
+        return 0
     }
     if kind == nd_return() {
         var e = ast_child(node, 0)
+        var ret_ty = sctx_cur_ret_ty(c)
         if (e < 0) == 0 {
-            return sema_check_expr(c, src, toks, e)
+            if sema_check_expr(c, src, toks, e) != 0 { return 1 }
+            var got = sema_expr_type(c, src, toks, e)
+            if ret_ty != got {
+                return sema_err("return type mismatch")
+            }
+        } else {
+            if ret_ty != ir_ty_void() {
+                return sema_err("return type mismatch")
+            }
         }
         return 0
     }
@@ -643,11 +900,14 @@ func sema_check_block_or_stmt(c: int, src: str, toks: int, node: int): int {
 
 func sema_check_func_node(c: int, src: str, toks: int, fn: int): int {
     sctx_scope_push(c)
+    var ret_node = ast_child(fn, 2)
+    sctx_set_cur_ret_ty(c, sema_type_from_node(ret_node, src, toks))
     var params = ast_child(fn, 1)
     var pi = 0
     while (pi < int_vec_len(params)) {
         var p = int_vec_get(params, pi)
-        sctx_define(c, ast_child(p, 0))
+        var pty = sema_type_from_node(ast_child(p, 1), src, toks)
+        sctx_define_typed(c, ast_child(p, 0), pty)
         pi = pi + 1
     }
     var body = ast_child(fn, 3)
@@ -667,17 +927,28 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
         var ch = int_vec_get(children, i)
         var k = ast_kind(ch)
         if k == nd_func() {
-            if sctx_add_fn(c, src, toks, ast_child(ch, 0), int_vec_len(ast_child(ch, 1))) != 0 {
+            var f_ret = sema_type_from_node(ast_child(ch, 2), src, toks)
+            if sctx_add_fn(c, src, toks, ast_child(ch, 0), int_vec_len(ast_child(ch, 1)), f_ret) != 0 {
                 return 1
             }
         }
         if k == nd_extern_func() {
-            if sctx_add_fn(c, src, toks, ast_child(ch, 0), int_vec_len(ast_child(ch, 1))) != 0 {
+            var e_ret = sema_type_from_node(ast_child(ch, 2), src, toks)
+            if sctx_add_fn(c, src, toks, ast_child(ch, 0), int_vec_len(ast_child(ch, 1)), e_ret) != 0 {
                 return 1
             }
         }
         if k == nd_var_decl() {
-            if sctx_add_global(c, src, toks, ast_child(ch, 0)) != 0 {
+            var g_type_node = ast_child(ch, 1)
+            var gty = sema_type_from_node(g_type_node, src, toks)
+            // Untyped globals: infer from initializer (same as local var decls).
+            if (g_type_node < 0) {
+                var g_init = ast_child(ch, 2)
+                if (g_init < 0) == 0 {
+                    gty = sema_expr_type(c, src, toks, g_init)
+                }
+            }
+            if sctx_add_global(c, src, toks, ast_child(ch, 0), gty) != 0 {
                 return 1
             }
         }
@@ -693,7 +964,8 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
                     // Class methods lower with implicit self as first arg (+1 arity).
                     var arity = int_vec_len(ast_child(m, 1)) + 1
                     if (sctx_fn_arity(c, src, toks, tok_text(src, toks, mtok)) < 0) {
-                        if sctx_add_fn(c, src, toks, mtok, arity) != 0 {
+                        var m_ret = sema_type_from_node(ast_child(m, 2), src, toks)
+                        if sctx_add_fn(c, src, toks, mtok, arity, m_ret) != 0 {
                             return 1
                         }
                     }
@@ -713,7 +985,8 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
                     // Impl methods lower as free funcs; register arity unless a free
                     // func with the same name already exists (receiver-first demos).
                     if (sctx_fn_arity(c, src, toks, mnm) < 0) {
-                        if sctx_add_fn(c, src, toks, mtok, int_vec_len(ast_child(m, 1))) != 0 {
+                        var im_ret = sema_type_from_node(ast_child(m, 2), src, toks)
+                        if sctx_add_fn(c, src, toks, mtok, int_vec_len(ast_child(m, 1)), im_ret) != 0 {
                             return 1
                         }
                     }

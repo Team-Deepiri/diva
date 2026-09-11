@@ -7,7 +7,7 @@ consumers: **`docs/stdlib-packages.md`** (Issue #28).
 
 | Package | Import examples |
 |---------|-----------------|
-| core | `std/assert.diva`, `std/math.diva`, `std/logic.diva` |
+| core | `std/core.diva`, `std/assert.diva`, `std/math.diva`, `std/logic.diva` |
 | mem | `std/mem.diva` — `mem_*`, `int_buf_*` (`docs/heap-mem.md`) |
 | io | `std/io.diva`, `std/fmt.diva` |
 | str | `std/str.diva`, `std/vec.diva` |
