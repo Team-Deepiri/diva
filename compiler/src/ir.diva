@@ -55,6 +55,10 @@ func ir_copy(): int      { return 29 }
 func ir_phi(): int       { return 30 }
 func ir_str_arg(): int   { return 31 }
 func ir_global(): int    { return 32 }
+func ir_global_load(): int { return 33 }
+func ir_global_store(): int { return 34 }
+func ir_array_load(): int  { return 35 }
+func ir_array_store(): int { return 36 }
 
 func ir_op_name(op: int): str {
     if op == 0  { return "nop" }
@@ -90,6 +94,10 @@ func ir_op_name(op: int): str {
     if op == 30 { return "phi" }
     if op == 31 { return "str.arg" }
     if op == 32 { return "global" }
+    if op == 33 { return "global.load" }
+    if op == 34 { return "global.store" }
+    if op == 35 { return "array.load" }
+    if op == 36 { return "array.store" }
     return "???"
 }
 
@@ -188,6 +196,57 @@ func mod_strings(m: int): int   { return int_vec_get(m, 0) }
 func mod_funcs(m: int): int     { return int_vec_get(m, 1) }
 func mod_externs(m: int): int   { return int_vec_get(m, 2) }
 func mod_globals(m: int): int   { return int_vec_get(m, 3) }
+
+func mod_name_pool(m: int): int {
+    if int_vec_len(m) < 5 {
+        return 0 - 1
+    }
+    return int_vec_get(m, 4)
+}
+
+func mod_set_name_pool(m: int, pool: int): int {
+    if int_vec_len(m) < 5 {
+        int_vec_push(m, pool)
+    }
+    return 0
+}
+
+// Generic alias map: flat [syn_tok, func_index, …] (Issue #26).
+func mod_aliases(m: int): int {
+    if int_vec_len(m) < 6 {
+        return 0 - 1
+    }
+    return int_vec_get(m, 5)
+}
+
+func mod_add_alias(m: int, syn_tok: int, func_idx: int): int {
+    if int_vec_len(m) < 6 {
+        int_vec_push(m, int_vec_new())
+    }
+    var al = mod_aliases(m)
+    int_vec_push(al, syn_tok)
+    int_vec_push(al, func_idx)
+    return 0
+}
+
+func mod_alias_lookup(m: int, syn_tok: int): int {
+    var al = mod_aliases(m)
+    if al < 0 {
+        return 0 - 1
+    }
+    var i = 0
+    var n = int_vec_len(al)
+    while (i < n) {
+        if (i + 1) >= n {
+            return 0 - 1
+        }
+        if int_vec_get(al, i) == syn_tok {
+            return int_vec_get(al, i + 1)
+        }
+        i = i + 2
+    }
+    return 0 - 1
+}
 
 func mod_add_func(m: int, f: int): int {
     int_vec_push(int_vec_get(m, 1), f)

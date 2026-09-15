@@ -1,0 +1,17 @@
+import "std/mem.diva"
+
+extern func print_int(x: int): void
+
+func main(): int {
+    var b = int_buf_new()
+    int_buf_push(b, 10)
+    int_buf_push(b, 20)
+    int_buf_push(b, 30)
+    int_buf_push(b, 40)
+    int_buf_push(b, 50)
+    print_int(int_buf_len(b))
+    print_int(int_buf_get(b, 0))
+    print_int(int_buf_get(b, 4))
+    int_buf_free(b)
+    return 0
+}

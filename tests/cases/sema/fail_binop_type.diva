@@ -1,0 +1,4 @@
+func main(): int {
+    var b: bool = true
+    return b + 1
+}

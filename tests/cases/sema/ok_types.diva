@@ -1,0 +1,9 @@
+func main(): int {
+    var x: int = 1
+    var y: bool = true
+    x = x + 2
+    if y {
+        return 0
+    }
+    return 1
+}

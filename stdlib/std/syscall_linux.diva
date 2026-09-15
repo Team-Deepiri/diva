@@ -1,0 +1,25 @@
+// Linux syscall surface for freestanding/system packages (Issue #30).
+// Hosted pure-ELF builds lower `write`/`exit` via runtime stubs; freestanding
+// packages may link custom `_start` + raw syscall objects later.
+import "std/io.diva"
+
+func sys_exit(code: int): void {
+    exit(code)
+}
+
+func sys_write(fd: int, buf: str, len: int): int {
+    if len < 0 {
+        return 0
+    }
+    return write(fd, buf)
+}
+
+func sys_write_str(fd: int, text: str): int {
+    return write(fd, text)
+}
+
+func sys_write_line(fd: int, text: str): int {
+    var n = sys_write_str(fd, text)
+    sys_write_str(fd, "\n")
+    return n
+}

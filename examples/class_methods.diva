@@ -1,0 +1,21 @@
+extern func print_int(x: int): void
+
+class Counter {
+    var value: int
+
+    func bump(amount: int): int {
+        self.value = self.value + amount
+        return self.value
+    }
+
+    func get(): int {
+        return self.value
+    }
+}
+
+func main(): int {
+    var c = Counter { value: 3 }
+    print_int(c.get())
+    print_int(c.bump(4))
+    return 0
+}

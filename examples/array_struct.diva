@@ -1,0 +1,17 @@
+extern func print_int(x: int): void
+
+struct Point {
+    x: int
+    y: int
+}
+
+func main(): int {
+    var pts: Point[] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }, Point { x: 5, y: 6 }]
+    print_int(pts[0].x)
+    print_int(pts[1].y)
+    var i = 2
+    print_int(pts[i].x)
+    pts[i].y = 9
+    print_int(pts[i].y)
+    return 0
+}

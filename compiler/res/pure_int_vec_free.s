@@ -1,4 +1,6 @@
-/* Pure ELF int_vec_free — handle is table index; clears slot + munmap. NO ret. */
+/* Pure ELF int_vec_free — handle is table index; clears slot. Arena-carved slots
+   (map_bytes == 0) live in the process-lifetime AST bump arena and are never unmapped;
+   real mmap objects are munmap'd. NO ret. */
 .equ HT_BASE, 0x500000000000
 .equ HT_MAX, 1048575
 
@@ -17,6 +19,8 @@ pure_int_vec_free:
 	je	.Ldone
 	movq	$0, (%rax,%rdi,8)		/* clear slot */
 	movq	16(%rcx), %rsi			/* map_bytes */
+	testq	%rsi, %rsi
+	je	.Ldone				/* arena slot: no munmap */
 	movq	%rcx, %rdi
 	movl	$11, %eax
 	syscall

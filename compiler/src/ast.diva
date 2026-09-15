@@ -91,15 +91,29 @@ func ast_package(tok_idx: int): int {
     return n
 }
 
-// Function: [kind, name_tok, params_handle, ret_type_node, body_node]
+// Function: [kind, name_tok, params_handle, ret_type_node, body_node, type_params_handle]
+// type_params_handle is an int_vec of type-parameter name token indices (may be empty).
 func ast_func(name_tok: int, params: int, ret_type: int, body: int): int {
+    return ast_func_generic(name_tok, int_vec_new(), params, ret_type, body)
+}
+
+func ast_func_generic(name_tok: int, type_params: int, params: int, ret_type: int, body: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_func())
     int_vec_push(n, name_tok)
     int_vec_push(n, params)
     int_vec_push(n, ret_type)
     int_vec_push(n, body)
+    int_vec_push(n, type_params)
     return n
+}
+
+// Type-parameter tokens for a func node (empty vec if absent / non-generic).
+func ast_func_type_params(node: int): int {
+    if int_vec_len(node) < 6 {
+        return int_vec_new()
+    }
+    return ast_child(node, 4)
 }
 
 // Extern func: [kind, name_tok, params_handle, ret_type_node]
@@ -172,6 +186,17 @@ func ast_call(callee: int, args: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_call())
     int_vec_push(n, callee)
+    int_vec_push(n, args)
+    return n
+}
+
+// Generic call: [kind, callee_node, type_args_handle, args_handle]
+// type_args_handle is an int_vec of type token indices (erased at IR build).
+func ast_generic_call(callee: int, type_args: int, args: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_generic_call())
+    int_vec_push(n, callee)
+    int_vec_push(n, type_args)
     int_vec_push(n, args)
     return n
 }
@@ -323,12 +348,43 @@ func ast_type_array(elem: int): int {
     return n
 }
 
-// Class: [kind, name_tok, members_handle (int_vec of field/method nodes)]
+// Class: [kind, name_tok, members_handle, type_params_handle]
 func ast_class(name_tok: int, members: int): int {
+    return ast_class_generic(name_tok, int_vec_new(), members)
+}
+
+func ast_class_generic(name_tok: int, type_params: int, members: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_class())
     int_vec_push(n, name_tok)
     int_vec_push(n, members)
+    int_vec_push(n, type_params)
+    return n
+}
+
+func ast_class_type_params(node: int): int {
+    if int_vec_len(node) < 4 {
+        return int_vec_new()
+    }
+    return ast_child(node, 3)
+}
+
+// Trait: [kind, name_tok, methods_handle (int_vec of nd_func, body may be empty)]
+func ast_trait(name_tok: int, methods: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_trait())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, methods)
+    return n
+}
+
+// Impl: [kind, trait_tok, type_tok, methods_handle (int_vec of nd_func)]
+func ast_impl(trait_tok: int, type_tok: int, methods: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_impl())
+    int_vec_push(n, trait_tok)
+    int_vec_push(n, type_tok)
+    int_vec_push(n, methods)
     return n
 }
 
