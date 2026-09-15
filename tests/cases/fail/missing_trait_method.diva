@@ -6,7 +6,8 @@ class Empty {
     value: int
 }
 
-impl Measure for Empty
+impl Measure for Empty {
+}
 
 func main(): int {
     return 0

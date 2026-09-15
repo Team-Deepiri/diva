@@ -1,0 +1,8 @@
+extern func print_int(x: int): void
+
+func main(): int {
+    var nums: int[] = [3, 6, 9, 12]
+    var i = 99
+    print_int(nums[i])
+    return 0
+}

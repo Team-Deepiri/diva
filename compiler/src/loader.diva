@@ -4,6 +4,7 @@ import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
 import "std/str.diva"
+import "cell.diva"
 
 // When DIVA_CHECK_TRACE is set, merge/check prints stderr milestones (pure-driver debugging).
 func loader_check_trace(): int {
@@ -149,6 +150,523 @@ func package_is_kernel_dir(root: str): int {
     return str_eq(package_manifest_kind_value(root), "kernel")
 }
 
+// Package identity (Issue #24): `name = "…"` from package.diva.
+func package_manifest_name(root: str): str {
+    var mf = path_join_dir(root, "package.diva")
+    if (file_size(mf) < 0) {
+        return ""
+    }
+    var text = read_file(mf)
+    var text_hold = text
+    var text_len = str_len(text_hold)
+    if text_len == 0 {
+        return ""
+    }
+    var n = text_len
+    var i = 0
+    while (i < n) {
+        var line_end = i
+        while (line_end < n & str_byte(text, line_end) != 10) {
+            line_end = line_end + 1
+        }
+        var line = str_slice(text, i, line_end - i)
+        var ln = str_len(line)
+        while (ln > 0 & str_byte(line, ln - 1) == 13) {
+            ln = ln - 1
+        }
+        if (ln > 0) {
+            var j = 0
+            while (j < ln & (str_byte(line, j) == 32 | str_byte(line, j) == 9)) {
+                j = j + 1
+            }
+            if !((j + 4) > ln) {
+                if str_eq(str_slice(line, j, 4), "name") == 1 {
+                    var k = j + 4
+                    while (k < ln & (str_byte(line, k) == 32 | str_byte(line, k) == 9)) {
+                        k = k + 1
+                    }
+                    if (k < ln & str_byte(line, k) == 61) {
+                        k = k + 1
+                        while (k < ln & (str_byte(line, k) == 32 | str_byte(line, k) == 9)) {
+                            k = k + 1
+                        }
+                        if (k < ln & str_byte(line, k) == 34) {
+                            var q = k + 1
+                            while (q < ln & str_byte(line, q) != 34) {
+                                q = q + 1
+                            }
+                            if (q > k + 1) {
+                                return str_slice(line, k + 1, q - k - 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i = line_end + 1
+    }
+    return ""
+}
+
+// Newline-separated dep alias names (`dep.math_lib = …` → `math_lib`).
+func package_manifest_dep_names(root: str): str {
+    var mf = path_join_dir(root, "package.diva")
+    if (file_size(mf) < 0) {
+        return ""
+    }
+    var text = read_file(mf)
+    var text_hold = text
+    var text_len = str_len(text_hold)
+    if text_len == 0 {
+        return ""
+    }
+    var nl = loader_newline()
+    var b = str_builder_new()
+    var n = text_len
+    var i = 0
+    while (i < n) {
+        var line_end = i
+        while (line_end < n & str_byte(text, line_end) != 10) {
+            line_end = line_end + 1
+        }
+        var line = str_slice(text, i, line_end - i)
+        var ln = str_len(line)
+        while (ln > 0 & str_byte(line, ln - 1) == 13) {
+            ln = ln - 1
+        }
+        if (ln > 4) {
+            var j = 0
+            while (j < ln & (str_byte(line, j) == 32 | str_byte(line, j) == 9)) {
+                j = j + 1
+            }
+            if !((j + 4) > ln) {
+                if str_eq(str_slice(line, j, 4), "dep.") == 1 {
+                    var k = j + 4
+                    while (k < ln & (str_byte(line, k) != 32 & str_byte(line, k) != 9 & str_byte(line, k) != 61)) {
+                        k = k + 1
+                    }
+                    if (k > j + 4) {
+                        str_builder_append(b, str_slice(line, j + 4, k - j - 4))
+                        str_builder_append(b, nl)
+                    }
+                }
+            }
+        }
+        i = line_end + 1
+    }
+    var r = str_builder_to_str(b)
+    str_builder_free(b)
+    return r
+}
+
+func loader_djb2(s: str): int {
+    var h = 5381
+    var n = str_len(s)
+    var i = 0
+    while (i < n) {
+        h = h * 33 + str_byte(s, i)
+        i = i + 1
+    }
+    if (h < 0) {
+        h = 0 - h
+    }
+    return h
+}
+
+func loader_hash_combine(a: int, b: int): int {
+    var h = a * 31 + b
+    if (h < 0) {
+        h = 0 - h
+    }
+    return h
+}
+
+func loader_cache_dir(): str {
+    var v = host_getenv("DIVA_CACHE_DIR")
+    var v_hold = v
+    if str_len(v_hold) > 0 {
+        return v_hold
+    }
+    return ".diva/cache"
+}
+
+func loader_cache_enabled(): int {
+    var v = host_getenv("DIVA_PKG_CACHE")
+    var v_hold = v
+    if str_eq(v_hold, "0") == 1 {
+        return 0
+    }
+    return 1
+}
+
+func loader_module_graph_trace(): int {
+    var v = host_getenv("DIVA_MODULE_GRAPH")
+    var v_hold = v
+    if str_len(v_hold) > 0 {
+        return 1
+    }
+    return 0
+}
+
+func loader_pkg_cache_trace(): int {
+    var v = host_getenv("DIVA_PKG_CACHE_TRACE")
+    var v_hold = v
+    if str_len(v_hold) > 0 {
+        return 1
+    }
+    return 0
+}
+
+func loader_mkdir_p(path: str): int {
+    var n = str_len(path)
+    if n == 0 {
+        return 0
+    }
+    var acc = ""
+    var i = 0
+    if str_byte(path, 0) == 47 {
+        acc = "/"
+        i = 1
+        while ((i < n) & (str_byte(path, i) == 47)) {
+            i = i + 1
+        }
+    }
+    while (i < n) {
+        var j = i
+        while ((j < n) & (str_byte(path, j) != 47)) {
+            j = j + 1
+        }
+        var seg = str_slice(path, i, j - i)
+        if str_len(seg) > 0 {
+            acc = path_join_dir(acc, seg)
+            if mkdir(acc) != 0 {
+                return 1
+            }
+        }
+        i = j
+        while ((i < n) & (str_byte(path, i) == 47)) {
+            i = i + 1
+        }
+    }
+    return 0
+}
+
+func loader_cache_path(pkg_name: str, fp: int): str {
+    var base = loader_cache_dir()
+    var safe = pkg_name
+    if str_len(safe) == 0 {
+        safe = "_anon"
+    }
+    return path_join_dir(path_join_dir(base, safe), str_concat(int_to_str(fp), ".merged"))
+}
+
+func loader_cache_read(pkg_name: str, fp: int): str {
+    var p = loader_cache_path(pkg_name, fp)
+    if (file_size(p) < 0) {
+        return ""
+    }
+    return read_file(p)
+}
+
+func loader_cache_write(pkg_name: str, fp: int, merged: str): int {
+    var p = loader_cache_path(pkg_name, fp)
+    var dir = dirname_of_file(p)
+    if loader_mkdir_p(dir) != 0 {
+        return 1
+    }
+    if write_text_file(p, merged) != 0 {
+        return 1
+    }
+    return 0
+}
+
+func loader_log_module_graph(root: str): int {
+    if loader_module_graph_trace() == 0 {
+        return 0
+    }
+    var from = package_manifest_name(root)
+    if str_len(from) == 0 {
+        from = loader_path_basename(root)
+    }
+    var deps = package_manifest_dep_names(root)
+    var deps_hold = deps
+    var nl = loader_newline()
+    var pos = 0
+    var dn = str_len(deps_hold)
+    while (pos < dn) {
+        var le = pos
+        while (le < dn & str_byte(deps_hold, le) != 10) {
+            le = le + 1
+        }
+        var alias = str_slice(deps_hold, pos, le - pos)
+        pos = le + 1
+        if str_len(alias) > 0 {
+            var rel = package_manifest_dep_value(root, alias)
+            if str_len(rel) > 0 {
+                var target = path_join_dir(root, rel)
+                var to = package_manifest_name(target)
+                if str_len(to) == 0 {
+                    to = alias
+                }
+                stderr("module-graph: ")
+                stderr(from)
+                stderr(" -> ")
+                stderr(to)
+                stderr(nl)
+            }
+        }
+    }
+    return 0
+}
+
+func fingerprint_emit_file(abs_path: str, done: str, stack: str, stdroot: str, acc_cell: int): str {
+    var abs_p = abs_path
+    var done_p = done
+    var stack_p = stack
+    var std_p = stdroot
+    var nl = loader_newline()
+    if path_in_done(done_p, abs_p, nl) == 1 {
+        return done_p
+    }
+    if path_in_done(stack_p, abs_p, nl) == 1 {
+        return ""
+    }
+    if (file_size(abs_p) < 0) {
+        return ""
+    }
+    var src = read_file(abs_p)
+    var src_hold = src
+    var acc = mut_get(acc_cell)
+    acc = loader_hash_combine(acc, loader_djb2(src_hold))
+    mut_set(acc_cell, acc)
+    var deps = list_resolved_imports(src_hold, abs_p, std_p, nl)
+    var deps_hold = deps
+    var done2 = done_p
+    var b_stack = str_builder_new()
+    str_builder_append(b_stack, stack_p)
+    str_builder_append(b_stack, abs_p)
+    str_builder_append(b_stack, nl)
+    var stack2 = str_builder_to_str(b_stack)
+    str_builder_free(b_stack)
+    var pos = 0
+    var dn = str_len(deps_hold)
+    while (pos < dn) {
+        var le = pos
+        while (le < dn & str_byte(deps_hold, le) != 10) {
+            le = le + 1
+        }
+        var dep = str_slice(deps_hold, pos, le - pos)
+        pos = le + 1
+        var dep_hold = dep
+        if (str_len(dep_hold) > 0) {
+            var dr = fingerprint_emit_file(dep_hold, done2, stack2, std_p, acc_cell)
+            var dr_hold = dr
+            if str_len(dr_hold) == 0 {
+                return ""
+            }
+            done2 = dr_hold
+        }
+    }
+    var b_done = str_builder_new()
+    str_builder_append(b_done, done2)
+    str_builder_append(b_done, abs_p)
+    str_builder_append(b_done, nl)
+    var new_done = str_builder_to_str(b_done)
+    str_builder_free(b_done)
+    return new_done
+}
+
+func fingerprint_package(root: str): int {
+    var root_p = root
+    var stdroot = loader_stdlib_dir()
+    var std_hold = stdroot
+    var man = path_join_dir(root_p, "package.diva")
+    if (file_size(man) < 0) {
+        return 0 - 1
+    }
+    var ent = package_entry_relative(man)
+    var ent_hold = ent
+    if str_len(ent_hold) == 0 {
+        return 0 - 1
+    }
+    var ep = path_join_dir(root_p, ent_hold)
+    var acc_cell = mut_new(loader_djb2(read_file(man)))
+    var r = fingerprint_emit_file(ep, "", "", std_hold, acc_cell)
+    var r_hold = r
+    var fp = mut_get(acc_cell)
+    int_vec_free(acc_cell)
+    if str_len(r_hold) == 0 {
+        return 0 - 1
+    }
+    return fp
+}
+
+func loader_path_basename(path: str): str {
+    var n = str_len(path)
+    var i = n - 1
+    while (i >= 0) {
+        if str_byte(path, i) == 47 {
+            return str_slice(path, i + 1, n - (i + 1))
+        }
+        i = i - 1
+    }
+    return str_slice(path, 0, n)
+}
+
+// Look up `dep.<name> = "..."` in package.diva. Returns relative path or "".
+func package_manifest_dep_value(root: str, dep_name: str): str {
+    var mf = path_join_dir(root, "package.diva")
+    if (file_size(mf) < 0) {
+        return ""
+    }
+    var text = read_file(mf)
+    var text_hold = text
+    var text_len = str_len(text_hold)
+    if text_len == 0 {
+        return ""
+    }
+    var key_b = str_builder_new()
+    str_builder_append(key_b, "dep.")
+    str_builder_append(key_b, dep_name)
+    var key = str_builder_to_str(key_b)
+    str_builder_free(key_b)
+    var key_len = str_len(key)
+    var n = text_len
+    var i = 0
+    while (i < n) {
+        var line_end = i
+        while (line_end < n & str_byte(text, line_end) != 10) {
+            line_end = line_end + 1
+        }
+        var line = str_slice(text, i, line_end - i)
+        var ln = str_len(line)
+        while (ln > 0 & str_byte(line, ln - 1) == 13) {
+            ln = ln - 1
+        }
+        if (ln > 0) {
+            var j = 0
+            while (j < ln & (str_byte(line, j) == 32 | str_byte(line, j) == 9)) {
+                j = j + 1
+            }
+            if !((j + key_len) > ln) {
+                if str_eq(str_slice(line, j, key_len), key) == 1 {
+                    var k = j + key_len
+                    while (k < ln & (str_byte(line, k) == 32 | str_byte(line, k) == 9)) {
+                        k = k + 1
+                    }
+                    if (k < ln & str_byte(line, k) == 61) {
+                        k = k + 1
+                        while (k < ln & (str_byte(line, k) == 32 | str_byte(line, k) == 9)) {
+                            k = k + 1
+                        }
+                        if (k < ln & str_byte(line, k) == 34) {
+                            var q = k + 1
+                            while (q < ln & str_byte(line, q) != 34) {
+                                q = q + 1
+                            }
+                            if (q > k + 1) {
+                                return str_slice(line, k + 1, q - k - 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i = line_end + 1
+    }
+    return ""
+}
+
+// Walk parents of a source file until a directory containing package.diva is found.
+func find_enclosing_package_root(file_path: str): str {
+    var dir = dirname_of_file(file_path)
+    var guard = 0
+    while (guard < 32) {
+        if path_is_package_dir(dir) == 1 {
+            return dir
+        }
+        if str_eq(dir, ".") == 1 | str_eq(dir, "/") == 1 {
+            return ""
+        }
+        var climb = dirname_of_file(dir)
+        if str_eq(climb, dir) == 1 {
+            return ""
+        }
+        dir = climb
+        guard = guard + 1
+    }
+    return ""
+}
+
+func import_looks_like_dep_alias(imp: str): int {
+    var n = str_len(imp)
+    if n == 0 {
+        return 0
+    }
+    // Canonical: pkg/<name>
+    if !(n < 4) {
+        if str_eq(str_slice(imp, 0, 4), "pkg/") == 1 {
+            return 1
+        }
+    }
+    // Bare alias: math_lib (no slash / dot)
+    var i = 0
+    while (i < n) {
+        var b = str_byte(imp, i)
+        if b == 47 {
+            return 0
+        }
+        if b == 46 {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+func import_dep_alias_name(imp: str): str {
+    var n = str_len(imp)
+    if !(n < 4) {
+        if str_eq(str_slice(imp, 0, 4), "pkg/") == 1 {
+            return str_slice(imp, 4, n - 4)
+        }
+    }
+    return imp
+}
+
+func resolve_dep_alias_import(cur_file: str, imp: str): str {
+    if import_looks_like_dep_alias(imp) == 0 {
+        return ""
+    }
+    var alias = import_dep_alias_name(imp)
+    var root = find_enclosing_package_root(cur_file)
+    if str_len(root) == 0 {
+        if !(str_len(imp) < 4) {
+            if str_eq(str_slice(imp, 0, 4), "pkg/") == 1 {
+                stderr("loader: pkg/ import requires package.diva ancestor\n")
+            }
+        }
+        return ""
+    }
+    var rel = package_manifest_dep_value(root, alias)
+    if str_len(rel) == 0 {
+        stderr("loader: unknown package dependency '")
+        stderr(alias)
+        stderr("'\n")
+        return ""
+    }
+    var target = path_join_dir(root, rel)
+    if path_is_package_dir(target) == 1 {
+        var man = path_join_dir(target, "package.diva")
+        var ent = package_entry_relative(man)
+        if str_len(ent) == 0 {
+            return ""
+        }
+        return path_join_dir(target, ent)
+    }
+    return target
+}
+
 func package_entry_relative(manifest_path: str): str {
     var text = read_file(manifest_path)
     var text_hold = text
@@ -210,6 +728,10 @@ func resolve_import_path(cur_file: str, imp: str, stdroot: str): str {
         if str_eq(str_slice(imp_p, 0, 4), "std/") == 1 {
             return path_join_dir(std_p, imp_p)
         }
+    }
+    var via_dep = resolve_dep_alias_import(cur_p, imp_p)
+    if str_len(via_dep) > 0 {
+        return via_dep
     }
     return path_join_dir(dirname_of_file(cur_p), imp_p)
 }
@@ -342,6 +864,10 @@ func merge_emit_file(abs_path: str, done: str, stack: str, stdroot: str, out: in
             done2 = dr_hold
         }
     }
+    // Issue #54: mark file origin for path:line:col diagnostics (comment; lexer skips).
+    str_builder_append(out, "//@diva-file:")
+    str_builder_append(out, abs_p)
+    str_builder_append(out, nl)
     str_builder_append(out, src_hold)
     str_builder_append(out, nl)
     var b_done = str_builder_new()
@@ -384,6 +910,28 @@ func merge_package_sources(root: str): str {
     var root_p = root
     var stdroot = loader_stdlib_dir()
     var std_hold = stdroot
+    loader_log_module_graph(root_p)
+    var pkg_name = package_manifest_name(root_p)
+    if str_len(pkg_name) == 0 {
+        pkg_name = loader_path_basename(root_p)
+    }
+    var fp = fingerprint_package(root_p)
+    if loader_cache_enabled() == 1 {
+        if fp >= 0 {
+            var cached = loader_cache_read(pkg_name, fp)
+            var cached_hold = cached
+            if str_len(cached_hold) > 0 {
+                if loader_pkg_cache_trace() == 1 {
+                    stderr("loader: cache hit ")
+                    stderr(pkg_name)
+                    stderr(" fp=")
+                    stderr(int_to_str(fp))
+                    stderr(loader_newline())
+                }
+                return cached_hold
+            }
+        }
+    }
     if loader_check_trace() == 1 {
         stderr("[check-trace] merge_package_sources: after loader_stdlib_dir\n")
     }
@@ -415,5 +963,66 @@ func merge_package_sources(root: str): str {
     }
     var merged = str_builder_to_str(b)
     str_builder_free(b)
+    if loader_cache_enabled() == 1 {
+        if fp >= 0 {
+            if str_len(merged) > 0 {
+                loader_cache_write(pkg_name, fp, merged)
+                if loader_pkg_cache_trace() == 1 {
+                    stderr("loader: cache store ")
+                    stderr(pkg_name)
+                    stderr(" fp=")
+                    stderr(int_to_str(fp))
+                    stderr(loader_newline())
+                }
+            }
+        }
+    }
     return merged
+}
+
+// Absolute paths (newline-separated) for `diva watch`: transitive imports + package.diva.
+func collect_watch_files(path: str): str {
+    var path_p = path
+    var stdroot = loader_stdlib_dir()
+    var std_hold = stdroot
+    var nl = loader_newline()
+    var entry = path_p
+    var man = ""
+    if path_is_package_dir(path_p) == 1 {
+        man = path_join_dir(path_p, "package.diva")
+        var ent = package_entry_relative(man)
+        var ent_hold = ent
+        if str_len(ent_hold) == 0 {
+            return ""
+        }
+        entry = path_join_dir(path_p, ent_hold)
+    } else {
+        var pn = str_len(path_p)
+        if pn < 5 {
+            return ""
+        }
+        if str_eq(str_slice(path_p, pn - 5, 5), ".diva") == 0 {
+            return ""
+        }
+    }
+    var throwaway = str_builder_new()
+    var done = ""
+    var r = merge_emit_file(entry, done, "", std_hold, throwaway)
+    str_builder_free(throwaway)
+    var r_hold = r
+    if str_len(r_hold) == 0 {
+        return ""
+    }
+    if str_len(man) > 0 {
+        if path_in_done(r_hold, man, nl) == 0 {
+            var b = str_builder_new()
+            str_builder_append(b, r_hold)
+            str_builder_append(b, man)
+            str_builder_append(b, nl)
+            var out = str_builder_to_str(b)
+            str_builder_free(b)
+            return out
+        }
+    }
+    return r_hold
 }

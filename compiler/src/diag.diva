@@ -1,0 +1,106 @@
+// Source-span diagnostics: map byte offsets to path:line:col (Issue #54).
+// Merged TUs use `//@diva-file:<abs-path>` comment markers from loader.diva.
+
+import "std/io.diva"
+import "std/conv.diva"
+import "std/host.diva"
+import "std/vec.diva"
+
+func diag_marker_prefix(): str {
+    return "//@diva-file:"
+}
+
+func diag_marker_len(): int {
+    return 13
+}
+
+// 1 if src[i..] starts with //@diva-file:
+func diag_at_marker(src: str, i: int): int {
+    var n = str_len(src)
+    var m = diag_marker_len()
+    if (i + m > n) { return 0 }
+    var j = 0
+    var pref = diag_marker_prefix()
+    while (j < m) {
+        if str_byte(src, i + j) != str_byte(pref, j) {
+            return 0
+        }
+        j = j + 1
+    }
+    return 1
+}
+
+// Resolve location at byte offset. Returns int_vec:
+// [line, col, path_start, path_len]  (line/col 1-based; path_len 0 => use "<input>")
+func diag_resolve(src: str, off: int): int {
+    var n = str_len(src)
+    var use = off
+    if (use < 0) { use = 0 }
+    if (use > n) { use = n }
+
+    var path_s = 0
+    var path_len = 0
+    var line = 1
+    var line_start = 0
+    var i = 0
+    while (i < use) {
+        if diag_at_marker(src, i) == 1 {
+            var ps = i + diag_marker_len()
+            var pe = ps
+            while (pe < n & str_byte(src, pe) != 10) {
+                pe = pe + 1
+            }
+            path_s = ps
+            path_len = pe - ps
+            if (pe < n) {
+                i = pe + 1
+            } else {
+                i = pe
+            }
+            line = 1
+            line_start = i
+        } else {
+            if str_byte(src, i) == 10 {
+                line = line + 1
+                line_start = i + 1
+            }
+            i = i + 1
+        }
+    }
+    var col = use - line_start + 1
+    if (col < 1) { col = 1 }
+    var out = int_vec_new()
+    int_vec_push(out, line)
+    int_vec_push(out, col)
+    int_vec_push(out, path_s)
+    int_vec_push(out, path_len)
+    return out
+}
+
+// Print `path:line:col: ` (or `<input>:line:col: `) to stderr.
+func diag_emit_loc(src: str, byte_off: int): int {
+    var loc = diag_resolve(src, byte_off)
+    var line = int_vec_get(loc, 0)
+    var col = int_vec_get(loc, 1)
+    var path_s = int_vec_get(loc, 2)
+    var path_len = int_vec_get(loc, 3)
+    if (path_len > 0) {
+        stderr(str_slice(src, path_s, path_len))
+    } else {
+        stderr("<input>")
+    }
+    stderr(":")
+    stderr(int_to_str(line))
+    stderr(":")
+    stderr(int_to_str(col))
+    stderr(": ")
+    int_vec_free(loc)
+    return 0
+}
+
+func diag_error_at(src: str, byte_off: int, msg: str): int {
+    diag_emit_loc(src, byte_off)
+    stderr(msg)
+    stderr(char_to_str(10))
+    return 1
+}

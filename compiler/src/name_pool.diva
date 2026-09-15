@@ -1,0 +1,60 @@
+// Synthetic function names for generic monomorphization (Issue #26).
+import "std/vec.diva"
+import "std/str.diva"
+import "cell.diva"
+
+func name_pool_base(): int { return 1000000 }
+
+func name_pool_new(): int {
+    var p = int_vec_new()
+    int_vec_push(p, mut_new(0))
+    int_vec_push(p, int_vec_new())
+    return p
+}
+
+func name_pool_blob(pool: int): int {
+    return int_vec_get(pool, 0)
+}
+
+func name_pool_starts(pool: int): int {
+    return int_vec_get(pool, 1)
+}
+
+func name_pool_is_synthetic(tok: int): int {
+    if tok >= name_pool_base() {
+        return 1
+    }
+    return 0
+}
+
+func name_pool_intern(pool: int, name: str): int {
+    var blob = name_pool_blob(pool)
+    var starts = name_pool_starts(pool)
+    var id = int_vec_len(starts)
+    var cur = mut_get(blob)
+    int_vec_push(starts, str_len(cur))
+    mut_set(blob, str_concat(cur, name))
+    return name_pool_base() + id
+}
+
+func name_pool_text(pool: int, syn_tok: int): str {
+    if name_pool_is_synthetic(syn_tok) == 0 {
+        return ""
+    }
+    var id = syn_tok - name_pool_base()
+    var starts = name_pool_starts(pool)
+    if id < 0 {
+        return ""
+    }
+    if id >= int_vec_len(starts) {
+        return ""
+    }
+    var blob = mut_get(name_pool_blob(pool))
+    var off = int_vec_get(starts, id)
+    var n = str_len(blob)
+    if (id + 1) < int_vec_len(starts) {
+        var next = int_vec_get(starts, id + 1)
+        return str_slice(blob, off, next - off)
+    }
+    return str_slice(blob, off, n - off)
+}

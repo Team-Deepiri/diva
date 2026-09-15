@@ -6,9 +6,8 @@ struct Point {
 }
 
 func main(): int {
-    var px = 7
-    var py = 11
-    print_int(px + py)
-    print_int(px)
+    var p = Point { x: 7, y: 11 }
+    print_int(p.x + p.y)
+    print_int(p.x)
     return 0
 }

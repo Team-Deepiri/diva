@@ -1,0 +1,8 @@
+# path	needle	kind
+# ok = build must succeed; fail = build must fail with needle
+tests/cases/sema/ok_hello.diva		ok
+tests/cases/sema/ok_types.diva		ok
+tests/cases/sema/ok_bool_eq.diva		ok
+tests/cases/sema/fail_assign_type.diva	type mismatch	fail
+tests/cases/sema/fail_return_type.diva	return type mismatch	fail
+tests/cases/sema/fail_binop_type.diva	type mismatch	fail

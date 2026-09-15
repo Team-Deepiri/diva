@@ -1,0 +1,17 @@
+extern func print_int(x: int): void
+
+// Native subset: method calls lower to free functions with an explicit receiver.
+func bump(recv: int, amount: int): int {
+    return recv + amount
+}
+
+func twice(recv: int): int {
+    return recv + recv
+}
+
+func main(): int {
+    var c = 3
+    print_int(c.bump(4))
+    print_int(c.twice())
+    return 0
+}

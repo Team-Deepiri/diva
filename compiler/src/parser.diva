@@ -7,6 +7,7 @@ import "std/vec.diva"
 import "tokens.diva"
 import "ast.diva"
 import "cell.diva"
+import "diag.diva"
 
 // --- Parser context ---
 // ps = int_vec: [pos_cell, tlen, err_cell, toks_handle, quiet (0=loud, 1=no stderr on error)]
@@ -47,9 +48,25 @@ func p_text(ps: int, src: str, idx: int): str {
     return tok_text(src, ps_toks(ps), idx)
 }
 
+func p_byte_off(ps: int): int {
+    if (ps_pos(ps) < ps_tlen(ps)) {
+        return tok_start(ps_toks(ps), ps_pos(ps))
+    }
+    if (ps_tlen(ps) > 0) {
+        var last = ps_tlen(ps) - 1
+        return tok_start(ps_toks(ps), last) + tok_len(ps_toks(ps), last)
+    }
+    return 0
+}
+
+func p_diag(ps: int, src: str): int {
+    return diag_emit_loc(src, p_byte_off(ps))
+}
+
 func p_expect(ps: int, src: str, kind: int): int {
     if (p_cur(ps) != kind) {
         if ps_quiet(ps) == 0 {
+            p_diag(ps, src)
             stderr("parse error: expected ")
             stderr(tk_name(kind))
             stderr(", got ")
@@ -94,8 +111,18 @@ func parse_type(ps: int, src: str): int {
         if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(t) }
         return t
     }
-    if kind == tk_str_kw()  { p_advance(ps) return ast_type_name(tok) }
-    if kind == tk_bool_kw() { p_advance(ps) return ast_type_name(tok) }
+    if kind == tk_str_kw() {
+        p_advance(ps)
+        var ts = ast_type_name(tok)
+        if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(ts) }
+        return ts
+    }
+    if kind == tk_bool_kw() {
+        p_advance(ps)
+        var tb = ast_type_name(tok)
+        if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(tb) }
+        return tb
+    }
     if kind == tk_void()    { p_advance(ps) return ast_type_name(tok) }
     if kind == tk_ident() {
         p_advance(ps)
@@ -104,6 +131,7 @@ func parse_type(ps: int, src: str): int {
         return t
     }
     if ps_quiet(ps) == 0 {
+        p_diag(ps, src)
         stderr("parse error: expected type\n")
     }
     ps_set_err(ps)
@@ -199,6 +227,7 @@ func parse_primary(ps: int, src: str): int {
     }
 
     if ps_quiet(ps) == 0 {
+        p_diag(ps, src)
         stderr("parse error: unexpected token in expression: ")
         stderr(tk_name(kind))
         stderr("\n")
@@ -246,34 +275,46 @@ func parse_postfix(ps: int, src: str, left: int): int {
         } else {
         if p_cur(ps) == tk_lbrack() {
             p_advance(ps)
+            var save = ps_pos(ps)
+            var targs = int_vec_new()
+            var is_gen = 0
             if p_cur(ps) == tk_int_kw() | p_cur(ps) == tk_str_kw() | p_cur(ps) == tk_bool_kw() | p_cur(ps) == tk_ident() {
-                var save = ps_pos(ps)
-                p_advance(ps)
-                if p_cur(ps) == tk_rbrack() {
+                int_vec_push(targs, p_advance(ps))
+                while p_cur(ps) == tk_comma() {
                     p_advance(ps)
-                    if p_cur(ps) == tk_lparen() {
-                        var args = parse_args(ps, src)
-                        var gnode = ast_call(node, args)
-                        node = gnode
+                    if p_cur(ps) == tk_int_kw() | p_cur(ps) == tk_str_kw() | p_cur(ps) == tk_bool_kw() | p_cur(ps) == tk_ident() {
+                        int_vec_push(targs, p_advance(ps))
                     } else {
-                        ps_set_pos(ps, save)
-                        var idx = parse_expr(ps, src)
-                        p_expect(ps, src, tk_rbrack())
-                        var inode = ast_index(node, idx)
-                        node = inode
+                        is_gen = 0 - 1
                     }
+                }
+                if is_gen == 0 {
+                    if p_cur(ps) == tk_rbrack() {
+                        is_gen = 1
+                    }
+                }
+            }
+            if is_gen == 1 {
+                p_advance(ps)
+                if p_cur(ps) == tk_lparen() {
+                    var args = parse_args(ps, src)
+                    var gnode = ast_generic_call(node, targs, args)
+                    node = gnode
                 } else {
                     ps_set_pos(ps, save)
+                    int_vec_free(targs)
                     var idx = parse_expr(ps, src)
                     p_expect(ps, src, tk_rbrack())
-                    var inode2 = ast_index(node, idx)
-                    node = inode2
+                    var inode = ast_index(node, idx)
+                    node = inode
                 }
             } else {
+                int_vec_free(targs)
+                ps_set_pos(ps, save)
                 var idx = parse_expr(ps, src)
                 p_expect(ps, src, tk_rbrack())
-                var inode3 = ast_index(node, idx)
-                node = inode3
+                var inode2 = ast_index(node, idx)
+                node = inode2
             }
         } else {
         if p_cur(ps) == tk_dotdot() {
@@ -533,9 +574,21 @@ func parse_params(ps: int, src: str): int {
     return params
 }
 
-func parse_func_decl(ps: int, src: str): int {
+func parse_func_decl_opts(ps: int, src: str, allow_empty_body: int): int {
     p_advance(ps)
     var name = p_expect(ps, src, tk_ident())
+    var type_params = int_vec_new()
+    if p_cur(ps) == tk_lbrack() {
+        p_advance(ps)
+        if p_cur(ps) != tk_rbrack() {
+            int_vec_push(type_params, p_expect(ps, src, tk_ident()))
+            while p_cur(ps) == tk_comma() {
+                p_advance(ps)
+                int_vec_push(type_params, p_expect(ps, src, tk_ident()))
+            }
+        }
+        p_expect(ps, src, tk_rbrack())
+    }
     var params = parse_params(ps, src)
     var ret = 0
     if p_cur(ps) == tk_colon() {
@@ -553,8 +606,67 @@ func parse_func_decl(ps: int, src: str): int {
             }
         }
     }
-    var body = parse_block(ps, src, void_body)
-    return ast_func(name, params, ret, body)
+    var body = 0
+    if p_cur(ps) == tk_lbrace() {
+        body = parse_block(ps, src, void_body)
+    } else {
+        if allow_empty_body == 1 {
+            body = ast_block(int_vec_new())
+        } else {
+            body = parse_block(ps, src, void_body)
+        }
+    }
+    return ast_func_generic(name, type_params, params, ret, body)
+}
+
+func parse_func_decl(ps: int, src: str): int {
+    return parse_func_decl_opts(ps, src, 0)
+}
+
+func parse_trait_decl(ps: int, src: str): int {
+    p_advance(ps)
+    var name = p_expect(ps, src, tk_ident())
+    p_expect(ps, src, tk_lbrace())
+    var methods = int_vec_new()
+    while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
+        if ps_err(ps) != 0 { return ast_trait(name, methods) }
+        if p_cur(ps) == tk_func() {
+            int_vec_push(methods, parse_func_decl_opts(ps, src, 1))
+        } else {
+            p_advance(ps)
+        }
+    }
+    p_expect(ps, src, tk_rbrace())
+    return ast_trait(name, methods)
+}
+
+func parse_impl_decl(ps: int, src: str): int {
+    p_advance(ps)
+    var trait_tok = p_expect(ps, src, tk_ident())
+    var for_tok = p_expect(ps, src, tk_ident())
+    var for_sp = p_text(ps, src, for_tok)
+    if str_eq(for_sp, "for") == 0 {
+        if ps_quiet(ps) == 0 {
+            diag_emit_loc(src, tok_start(ps_toks(ps), for_tok))
+            stderr("parse error: expected 'for' in impl header, got '")
+            stderr(for_sp)
+            stderr("'\n")
+        }
+        ps_set_err(ps)
+    }
+    var type_tok = p_expect(ps, src, tk_ident())
+    p_expect(ps, src, tk_lbrace())
+    var methods = int_vec_new()
+    while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
+        if ps_err(ps) != 0 { return ast_impl(trait_tok, type_tok, methods) }
+        if p_cur(ps) == tk_func() {
+            int_vec_push(methods, parse_func_decl(ps, src))
+        } else {
+            p_advance(ps)
+        }
+    }
+    p_expect(ps, src, tk_rbrace())
+    return ast_impl(trait_tok, type_tok, methods)
 }
 
 func parse_extern_decl(ps: int, src: str): int {
@@ -570,6 +682,16 @@ func parse_extern_decl(ps: int, src: str): int {
 func parse_class_decl(ps: int, src: str): int {
     p_advance(ps)
     var name = p_expect(ps, src, tk_ident())
+    var type_params = int_vec_new()
+    if p_cur(ps) == tk_lbrack() {
+        p_advance(ps)
+        int_vec_push(type_params, p_expect(ps, src, tk_ident()))
+        while p_cur(ps) == tk_comma() {
+            p_advance(ps)
+            int_vec_push(type_params, p_expect(ps, src, tk_ident()))
+        }
+        p_expect(ps, src, tk_rbrack())
+    }
     p_expect(ps, src, tk_lbrace())
     var members = int_vec_new()
     while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
@@ -586,8 +708,7 @@ func parse_class_decl(ps: int, src: str): int {
                 int_vec_push(members, parse_func_decl(ps, src))
             } else {
                 if p_cur(ps) == tk_ident() {
-                    var fname = p_cur(ps)
-                    p_advance(ps)
+                    var fname = p_advance(ps)
                     if p_cur(ps) == tk_colon() {
                         p_advance(ps)
                         var ftype = parse_type(ps, src)
@@ -599,7 +720,7 @@ func parse_class_decl(ps: int, src: str): int {
         }
     }
     p_expect(ps, src, tk_rbrace())
-    return ast_class(name, members)
+    return ast_class_generic(name, type_params, members)
 }
 
 func parse_struct_lit(ps: int, src: str, type_tok: int): int {
@@ -657,22 +778,10 @@ func parse_top_level(ps: int, src: str): int {
             int_vec_push(children, parse_class_decl(ps, src))
         } else {
         if kind == tk_trait() {
-            int_vec_push(children, parse_class_decl(ps, src))
+            int_vec_push(children, parse_trait_decl(ps, src))
         } else {
         if kind == tk_impl() {
-            p_advance(ps)
-            p_expect(ps, src, tk_ident())
-            p_expect(ps, src, tk_ident())
-            p_expect(ps, src, tk_ident())
-            p_expect(ps, src, tk_lbrace())
-            while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
-                if p_cur(ps) == tk_func() {
-                    parse_func_decl(ps, src)
-                } else {
-                    p_advance(ps)
-                }
-            }
-            p_expect(ps, src, tk_rbrace())
+            int_vec_push(children, parse_impl_decl(ps, src))
         } else {
         if kind == tk_var() | kind == tk_let() | kind == tk_const() {
             int_vec_push(children, parse_var_decl(ps, src))
@@ -681,6 +790,7 @@ func parse_top_level(ps: int, src: str): int {
             return ast_file(children)
         } else {
             if ps_quiet(ps) == 0 {
+                p_diag(ps, src)
                 stderr("parse error: unexpected top-level token: ")
                 stderr(tk_name(kind))
                 stderr("\n")

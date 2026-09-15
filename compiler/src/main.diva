@@ -30,11 +30,13 @@ func native_cmd_ir_debug(): int {
 func cmd_print_usage(): int {
     stderr("usage: diva <command> [args]\n")
     stderr("  lex <file.diva> | parse <file.diva> | ir <file.diva> | asm <file.diva>\n")
-    stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast] | run <...>\n")
-    stderr("  check <package-dir> | new <path> [--lib|--kernel]\n")
+    stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g] | run <...>\n")
+    stderr("  watch <file.diva|package-dir> | check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline\n")
     stderr("Environment: DI_STDLIB_DIR (stdlib search path)\n")
-    stderr("  diva new <path> [--lib|--kernel] (native scaffolding)\n")
+    stderr("  DIVA_WATCH_MAX_ITERS=N exits after N poll cycles (CI smoke)\n")
+    stderr("  diva build -g embeds DWARF via scripts/embed-dwarf-debug.py (needs python3)\n")
+    stderr("  diva new <path> [--lib|--kernel|--system] (native scaffolding)\n")
     return 1
 }
 
@@ -372,6 +374,10 @@ func native_require_no_externs(m: int, src: str, toks: int): int {
         if str_eq(nm, "unlink") == 1 { supported = 1 }
         if str_eq(nm, "chmod_executable") == 1 { supported = 1 }
         if str_eq(nm, "write_elf_chunk") == 1 { supported = 1 }
+        if str_eq(nm, "mem_alloc") == 1 { supported = 1 }
+        if str_eq(nm, "mem_free") == 1 { supported = 1 }
+        if str_eq(nm, "mem_get") == 1 { supported = 1 }
+        if str_eq(nm, "mem_set") == 1 { supported = 1 }
         if supported == 0 {
             if unresolved == 0 {
                 err_line("native build: unresolved extern runtime dependencies remain:")
@@ -624,11 +630,12 @@ func native_mkdir_p(path: str): int {
 
 func cmd_new(): int {
     if (host_argc() < 3) {
-        err_line("usage: diva new <path> [--lib|--kernel]   (or: diva new --lib <path>)")
+        err_line("usage: diva new <path> [--lib|--kernel|--system]   (or: diva new --lib <path>)")
         return 1
     }
     var want_lib = 0
     var want_kernel = 0
+    var want_system = 0
     var path = ""
     var i = 2
     while (i < host_argc()) {
@@ -639,22 +646,27 @@ func cmd_new(): int {
             if str_eq(a, "--kernel") == 1 {
                 want_kernel = 1
             } else {
+                if str_eq(a, "--system") == 1 {
+                    want_system = 1
+                } else {
                 if str_byte(a, 0) != 45 {
                     if str_len(path) == 0 {
                         // Copy argv text: host_argv pointers may alias one buffer reused each call.
                         path = str_concat(a, "")
                     }
                 }
+                }
             }
         }
         i = i + 1
     }
-    if (want_lib == 1 & want_kernel == 1) {
-        err_line("new: choose either --lib or --kernel")
+    var kind_count = want_lib + want_kernel + want_system
+    if kind_count > 1 {
+        err_line("new: choose at most one of --lib, --kernel, --system")
         return 1
     }
     if str_len(path) == 0 {
-        err_line("usage: diva new <path> [--lib|--kernel]")
+        err_line("usage: diva new <path> [--lib|--kernel|--system]")
         return 1
     }
     if new_path_shell_safe(path) == 0 {
@@ -700,6 +712,11 @@ func cmd_new(): int {
         str_builder_append(mf, nl)
         str_builder_append(mf, "entry = \"src/boot.diva\"")
         str_builder_append(mf, nl)
+    } else if want_system == 1 {
+        str_builder_append(mf, "kind = \"system\"")
+        str_builder_append(mf, nl)
+        str_builder_append(mf, "entry = \"src/system.diva\"")
+        str_builder_append(mf, nl)
     } else {
         str_builder_append(mf, "kind = \"app\"")
         str_builder_append(mf, nl)
@@ -737,6 +754,24 @@ func cmd_new(): int {
         main_body = str_concat(main_body, nl)
         if native_write_text_bytes(path_join_dir(src_dir, "boot.diva"), main_body) != 0 {
             err_line("new: writing src/boot.diva failed")
+            return 1
+        }
+    } else if want_system == 1 {
+        main_body = "// Freestanding/system template — see docs/freestanding.md"
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "extern func sys_exit(code: int): void")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "func main(): int {")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    sys_exit(0)")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "    return 0")
+        main_body = str_concat(main_body, nl)
+        main_body = str_concat(main_body, "}")
+        main_body = str_concat(main_body, nl)
+        if native_write_text_bytes(path_join_dir(src_dir, "system.diva"), main_body) != 0 {
+            err_line("new: writing src/system.diva failed")
             return 1
         }
     } else {
@@ -782,6 +817,13 @@ func cmd_new(): int {
         str_builder_append(rd, nl)
         str_builder_append(rd, "`diva parse ")
         str_builder_append(rd, path_join_dir(path, "src/boot.diva"))
+        str_builder_append(rd, "`")
+        str_builder_append(rd, nl)
+    } else if want_system == 1 {
+        str_builder_append(rd, "System/freestanding scaffold. See docs/freestanding.md.")
+        str_builder_append(rd, nl)
+        str_builder_append(rd, "Validate: `diva check ")
+        str_builder_append(rd, path)
         str_builder_append(rd, "`")
         str_builder_append(rd, nl)
     } else if want_lib == 1 {
@@ -881,14 +923,10 @@ func cmd_asm(path: str): int {
 func cmd_emit_ir(path: str): int {
     var src = ""
     if path_is_package_dir(path) == 1 {
-        if package_is_kernel_dir(path) == 1 {
-            err_line("emit-ir: kernel packages are not supported in the native driver")
-            return 1
-        }
         src = merge_package_sources(path)
     } else {
         if path_is_diva_file(path) == 0 {
-            err_line("emit-ir: expected a .diva file or an app/lib package directory")
+            err_line("emit-ir: expected a .diva file or a package directory")
             return 1
         }
         src = merge_file_sources(path)
@@ -982,6 +1020,50 @@ func build_wants_ast(): int {
     return 0
 }
 
+func build_wants_g(): int {
+    var i = 2
+    while (i < host_argc()) {
+        if str_eq(host_argv(i), "-g") == 1 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Source path recorded in DWARF (entry .diva for packages).
+func dwarf_debug_src_path(path: str): str {
+    if build_path_is_package_dir(path) == 1 {
+        var man = path_join_dir(path, "package.diva")
+        var ent = package_entry_relative(man)
+        if str_len(ent) == 0 {
+            return path
+        }
+        return path_join_dir(path, ent)
+    }
+    return path
+}
+
+// Post-process pure ELF with scripts/embed-dwarf-debug.py (Issue #63).
+func native_embed_dwarf(exe_out: str, src_path: str): int {
+    var root = host_getenv("ROOT_DIR")
+    var script = "scripts/embed-dwarf-debug.py"
+    if str_len(root) > 0 {
+        script = path_join_dir(root, "scripts/embed-dwarf-debug.py")
+    }
+    var b = str_builder_new()
+    str_builder_append(b, "python3 ")
+    str_builder_append(b, script)
+    str_builder_append(b, " ")
+    str_builder_append(b, exe_out)
+    str_builder_append(b, " ")
+    str_builder_append(b, src_path)
+    var cmd = str_builder_to_str(b)
+    str_builder_free(b)
+    var rc = host_system(cmd)
+    return system_exit_code(rc)
+}
+
 // Lex + parse + sema for a lib/app package (merged sources). No seed forwarding.
 func cmd_check(): int {
     if (host_argc() < 3) {
@@ -992,10 +1074,6 @@ func cmd_check(): int {
     var path_h = path
     if path_is_package_dir(path_h) == 0 {
         err_line("check: expected a package directory (with package.diva)")
-        return 1
-    }
-    if package_is_kernel_dir(path_h) == 1 {
-        err_line("check: kernel packages are not supported in the native driver")
         return 1
     }
     var merged = merge_package_sources(path_h)
@@ -1056,12 +1134,11 @@ func cmd_build(): int {
         }
         return cmd_build_ast(path)
     }
-    if build_path_is_package_dir(path) == 1 {
-        if package_is_kernel_dir(path) == 1 {
-            err_line("build: kernel packages are not supported in the native driver")
-            return 1
-        }
-    }
+    return native_build_path(path, 0)
+}
+
+// Shared by `build` and `watch`. quiet=1 suppresses the success line (watch prints its own).
+func native_build_path(path: str, quiet: int): int {
     var merged = ""
     if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
@@ -1076,7 +1153,6 @@ func cmd_build(): int {
             err_line("build: expected a .diva file or a package directory containing package.diva")
             return 1
         }
-        // Use merged source to handle imports
         merged = merge_file_sources(path)
         var merged_try = merged
         var merged_try_len = str_len(merged_try)
@@ -1095,12 +1171,165 @@ func cmd_build(): int {
         return 1
     }
     var exe_out = pick_build_out_path()
-    if native_compile_and_link(merged_out_hold, 0, exe_out) != 0 {
+    if native_compile_and_link(merged_out_hold, quiet, exe_out) != 0 {
         return 1
     }
-    var built_msg = str_concat("[native] built executable at ", exe_out)
-    print_str(built_msg)
-    stdout(newline_str())
+    if build_wants_g() == 1 {
+        var dbg_src = dwarf_debug_src_path(path)
+        if native_embed_dwarf(exe_out, dbg_src) != 0 {
+            if quiet == 0 {
+                err_line("build -g: embed-dwarf-debug.py failed (need python3 + scripts/embed-dwarf-debug.py)")
+            }
+            return 1
+        }
+        if quiet == 0 {
+            err_line("[native] DWARF -g sections embedded (addr2line)")
+        }
+    }
+    if quiet == 0 {
+        if build_path_is_package_dir(path) == 1 {
+            if package_is_kernel_dir(path) == 1 {
+                var kmsg = str_concat("[native] built kernel ELF (kmain entry) at ", exe_out)
+                print_str(kmsg)
+                stdout(newline_str())
+                return 0
+            }
+        }
+        var built_msg = str_concat("[native] built executable at ", exe_out)
+        print_str(built_msg)
+        stdout(newline_str())
+    }
+    return 0
+}
+
+func watch_file_fp(path: str): int {
+    var sz = file_size(path)
+    if sz < 0 {
+        return 0 - 1
+    }
+    var s = read_file(path)
+    var h = sz + 1
+    var i = 0
+    var n = str_len(s)
+    while (i < n) {
+        h = h * 131 + str_byte(s, i)
+        i = i + 1
+    }
+    return h
+}
+
+func watch_make_snapshot(files: str): str {
+    var nl = newline_str()
+    var b = str_builder_new()
+    var pos = 0
+    var n = str_len(files)
+    while (pos < n) {
+        var le = pos
+        while (le < n & str_byte(files, le) != 10) {
+            le = le + 1
+        }
+        var p = str_slice(files, pos, le - pos)
+        pos = le + 1
+        if str_len(p) > 0 {
+            str_builder_append(b, p)
+            str_builder_append(b, "|")
+            str_builder_append(b, int_to_str(watch_file_fp(p)))
+            str_builder_append(b, nl)
+        }
+    }
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+func watch_count_lines(s: str): int {
+    var n = str_len(s)
+    var c = 0
+    var i = 0
+    while (i < n) {
+        if str_byte(s, i) == 10 {
+            c = c + 1
+        }
+        i = i + 1
+    }
+    return c
+}
+
+func watch_poll_sleep(): int {
+    host_system("sleep 1")
+    return 0
+}
+
+func watch_max_iters(): int {
+    var v = host_getenv("DIVA_WATCH_MAX_ITERS")
+    var v_hold = v
+    if str_len(v_hold) == 0 {
+        return 0
+    }
+    return str_to_int(v_hold)
+}
+
+func cmd_watch(): int {
+    if host_argc() < 3 {
+        err_line("usage: diva watch <file.diva|package-dir>")
+        return 1
+    }
+    var path = host_argv(2)
+    var path_h = path
+    if build_path_is_package_dir(path_h) == 0 {
+        if path_is_diva_file(path_h) == 0 {
+            err_line("watch: expected a .diva file or a package directory")
+            return 1
+        }
+    }
+    var files = collect_watch_files(path_h)
+    var files_h = files
+    if str_len(files_h) == 0 {
+        err_line("watch: could not resolve dependency files (see loader messages above)")
+        return 1
+    }
+    var nfiles = watch_count_lines(files_h)
+    err_line(str_concat("[watch] watching ", str_concat(int_to_str(nfiles), " files (poll 1s; DIVA_WATCH_MAX_ITERS to exit)")))
+    err_line("[watch] building...")
+    if native_build_path(path_h, 1) != 0 {
+        err_line("[watch] build failed (continuing)")
+    } else {
+        err_line(str_concat("[watch] ok -> ", pick_build_out_path()))
+    }
+    var snap = watch_make_snapshot(files_h)
+    var iters = 0
+    var max_i = watch_max_iters()
+    while (1 == 1) {
+        if max_i > 0 {
+            if iters >= max_i {
+                err_line("[watch] max iters reached; exiting")
+                return 0
+            }
+        }
+        watch_poll_sleep()
+        iters = iters + 1
+        files = collect_watch_files(path_h)
+        files_h = files
+        if str_len(files_h) == 0 {
+            err_line("[watch] dependency resolve failed (continuing)")
+        } else {
+            var snap2 = watch_make_snapshot(files_h)
+            if str_eq(snap, snap2) == 0 {
+                err_line("[watch] change detected; debouncing...")
+                watch_poll_sleep()
+                files = collect_watch_files(path_h)
+                files_h = files
+                snap2 = watch_make_snapshot(files_h)
+                err_line("[watch] rebuilding...")
+                if native_build_path(path_h, 1) != 0 {
+                    err_line("[watch] build failed (continuing)")
+                } else {
+                    err_line(str_concat("[watch] ok -> ", pick_build_out_path()))
+                }
+                snap = snap2
+            }
+        }
+    }
     return 0
 }
 
@@ -1202,6 +1431,10 @@ func main(): int {
 
     if str_eq(a1, "build") == 1 {
         return cmd_build()
+    }
+
+    if str_eq(a1, "watch") == 1 {
+        return cmd_watch()
     }
 
     if str_eq(a1, "run") == 1 {

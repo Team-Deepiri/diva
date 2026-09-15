@@ -1,0 +1,10 @@
+extern func print_int(x: int): void
+
+func add(a: int, b: int): int {
+    return a + b
+}
+
+func main(): int {
+    print_int(add(1))
+    return 0
+}

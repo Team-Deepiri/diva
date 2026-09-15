@@ -1,0 +1,14 @@
+extern func print_int(x: int): void
+
+func id[T](x: int): int {
+    return x
+}
+
+class Box[T] {
+    var v: int
+}
+
+func main(): int {
+    print_int(id[int](42))
+    return 0
+}

@@ -1,0 +1,8 @@
+import "std/syscall_linux.diva"
+
+func main(): int {
+    sys_write_str(1, "freestanding_ok")
+    sys_write_str(1, "\n")
+    sys_exit(0)
+    return 0
+}

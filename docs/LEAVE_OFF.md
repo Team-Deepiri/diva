@@ -1,27 +1,35 @@
-# Leave-off — string arena RSS (2026-08-04)
+# Leave-off — AST bump arena (2026-08-05)
 
-**Parent:** PR #12. **This PR:** #13.
+**Parent:** PR #12/#13. **This PR:** AST arena.
 
-**Self-host:** yes — seed is pure ELF grow (`bootstrap/diva-linux-amd64`).
+**Self-host:** yes — seed promoted to arena fixed point (`bootstrap/diva-linux-amd64`).
 
 ## Finding
 
-INIT shrink did not move ~28 GiB Max RSS. Cost was **page-rounded** `mmap(len+1)` in `str_builder_to_str`, `int_to_str`, and `str_slice`.
+The string arena cut RSS 28 GiB → ~567 MiB, but ~135k live 4 KiB `int_vec` AST pages were
+still a ~0.5 GiB floor. Every AST node constructor calls `int_vec_new()` → one `mmap` per node.
 
 ## Fix
 
-Packed bump arena at `0x520000000000` (2 GiB) for those three builtins.
+Packed bump arena at `0x540000000000` (2 GiB) in `pure_int_vec_new` / `pure_int_vec_push` /
+`pure_int_vec_free`:
+
+- Fixed 128-byte slots (`cap = 13` ints); `map_bytes == 0` marks an arena slot.
+- `push` promotes a full arena slot to a 4 KiB `mmap` (copy header + payload, update handle
+  table), then continues with the normal `mremap` growth path.
+- `free` skips `munmap` for arena slots (process-lifetime arena).
+- Falls back to a plain 4 KiB `mmap` if the arena is exhausted.
 
 ## Result
 
 | Metric | Before | After |
 |--------|--------|-------|
-| Max RSS full `build compiler/` | ~28 GiB | **~567 MiB** |
-| stage2≡stage3 | — | `c9913062…` |
-| tiny `<4096` mmaps | ~1M+ | **0** |
-
-Seed promoted to fixed-point pure binary.
+| Max RSS full `build compiler/` | ~567 MiB | **~168 MiB** |
+| stage2≡stage3 | — | `c0620891…` |
+| arena map at `0x540000000000` | absent | live |
 
 ## Residual
 
-~135k live 4 KiB `int_vec` pages ≈ RSS floor. Next: AST bump arena.
+- Arena slots are process-lifetime (no reuse); a free-list would help pathological churn.
+- The fallback 4 KiB `mmap` path (past 2 GiB of live AST) is untested at scale.
+- Optional micro-opt: skip per-call `FIXED_NOREPLACE` probes now that HT/arena are live.

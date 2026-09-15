@@ -7,7 +7,7 @@
 #
 # Env:
 #   DIVA_PURE_DRIVER   — path to pure ELF driver (default build/diva-compiler-pure-elf; do not use /tmp)
-#   DIVA_PURE_FULL=1   — also require `ir` + `asm` on a tiny file (fails until ret-to-0 bug fixed)
+#   DIVA_PURE_FULL=1   — also require `ir` + `asm` on a tiny file (Issue #55 exit gate)
 #
 set -eu
 
@@ -68,7 +68,7 @@ printf '%s\n' 'func main(): int {' '    return 0' '}' >"${tiny}"
 run_one "lex tiny" "${DRIVER}" lex "${tiny}"
 run_one "parse tiny" "${DRIVER}" parse "${tiny}"
 
-# Full gate: ir/asm touch codegen + merge paths; known SIGSEGV (rip≈0, [rsp]=0) until fixed.
+# Full gate: ir/asm touch codegen + merge paths (closed under Issue #55).
 if [ "${DIVA_PURE_FULL:-0}" = "1" ]; then
   run_one "ir tiny" "${DRIVER}" ir "${tiny}"
   run_one "asm tiny" "${DRIVER}" asm "${tiny}"
