@@ -2,9 +2,11 @@
    mmap per object). Kernel rounds every anon mmap up to a page; ~135k tiny AST nodes
    were ~0.5 GiB of page tax. map_bytes=0 marks an arena slot (free skips munmap; push
    promotes to a real mmap when the slot fills). Falls back to a 4KiB mmap if the arena
-   is exhausted. Handle = table index. Inlined at ir_call sites: NO ret. */
+   is exhausted. Handle = table index. Inlined at ir_call sites: NO ret.
+   HT map size (HT_BYTES) must stay in sync with str_builder_new: the page at
+   HT_BASE+0x800000 is the STRA_READY flag used by to_str's FIXED_NOREPLACE skip. */
 .equ HT_BASE, 0x500000000000
-.equ HT_BYTES, 0x800000
+.equ HT_BYTES, 0x801000		/* 8MiB table + one flag page for the to_str STRA_READY skip */
 .equ HT_MAX, 1048575
 .equ ASTA_BASE, 0x540000000000
 .equ ASTA_BYTES, 0x80000000

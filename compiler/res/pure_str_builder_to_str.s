@@ -1,9 +1,14 @@
 /* Pure ELF str_builder_to_str — handle index; returns packed C string from a
    bump arena (NOT one mmap-per-string). Kernel rounds every anon mmap up to a
    page; millions of tiny to_str results were ~28GiB RSS. NO ret.
-   Arena @ 0x520000000000: [bump][end] then bytes; FIXED_NOREPLACE. */
+   Arena @ 0x520000000000: [bump][end] then bytes; FIXED_NOREPLACE.
+   Micro-opt: the FIXED_NOREPLACE probe runs once. The STRA_READY flag (one
+   page past the HT table, mapped by str_builder_new) is set on both the fresh
+   map and the EEXIST path (arena already live) so every later call skips the
+   mmap syscall. */
 .equ HT_BASE, 0x500000000000
 .equ HT_MAX, 1048575
+.equ HT_FLAG, 0x800000
 .equ STRA_BASE, 0x520000000000
 .equ STRA_BYTES, 0x80000000
 .equ MAP_PRIVATE_ANON_FIXED_NR, 0x100032
@@ -33,7 +38,10 @@ pure_str_builder_to_str:
 	pushq	%r14
 	movq	%rdi, %r12			/* builder object */
 	movq	(%r12), %r13			/* len */
-	/* ensure string arena */
+	/* ensure string arena (once; see header) */
+	movabs	$(HT_BASE + HT_FLAG), %rax
+	cmpq	$1, (%rax)
+	je	.Larena_ready
 	movabs	$STRA_BASE, %rdi
 	movl	$STRA_BYTES, %esi
 	movl	$PROT_RW, %edx
@@ -43,15 +51,18 @@ pure_str_builder_to_str:
 	movl	$9, %eax
 	syscall
 	cmpq	$-4096, %rax
-	jbe	.Larena_ok			/* success: rax == STRA_BASE */
-	jmp	.Larena_ready			/* EEXIST: already mapped */
-.Larena_ok:
+	jbe	.Larena_map_ok			/* success: rax == STRA_BASE */
+	jmp	.Larena_flag			/* EEXIST: already mapped; still mark ready */
+.Larena_map_ok:
 	movabs	$STRA_BASE, %rax
 	leaq	64(%rax), %rcx			/* bump starts after header */
 	movq	%rcx, (%rax)
 	movl	$STRA_BYTES, %ecx
 	addq	%rax, %rcx
 	movq	%rcx, 8(%rax)			/* end */
+.Larena_flag:
+	movabs	$(HT_BASE + HT_FLAG), %rax
+	movq	$1, (%rax)
 .Larena_ready:
 	movabs	$STRA_BASE, %r14
 	movq	(%r14), %rbx			/* bump */
