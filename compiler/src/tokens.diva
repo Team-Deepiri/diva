@@ -10,6 +10,7 @@ func tk_eof(): int       { return 0 }
 func tk_ident(): int     { return 1 }
 func tk_int_lit(): int   { return 2 }
 func tk_str_lit(): int   { return 3 }
+func tk_text_lit(): int  { return 4 }
 
 func tk_func(): int      { return 10 }
 func tk_extern(): int    { return 11 }
@@ -36,6 +37,7 @@ func tk_struct(): int    { return 31 }
 func tk_for(): int       { return 32 }
 func tk_self(): int      { return 33 }
 func tk_const(): int     { return 34 }
+func tk_text_kw(): int   { return 35 }
 
 func tk_lparen(): int    { return 40 }
 func tk_rparen(): int    { return 41 }
@@ -253,6 +255,66 @@ func tok_str_value(src: str, stream: int, index: int): str {
     return r
 }
 
+// Decoded text-literal value: `text"..."` -> inner bytes (escapes same as tok_str_value).
+// Token span covers the `text` prefix + quotes: inner starts at t0+5, 6 bytes shorter than span.
+func tok_text_value(src: str, stream: int, index: int): str {
+    var t0 = tok_start(stream, index)
+    var tl = tok_len(stream, index)
+    var inner_len = tl - 6
+    if !(inner_len > 0) {
+        return ""
+    }
+    var inner_start = t0 + 5
+    var q = str_slice(src, t0 + 4, 1)
+    var b = str_builder_new()
+    var i = 0
+    while (i < inner_len) {
+        var c = str_byte(src, inner_start + i)
+        if c == 92 {
+            if !(inner_len > i + 1) {
+                str_builder_append(b, str_slice(src, inner_start + i, 1))
+                i = i + 1
+            } else {
+                var n2 = str_byte(src, inner_start + i + 1)
+                if n2 == 34 {
+                    str_builder_append(b, q)
+                    i = i + 2
+                } else {
+                    if n2 == 92 {
+                        str_builder_append(b, str_slice(src, inner_start + i, 1))
+                        i = i + 2
+                    } else {
+                        if n2 == 110 {
+                            str_builder_append(b, tok_esc_lf())
+                            i = i + 2
+                        } else {
+                            if n2 == 116 {
+                                str_builder_append(b, tok_esc_tab())
+                                i = i + 2
+                            } else {
+                                if n2 == 114 {
+                                    str_builder_append(b, tok_esc_cr())
+                                    i = i + 2
+                                } else {
+                                    str_builder_append(b, str_slice(src, inner_start + i, 1))
+                                    str_builder_append(b, str_slice(src, inner_start + i + 1, 1))
+                                    i = i + 2
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            str_builder_append(b, str_slice(src, inner_start + i, 1))
+            i = i + 1
+        }
+    }
+    var r = str_builder_to_str(b)
+    str_builder_free(b)
+    return r
+}
+
 // --- Token kind names (for diagnostics) ---
 
 func tk_name(kind: int): str {
@@ -260,6 +322,7 @@ func tk_name(kind: int): str {
     if kind == 1  { return "IDENT" }
     if kind == 2  { return "INT" }
     if kind == 3  { return "STRING" }
+    if kind == 4  { return "TEXT" }
     if kind == 10 { return "KW_FUNC" }
     if kind == 11 { return "KW_EXTERN" }
     if kind == 12 { return "KW_VAR" }
@@ -282,6 +345,7 @@ func tk_name(kind: int): str {
     if kind == 29 { return "KW_STR" }
     if kind == 30 { return "KW_BOOL" }
     if kind == 31 { return "KW_STRUCT" }
+    if kind == 35 { return "KW_TEXT" }
     if kind == 40 { return "LPAREN" }
     if kind == 41 { return "RPAREN" }
     if kind == 42 { return "LBRACE" }

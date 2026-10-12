@@ -1,0 +1,6 @@
+//@diva-file:/tmp/diva-tests-Be3mQl/diva_new_lib/src/lib.diva
+// Library package: add funcs here; depend from apps via package.diva deps.
+func lib_ping(): int {
+    return 1
+}
+

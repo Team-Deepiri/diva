@@ -1,0 +1,25 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// Phase 1 text-native operations: comparison/ordering (#147), slicing (#148),
+// `+` concatenation (#152), and the str<->text<->int bridge (#153).
+func main(): int {
+    var a = text"abc"
+    var b = text"abd"
+    var c = a + b
+    print_str(str_from_text(c))
+    print_str("\n")
+    print_int(text_len(c))
+    if a < b { print_str("lt\n") }
+    if a <= a { print_str("le\n") }
+    if b > a { print_str("gt\n") }
+    if a == a { print_str("eq\n") }
+    if a != b { print_str("ne\n") }
+    var s = c[1:3]
+    print_int(text_len(s))
+    if s == text"bc" { print_str("slice_ok\n") }
+    print_int(int_from_text(text"1234"))
+    print_str(str_from_text(text_from_int(42)))
+    print_str("\n")
+    return 0
+}

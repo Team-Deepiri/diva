@@ -1,0 +1,16 @@
+//@diva-file:/home/joeblack/Documents/diva/examples/packages/app_with_dep/../math_lib/src/lib.diva
+func triple(x: int): int {
+    return x * 3
+}
+
+//@diva-file:/home/joeblack/Documents/diva/examples/packages/app_with_dep/src/main.diva
+// Package dep alias (Issue #24): canonical `pkg/<name>` via package.diva dep.*.
+import "pkg/math_lib"
+
+extern func print_int(x: int): void
+
+func main(): int {
+    print_int(triple(14))
+    return 0
+}
+

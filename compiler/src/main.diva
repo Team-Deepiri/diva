@@ -378,6 +378,13 @@ func native_require_no_externs(m: int, src: str, toks: int): int {
         if str_eq(nm, "mem_free") == 1 { supported = 1 }
         if str_eq(nm, "mem_get") == 1 { supported = 1 }
         if str_eq(nm, "mem_set") == 1 { supported = 1 }
+        if str_eq(nm, "str_from_text") == 1 { supported = 1 }
+        if str_eq(nm, "text_len") == 1 { supported = 1 }
+        if str_eq(nm, "text_from_str") == 1 { supported = 1 }
+        if str_eq(nm, "text_byte") == 1 { supported = 1 }
+        if str_eq(nm, "text_cmp") == 1 { supported = 1 }
+        if str_eq(nm, "text_concat") == 1 { supported = 1 }
+        if str_eq(nm, "text_slice") == 1 { supported = 1 }
         if supported == 0 {
             if unresolved == 0 {
                 err_line("native build: unresolved extern runtime dependencies remain:")

@@ -345,6 +345,7 @@ func sctx_ty_name(ty: int): str {
     if ty == ir_ty_int() { return "int" }
     if ty == ir_ty_bool() { return "bool" }
     if ty == ir_ty_str() { return "str" }
+    if ty == ir_ty_text() { return "text" }
     return "?"
 }
 
@@ -359,6 +360,7 @@ func sema_type_from_node(type_node: int, src: str, toks: int): int {
     if str_eq(tn, "int") == 1 { return ir_ty_int() }
     if str_eq(tn, "bool") == 1 { return ir_ty_bool() }
     if str_eq(tn, "str") == 1 { return ir_ty_str() }
+    if str_eq(tn, "text") == 1 { return ir_ty_text() }
     if str_eq(tn, "void") == 1 { return ir_ty_void() }
     return ir_ty_int()
 }
@@ -426,6 +428,8 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
     if kind == nd_int_lit() { return ir_ty_int() }
     if kind == nd_bool_lit() { return ir_ty_bool() }
     if kind == nd_str_lit() { return ir_ty_str() }
+    if kind == nd_text_lit() { return ir_ty_text() }
+    if kind == nd_text_slice() { return ir_ty_text() }
     if kind == nd_ident() {
         var itok = ast_child(node, 0)
         return sctx_lookup_var_type(c, src, toks, tok_text(src, toks, itok))
@@ -434,6 +438,7 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
         var op = ast_child(node, 0)
         var lt = sema_expr_type(c, src, toks, ast_child(node, 1))
         var rt = sema_expr_type(c, src, toks, ast_child(node, 2))
+        if (op == binop_add()) & (lt == ir_ty_text()) & (rt == ir_ty_text()) { return ir_ty_text() }
         if sema_binop_is_arith(op) == 1 { return ir_ty_int() }
         if sema_binop_is_compare(op) == 1 { return ir_ty_bool() }
         if sema_binop_is_logic(op) == 1 {
@@ -500,6 +505,7 @@ func sema_check_binop_types(c: int, src: str, toks: int, node: int): int {
     if sema_check_expr(c, src, toks, right) != 0 { return 1 }
     var lt = sema_expr_type(c, src, toks, left)
     var rt = sema_expr_type(c, src, toks, right)
+    if (op == binop_add()) & (lt == ir_ty_text()) & (rt == ir_ty_text()) { return 0 }
     var want = ir_ty_int()
     if sema_binop_is_logic(op) == 1 {
         if lt == ir_ty_int() {
@@ -626,6 +632,7 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
     if kind == nd_int_lit() { return 0 }
     if kind == nd_bool_lit() { return 0 }
     if kind == nd_str_lit() { return 0 }
+    if kind == nd_text_lit() { return 0 }
     if kind == nd_ident() {
         var itok = ast_child(node, 0)
         var nm = tok_text(src, toks, itok)
@@ -655,6 +662,11 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
     if kind == nd_index() {
         if sema_check_expr(c, src, toks, ast_child(node, 0)) != 0 { return 1 }
         return sema_check_expr(c, src, toks, ast_child(node, 1))
+    }
+    if kind == nd_text_slice() {
+        if sema_check_expr(c, src, toks, ast_child(node, 0)) != 0 { return 1 }
+        if sema_check_expr(c, src, toks, ast_child(node, 1)) != 0 { return 1 }
+        return sema_check_expr(c, src, toks, ast_child(node, 2))
     }
     if kind == nd_obj_lit() {
         return sema_check_obj_lit(c, src, toks, node)

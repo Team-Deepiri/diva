@@ -123,6 +123,7 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, mut_new(0))            // [13] file_ast handle
     int_vec_push(ctx, mut_new(int_vec_new())) // [14] struct type name tok per local (-1 = not struct)
     int_vec_push(ctx, mut_new(int_vec_new())) // [15] array strides (0 = non-array)
+    int_vec_push(ctx, mut_new(int_vec_new())) // [16] text_vregs (vregs known to hold text)
     return ctx
 }
 
@@ -159,7 +160,25 @@ func bctx_set_array_strides(ctx: int, v: int): int {
     return mut_set(int_vec_get(ctx, 15), v)
 }
 
-// --- String table (counter stored in strtab_cell) ---
+func bctx_text_vregs(ctx: int): int {
+    return mut_get(int_vec_get(ctx, 16))
+}
+
+// Mark a vreg as holding a `text` value (for type-directed operator lowering).
+func ib_mark_text(ctx: int, vreg: int): int {
+    int_vec_push(bctx_text_vregs(ctx), vreg)
+    return 0
+}
+
+func ib_vreg_is_text(ctx: int, vreg: int): int {
+    var v = bctx_text_vregs(ctx)
+    var i = 0
+    while (i < int_vec_len(v)) {
+        if int_vec_get(v, i) == vreg { return 1 }
+        i = i + 1
+    }
+    return 0
+}
 
 func ib_strtab_add(ctx: int, s: str): int {
     var idx = bctx_strtab(ctx)
@@ -487,10 +506,100 @@ func lower_expr_ident(ctx: int, src: str, node: int): int {
 }
 
 // Lower nd_binop node.
+func ib_binop_is_cmp(op: int): int {
+    if op == binop_eq() { return 1 }
+    if op == binop_ne() { return 1 }
+    if op == binop_lt() { return 1 }
+    if op == binop_le() { return 1 }
+    if op == binop_gt() { return 1 }
+    if op == binop_ge() { return 1 }
+    return 0
+}
+
+func ib_type_node_is_text(ctx: int, src: str, type_node: int): int {
+    if type_node < 0 { return 0 }
+    if ast_kind(type_node) != nd_type_name() { return 0 }
+    if str_eq(ib_tok_text(ctx, src, ast_child(type_node, 0)), "text") == 1 { return 1 }
+    return 0
+}
+
+func ib_call_ret_is_text(ctx: int, src: str, node: int): int {
+    var callee = ast_child(node, 0)
+    if ast_kind(callee) != nd_ident() { return 0 }
+    var ctok = ast_child(callee, 0)
+    var nm = ib_tok_text(ctx, src, ctok)
+    if str_eq(nm, "text_from_str") == 1 { return 1 }
+    if str_eq(nm, "text_concat") == 1 { return 1 }
+    if str_eq(nm, "text_slice") == 1 { return 1 }
+    if str_eq(nm, "text_from_int") == 1 { return 1 }
+    var idx = ib_find_func_by_name(ctx, src, nm)
+    if idx >= 0 {
+        if func_ret_type(mod_get_func(bctx_mod(ctx), idx)) == ir_ty_text() { return 1 }
+    }
+    return 0
+}
+
+// Best-effort static test: does this AST expression produce a `text` value?
+func ib_expr_is_text(ctx: int, src: str, node: int): int {
+    if node < 0 { return 0 }
+    var kind = ast_kind(node)
+    if kind == nd_text_lit() { return 1 }
+    if kind == nd_text_slice() { return 1 }
+    if kind == nd_ident() {
+        var nt = ast_child(node, 0)
+        var s = ib_lookup_by_name_tok(ctx, src, nt)
+        if s >= 0 {
+            if ib_vreg_is_text(ctx, s) == 1 { return 1 }
+        }
+        var gi = ib_find_global_index(ctx, src, nt)
+        if gi >= 0 {
+            if global_type(mod_get_global(bctx_mod(ctx), gi)) == ir_ty_text() { return 1 }
+        }
+        return 0
+    }
+    if kind == nd_call() { return ib_call_ret_is_text(ctx, src, node) }
+    if kind == nd_binop() {
+        if ast_child(node, 0) == binop_add() {
+            if (ib_expr_is_text(ctx, src, ast_child(node, 1)) == 1) & (ib_expr_is_text(ctx, src, ast_child(node, 2)) == 1) {
+                return 1
+            }
+        }
+        return 0
+    }
+    return 0
+}
+
 func lower_expr_binop(ctx: int, src: str, node: int): int {
     var op = ast_child(node, 0)
-    var left = lower_expr(ctx, src, ast_child(node, 1))
-    var right = lower_expr(ctx, src, ast_child(node, 2))
+    var lnode = ast_child(node, 1)
+    var rnode = ast_child(node, 2)
+    if (ib_expr_is_text(ctx, src, lnode) == 1) & (ib_expr_is_text(ctx, src, rnode) == 1) {
+        var tleft = lower_expr(ctx, src, lnode)
+        var tright = lower_expr(ctx, src, rnode)
+        if op == binop_add() {
+            var rt = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_text_concat(), rt, tleft, tright, 0))
+            ib_mark_text(ctx, rt)
+            return rt
+        }
+        if ib_binop_is_cmp(op) == 1 {
+            var cv = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_text_cmp(), cv, tleft, tright, 0))
+            var zv = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_const(), zv, 0, 0, 0))
+            var cr = ib_fresh_vreg(ctx)
+            var crop = ir_eq()
+            if op == binop_ne() { crop = ir_ne() }
+            if op == binop_lt() { crop = ir_lt() }
+            if op == binop_le() { crop = ir_le() }
+            if op == binop_gt() { crop = ir_gt() }
+            if op == binop_ge() { crop = ir_ge() }
+            ib_emit(ctx, ir_inst(crop, cr, cv, zv, 0))
+            return cr
+        }
+    }
+    var left = lower_expr(ctx, src, lnode)
+    var right = lower_expr(ctx, src, rnode)
     var r = ib_fresh_vreg(ctx)
     var irop = ir_nop()
     if op == binop_add() { irop = ir_add() }
@@ -779,6 +888,28 @@ func lower_expr(ctx: int, src: str, node: int): int {
         var r = ib_fresh_vreg(ctx)
         ib_emit(ctx, ir_inst(ir_const_str(), r, str_id, 0, 0))
         return r
+    }
+
+    if kind == nd_text_lit() {
+        var tok_idx2 = ast_child(node, 0)
+        var str_id2 = int_vec_len(bctx_str_vec(ctx))
+        int_vec_push(bctx_str_vec(ctx), tok_idx2)
+        var r2 = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const_text(), r2, str_id2, 0, 0))
+        ib_mark_text(ctx, r2)
+        return r2
+    }
+
+    if kind == nd_text_slice() {
+        var sobj = lower_expr(ctx, src, ast_child(node, 0))
+        var sstart = lower_expr(ctx, src, ast_child(node, 1))
+        var send = lower_expr(ctx, src, ast_child(node, 2))
+        var slen = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_sub(), slen, send, sstart, 0))
+        var sr = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_text_slice(), sr, sobj, sstart, slen))
+        ib_mark_text(ctx, sr)
+        return sr
     }
 
     if kind == nd_ident() { return lower_expr_ident(ctx, src, node) }
@@ -1170,6 +1301,9 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
         var val = lower_expr(ctx, src, value)
         if (slot < 0) == 0 {
             ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+            if ib_expr_is_text(ctx, src, value) == 1 {
+                ib_mark_text(ctx, slot)
+            }
         } else {
             var gi = ib_find_global_index(ctx, src, name_tok)
             if (gi < 0) == 0 {
@@ -1305,6 +1439,9 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         if (init < 0) == 0 {
             var val = lower_expr(ctx, src, init)
             ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+            if (ib_expr_is_text(ctx, src, init) == 1) | (ib_type_node_is_text(ctx, src, type_node) == 1) {
+                ib_mark_text(ctx, slot)
+            }
         }
         return 0
     }
@@ -1386,6 +1523,7 @@ func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_
             var tname = ib_tok_text(ctx, src, ast_child(ret_type, 0))
             if str_eq(tname, "void") == 1 { ret_ty = ir_ty_void() }
             if str_eq(tname, "str") == 1  { ret_ty = ir_ty_str() }
+            if str_eq(tname, "text") == 1 { ret_ty = ir_ty_text() }
             if str_eq(tname, "bool") == 1 { ret_ty = ir_ty_bool() }
         }
     }
@@ -1423,6 +1561,9 @@ func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_
         var p = int_vec_get(params_h, i)
         var slot = ib_define_local(ctx, ast_child(p, 0))
         ib_emit(ctx, ir_inst(ir_param(), slot, pi, 0, 0))
+        if ib_type_node_is_text(ctx, src, ast_child(p, 1)) == 1 {
+            ib_mark_text(ctx, slot)
+        }
         pi = pi + 1
         i = i + 1
     }
@@ -1546,6 +1687,12 @@ func lower_global(ctx: int, src: str, node: int): int {
                     int_vec_push(bctx_str_vec(ctx), tok_idx)
                     gtype = ir_ty_str()
                 } else {
+                if ik == nd_text_lit() {
+                    var tok_idx_t = ast_child(init, 0)
+                    init_val = int_vec_len(bctx_str_vec(ctx))
+                    int_vec_push(bctx_str_vec(ctx), tok_idx_t)
+                    gtype = ir_ty_text()
+                } else {
                     if ik == nd_unary() {
                         var uo = ast_child(init, 0)
                         var uoperand = ast_child(init, 1)
@@ -1556,16 +1703,9 @@ func lower_global(ctx: int, src: str, node: int): int {
                     if ik == nd_unary() {
                     } else {
                         var r = lower_expr(ctx, src, init)
-                        var i = 0
-                        while (i < int_vec_len(bctx_global_vals(ctx))) {
-                            var gval = int_vec_get(bctx_global_vals(ctx), i)
-                            if (gval == r) {
-                                init_val = 0
-                            }
-                            i = i + 1
-                        }
                         init_val = 0
                     }
+                }
                 }
             }
         }

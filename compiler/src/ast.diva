@@ -41,6 +41,8 @@ func nd_field_init(): int  { return 32 }
 func nd_expr_stmt(): int   { return 33 }
 func nd_class_field(): int { return 34 }
 func nd_generic_call(): int { return 35 }
+func nd_text_lit(): int    { return 36 }
+func nd_text_slice(): int  { return 37 }
 
 // --- Binary operator sub-kinds (stored in binop payload) ---
 
@@ -246,6 +248,14 @@ func ast_str_lit(tok_idx: int): int {
     return n
 }
 
+// Text literal: [kind, tok_idx] (span covers the `text"..."` prefix + quotes)
+func ast_text_lit(tok_idx: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_text_lit())
+    int_vec_push(n, tok_idx)
+    return n
+}
+
 // Bool literal: [kind, value (0 or 1)]
 func ast_bool_lit(value: int): int {
     var n = int_vec_new()
@@ -317,6 +327,16 @@ func ast_field_init(name_tok: int, value: int): int {
 func ast_range(start: int, end: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_range())
+    int_vec_push(n, start)
+    int_vec_push(n, end)
+    return n
+}
+
+// Text slice: [kind, obj_expr, start_expr, end_expr]
+func ast_text_slice(obj: int, start: int, end: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_text_slice())
+    int_vec_push(n, obj)
     int_vec_push(n, start)
     int_vec_push(n, end)
     return n

@@ -1,0 +1,17 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// Phase 1 text-native: native `text` literals, O(1) length, byte access, and the
+// `str` bridge (docs/text-native-direction.md #145, #146, #153).
+func main(): int {
+    var t = text"hello"
+    print_int(text_len(t))
+    print_str(str_from_text(t))
+    print_str("\n")
+    var b = text_from_str("world")
+    print_int(text_len(b))
+    print_str(" ")
+    print_str(str_from_text(b))
+    print_str("\n")
+    return 0
+}

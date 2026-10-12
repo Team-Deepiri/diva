@@ -123,6 +123,12 @@ func parse_type(ps: int, src: str): int {
         if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(tb) }
         return tb
     }
+    if kind == tk_text_kw() {
+        p_advance(ps)
+        var tt = ast_type_name(tok)
+        if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(tt) }
+        return tt
+    }
     if kind == tk_void()    { p_advance(ps) return ast_type_name(tok) }
     if kind == tk_ident() {
         p_advance(ps)
@@ -153,6 +159,11 @@ func parse_primary(ps: int, src: str): int {
     if kind == tk_str_lit() {
         p_advance(ps)
         return ast_str_lit(tok)
+    }
+
+    if kind == tk_text_lit() {
+        p_advance(ps)
+        return ast_text_lit(tok)
     }
 
     if kind == tk_true() {
@@ -252,9 +263,21 @@ func parse_args(ps: int, src: str): int {
     return args
 }
 
+// Parse `[expr]` or `text[start:end]` after a postfix base. `[` already consumed.
+func parse_index_or_slice(ps: int, src: str, node: int): int {
+    var idx = parse_expr(ps, src)
+    if p_cur(ps) == tk_colon() {
+        p_advance(ps)
+        var end = parse_expr(ps, src)
+        p_expect(ps, src, tk_rbrack())
+        return ast_text_slice(node, idx, end)
+    }
+    p_expect(ps, src, tk_rbrack())
+    return ast_index(node, idx)
+}
+
 func parse_postfix(ps: int, src: str, left: int): int {
-    var node = left
-    var more = 1
+    var node = left    var more = 1
     while more == 1 {
         if p_cur(ps) == tk_lparen() {
             var args = parse_args(ps, src)
@@ -278,17 +301,18 @@ func parse_postfix(ps: int, src: str, left: int): int {
             var save = ps_pos(ps)
             var targs = int_vec_new()
             var is_gen = 0
-            if p_cur(ps) == tk_int_kw() | p_cur(ps) == tk_str_kw() | p_cur(ps) == tk_bool_kw() | p_cur(ps) == tk_ident() {
+            var gen_bad = 0
+            if p_cur(ps) == tk_int_kw() | p_cur(ps) == tk_str_kw() | p_cur(ps) == tk_bool_kw() | p_cur(ps) == tk_text_kw() | p_cur(ps) == tk_ident() {
                 int_vec_push(targs, p_advance(ps))
                 while p_cur(ps) == tk_comma() {
                     p_advance(ps)
-                    if p_cur(ps) == tk_int_kw() | p_cur(ps) == tk_str_kw() | p_cur(ps) == tk_bool_kw() | p_cur(ps) == tk_ident() {
+                    if p_cur(ps) == tk_int_kw() | p_cur(ps) == tk_str_kw() | p_cur(ps) == tk_bool_kw() | p_cur(ps) == tk_text_kw() | p_cur(ps) == tk_ident() {
                         int_vec_push(targs, p_advance(ps))
                     } else {
-                        is_gen = 0 - 1
+                        gen_bad = 1
                     }
                 }
-                if is_gen == 0 {
+                if (is_gen == 0 & gen_bad == 0) {
                     if p_cur(ps) == tk_rbrack() {
                         is_gen = 1
                     }
@@ -303,18 +327,12 @@ func parse_postfix(ps: int, src: str, left: int): int {
                 } else {
                     ps_set_pos(ps, save)
                     int_vec_free(targs)
-                    var idx = parse_expr(ps, src)
-                    p_expect(ps, src, tk_rbrack())
-                    var inode = ast_index(node, idx)
-                    node = inode
+                    node = parse_index_or_slice(ps, src, node)
                 }
             } else {
                 int_vec_free(targs)
                 ps_set_pos(ps, save)
-                var idx = parse_expr(ps, src)
-                p_expect(ps, src, tk_rbrack())
-                var inode2 = ast_index(node, idx)
-                node = inode2
+                node = parse_index_or_slice(ps, src, node)
             }
         } else {
         if p_cur(ps) == tk_dotdot() {
