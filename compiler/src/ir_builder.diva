@@ -164,6 +164,10 @@ func bctx_text_vregs(ctx: int): int {
     return mut_get(int_vec_get(ctx, 16))
 }
 
+func bctx_set_text_vregs(ctx: int, v: int): int {
+    return mut_set(int_vec_get(ctx, 16), v)
+}
+
 // Mark a vreg as holding a `text` value (for type-directed operator lowering).
 func ib_mark_text(ctx: int, vreg: int): int {
     int_vec_push(bctx_text_vregs(ctx), vreg)
@@ -1532,6 +1536,7 @@ func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_
     bctx_set_func(ctx, f)
     bctx_set_vreg(ctx, 0)
     bctx_set_label(ctx, 0)
+    bctx_set_text_vregs(ctx, int_vec_new())
 
     var scope = ib_scope_push(ctx)
 

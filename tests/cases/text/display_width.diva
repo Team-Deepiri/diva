@@ -1,0 +1,18 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #162 grapheme-aware terminal display width.
+func main(): int {
+    print_int(text_display_width(text"abc"))
+    print_int(text_display_width(text"café"))
+    print_int(text_display_width(text"日本語"))
+    print_int(text_display_width(text"😀"))
+    print_int(text_display_width(text"👨‍👩‍👧‍👦"))
+    print_int(text_display_width(text"🇺🇸"))
+    var combining = text_unescape(text"e\\u{301}")
+    print_int(text_display_width(combining))
+    print_int(cp_display_width(769))
+    print_int(cp_display_width(97))
+    print_int(cp_display_width(26085))
+    return 0
+}

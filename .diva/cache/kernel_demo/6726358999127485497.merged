@@ -1,6 +1,0 @@
-//@diva-file:/home/joeblack/Documents/diva/examples/kernel_demo/src/boot.diva
-func kmain(): int {
-    var magic = 42
-    return magic
-}
-

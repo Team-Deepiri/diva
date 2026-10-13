@@ -1,0 +1,21 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #155 codepoint iteration + #157 byte<->codepoint index mapping.
+func main(): int {
+    var t = text"café"
+    var jp = text"日本語"
+    var em = text"👨‍👩‍👧‍👦"
+    print_int(text_codepoint_count(t))
+    print_int(text_codepoint_count(jp))
+    print_int(text_codepoint_count(em))
+    print_int(text_codepoint_at(t, 3))
+    print_int(text_codepoint_at(jp, 0))
+    print_int(text_byte_of_codepoint_index(t, 3))
+    print_int(text_codepoint_index_of_byte(t, 3))
+    if text_codepoint_index_of_byte(t, 4) == 0 - 1 { print_str("mid_neg1\n") }
+    print_int(text_codepoint_index_of_byte(t, 5))
+    if text_codepoint_at(t, 99) == 0 - 1 { print_str("oob_neg1\n") }
+    if text_byte_of_codepoint_index(t, 99) == 0 - 1 { print_str("oob_byte_neg1\n") }
+    return 0
+}

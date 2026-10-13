@@ -9,6 +9,9 @@
 // Pure-ELF (native) driver only in Phase 1 — see docs/text-native-direction.md.
 // These externs are supported in the pure ELF path (native_require_no_externs).
 import "std/host.diva"
+import "std/vec.diva"
+import "std/byte_table.diva"
+import "std/ucd.diva"
 
 extern func text_from_str(s: str): text
 extern func str_from_text(t: text): str
@@ -26,6 +29,480 @@ func text_is_empty(t: text): bool {
 // str bridge composition (#153): text from a decimal integer's string form.
 func text_from_int(n: int): text {
     return text_from_str(int_to_str(n))
+}
+
+// ============================================================================
+// Phase 2 — Unicode native (#154–#163)
+//
+// Pure-Diva Unicode support over the length-carrying `text` value. No new
+// externs: everything is built on text_len / text_byte / text_slice /
+// text_concat plus integer arithmetic. See docs/text-native-direction.md.
+//
+// Design notes:
+//   * A decoded codepoint is packed as `codepoint * 8 + consumed_bytes`
+//     (consumed in 1..4), so one int carries both. -1 is the invalid sentinel.
+//   * Surrogates (U+D800..U+DFFF), overlong encodings and codepoints above
+//     U+10FFFF are rejected by the decoder.
+//   * Tables are minimal but cover Latin-1, Latin Extended, Greek, Cyrillic,
+//     Hebrew, Arabic, CJK, Hangul and emoji ranges (see std/ucd.diva).
+// ============================================================================
+
+// A continuation byte is 0x80..0xBF (#154).
+func utf8_is_cont(b: int): bool {
+    if (b >= 128) & (b <= 191) { return true }
+    return false
+}
+
+// Expected total sequence length from a lead byte: 1..4, 0 = invalid lead (#154).
+func utf8_seq_len(b: int): int {
+    if b <= 127 { return 1 }
+    if (b >= 194) & (b <= 223) { return 2 }
+    if (b >= 224) & (b <= 239) { return 3 }
+    if (b >= 240) & (b <= 244) { return 4 }
+    return 0
+}
+
+// Decode one codepoint at byte offset `off`. Returns packed
+// `codepoint * 8 + consumed_bytes`, or -1 on any malformed sequence (#154, #163).
+func utf8_decode(t: text, off: int): int {
+    var n = text_len(t)
+    if (off < 0) | (off >= n) { return 0 - 1 }
+    var b0 = text_byte(t, off)
+    if b0 <= 127 { return b0 * 8 + 1 }
+    if (b0 >= 194) & (b0 <= 223) {
+        if (off + 1 >= n) { return 0 - 1 }
+        var b1 = text_byte(t, off + 1)
+        if utf8_is_cont(b1) == false { return 0 - 1 }
+        var cp2 = (b0 - 192) * 64 + (b1 - 128)
+        return cp2 * 8 + 2
+    }
+    if (b0 >= 224) & (b0 <= 239) {
+        if (off + 2 >= n) { return 0 - 1 }
+        var c1 = text_byte(t, off + 1)
+        var c2 = text_byte(t, off + 2)
+        if utf8_is_cont(c1) == false { return 0 - 1 }
+        if utf8_is_cont(c2) == false { return 0 - 1 }
+        var cp3 = (b0 - 224) * 4096 + (c1 - 128) * 64 + (c2 - 128)
+        if cp3 < 2048 { return 0 - 1 }
+        if (cp3 >= 55296) & (cp3 <= 57343) { return 0 - 1 }
+        return cp3 * 8 + 3
+    }
+    if (b0 >= 240) & (b0 <= 244) {
+        if (off + 3 >= n) { return 0 - 1 }
+        var d1 = text_byte(t, off + 1)
+        var d2 = text_byte(t, off + 2)
+        var d3 = text_byte(t, off + 3)
+        if utf8_is_cont(d1) == false { return 0 - 1 }
+        if utf8_is_cont(d2) == false { return 0 - 1 }
+        if utf8_is_cont(d3) == false { return 0 - 1 }
+        var cp4 = (b0 - 240) * 262144 + (d1 - 128) * 4096 + (d2 - 128) * 64 + (d3 - 128)
+        if cp4 < 65536 { return 0 - 1 }
+        if cp4 > 1114111 { return 0 - 1 }
+        return cp4 * 8 + 4
+    }
+    return 0 - 1
+}
+
+// Codepoint at byte offset, or -1 if invalid (#155, #163).
+func utf8_decode_cp(t: text, off: int): int {
+    var d = utf8_decode(t, off)
+    if d < 0 { return 0 - 1 }
+    return d / 8
+}
+
+// Bytes consumed by the sequence at byte offset (0 if invalid) (#163).
+func utf8_decode_len(t: text, off: int): int {
+    var d = utf8_decode(t, off)
+    if d < 0 { return 0 }
+    return d - (d / 8) * 8
+}
+
+// True when the whole value is well-formed UTF-8 (#154).
+func utf8_validate(t: text): bool {
+    return utf8_validate_range(t, 0, text_len(t))
+}
+
+// True when [off, off+n) is well-formed UTF-8 and never runs past the end (#154).
+func utf8_validate_range(t: text, off: int, n: int): bool {
+    if off < 0 { return false }
+    if n < 0 { return false }
+    if off + n > text_len(t) { return false }
+    var i = off
+    var end = off + n
+    while i < end {
+        var d = utf8_decode(t, i)
+        if d < 0 { return false }
+        i = i + (d - (d / 8) * 8)
+    }
+    return true
+}
+
+// Public text-API name for #154.
+func text_utf8_validate(t: text): bool {
+    return utf8_validate(t)
+}
+
+// ============================================================================
+// #163 — codepoint encode/decode and escape round-trips
+// ============================================================================
+
+// Build a text from an int_vec of byte values (0..255). Byte 0x00 cannot be
+// represented in Phase 2 (no length-carrying byte constructor) and is skipped.
+func text_from_byte_vec(bytes: int): text {
+    var n = int_vec_len(bytes)
+    var out = text""
+    var tbl = utf8_byte_table()
+    var i = 0
+    while i < n {
+        var b = int_vec_get(bytes, i)
+        if b > 0 {
+            out = out + text_slice(tbl, b - 1, 1)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// Append the UTF-8 encoding of `cp` to an int_vec of bytes. Returns bytes
+// written (0 if `cp` is not a valid scalar value: negative, surrogate, or
+// above U+10FFFF). Encoding is infallible for valid scalar values (#163).
+func utf8_encode_cp_into(cp: int, out: int): int {
+    if cp < 0 { return 0 }
+    if cp > 1114111 { return 0 }
+    if (cp >= 55296) & (cp <= 57343) { return 0 }
+    if cp < 128 {
+        int_vec_push(out, cp)
+        return 1
+    }
+    if cp < 2048 {
+        int_vec_push(out, 192 + cp / 64)
+        int_vec_push(out, 128 + cp - (cp / 64) * 64)
+        return 2
+    }
+    if cp < 65536 {
+        int_vec_push(out, 224 + cp / 4096)
+        int_vec_push(out, 128 + (cp / 64) - (cp / 4096) * 64)
+        int_vec_push(out, 128 + cp - (cp / 64) * 64)
+        return 3
+    }
+    int_vec_push(out, 240 + cp / 262144)
+    int_vec_push(out, 128 + (cp / 4096) - (cp / 262144) * 64)
+    int_vec_push(out, 128 + (cp / 64) - (cp / 4096) * 64)
+    int_vec_push(out, 128 + cp - (cp / 64) * 64)
+    return 4
+}
+
+// Encode a single codepoint as text ("" if `cp` is not a scalar value) (#163).
+func utf8_encode_cp(cp: int): text {
+    var v = int_vec_new()
+    utf8_encode_cp_into(cp, v)
+    var out = text_from_byte_vec(v)
+    int_vec_free(v)
+    return out
+}
+
+// Encode an int_vec of codepoints into text (#163).
+func text_from_codepoints(cps: int): text {
+    var bytes = int_vec_new()
+    var n = int_vec_len(cps)
+    var i = 0
+    while i < n {
+        utf8_encode_cp_into(int_vec_get(cps, i), bytes)
+        i = i + 1
+    }
+    var out = text_from_byte_vec(bytes)
+    int_vec_free(bytes)
+    return out
+}
+
+// Decode every codepoint of a well-formed text into an int_vec (#155, #163).
+// Invalid input yields no entries after the first bad sequence.
+func text_to_codepoints(t: text): int {
+    var cps = int_vec_new()
+    var n = text_len(t)
+    var i = 0
+    while i < n {
+        var d = utf8_decode(t, i)
+        if d < 0 { i = n } else {
+            int_vec_push(cps, d / 8)
+            i = i + (d - (d / 8) * 8)
+        }
+    }
+    return cps
+}
+
+func hex_digit_text(c: int): text {
+    var tbl = text"0123456789abcdef"
+    return text_slice(tbl, c, 1)
+}
+
+// Escape text so it round-trips through `text_unescape` (#163). `\n`, `\t`,
+// `\r`, `\\`, `\"` use short escapes; other C0 controls and DEL use `\u{HEX}`.
+func text_escape(t: text): text {
+    var bytes = int_vec_new()
+    var n = text_len(t)
+    var i = 0
+    while i < n {
+        var d = utf8_decode(t, i)
+        if d < 0 {
+            int_vec_push(bytes, 92)
+            int_vec_push(bytes, 120)
+            int_vec_push(bytes, 50)
+            int_vec_push(bytes, 98)
+            i = n
+        } else {
+            var cp = d / 8
+            if cp == 10 {
+                int_vec_push(bytes, 92)
+                int_vec_push(bytes, 110)
+            } else {
+                if cp == 9 {
+                    int_vec_push(bytes, 92)
+                    int_vec_push(bytes, 116)
+                } else {
+                    if cp == 13 {
+                        int_vec_push(bytes, 92)
+                        int_vec_push(bytes, 114)
+                    } else {
+                        if cp == 92 {
+                            int_vec_push(bytes, 92)
+                            int_vec_push(bytes, 92)
+                        } else {
+                            if cp == 34 {
+                                int_vec_push(bytes, 92)
+                                int_vec_push(bytes, 34)
+                            } else {
+                                if (cp < 32) | (cp == 127) {
+                                    int_vec_push(bytes, 92)
+                                    int_vec_push(bytes, 117)
+                                    int_vec_push(bytes, 123)
+                                    encode_hex_into(cp, bytes)
+                                    int_vec_push(bytes, 125)
+                                } else {
+                                    utf8_encode_cp_into(cp, bytes)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = i + (d - (d / 8) * 8)
+        }
+    }
+    var out = text_from_byte_vec(bytes)
+    int_vec_free(bytes)
+    return out
+}
+
+// Emit uppercase hex digits of a non-negative int into an int_vec (#163).
+func encode_hex_into(value: int, out: int): int {
+    if value == 0 {
+        int_vec_push(out, 48)
+        return 1
+    }
+    var digits = int_vec_new()
+    var v = value
+    while v > 0 {
+        var rem = v - (v / 16) * 16
+        int_vec_push(digits, rem)
+        v = v / 16
+    }
+    var n = int_vec_len(digits)
+    var i = n - 1
+    while i >= 0 {
+        int_vec_push(out, hex_value_char(int_vec_get(digits, i)))
+        i = i - 1
+    }
+    int_vec_free(digits)
+    return n
+}
+
+func hex_value_char(d: int): int {
+    if d < 10 { return 48 + d }
+    return 65 + (d - 10)
+}
+
+// Parse `\n \t \r \\ \" \xNN \u{HEX}` back into text (#163). Unknown escapes
+// and malformed UTF-8 are dropped. Valid input round-trips exactly for all
+// representable text (`unescape(escape(t)) == t`).
+func text_unescape(t: text): text {
+    var bytes = int_vec_new()
+    var n = text_len(t)
+    var i = 0
+    while i < n {
+        var d = utf8_decode(t, i)
+        if d < 0 {
+            i = n
+        } else {
+            if (d / 8) == 92 {
+                i = unescape_escape(t, i, bytes)
+            } else {
+                utf8_encode_cp_into(d / 8, bytes)
+                i = i + (d - (d / 8) * 8)
+            }
+        }
+    }
+    var out = text_from_byte_vec(bytes)
+    int_vec_free(bytes)
+    return out
+}
+
+// Consume one escape sequence starting at the backslash at `i`. Returns the
+// next byte offset. Unknown escapes keep the backslash literally.
+func unescape_escape(t: text, i: int, out: int): int {
+    var n = text_len(t)
+    if i + 1 >= n { return n }
+    var e = text_byte(t, i + 1)
+    if e == 110 { int_vec_push(out, 10) return i + 2 }
+    if e == 116 { int_vec_push(out, 9) return i + 2 }
+    if e == 114 { int_vec_push(out, 13) return i + 2 }
+    if e == 92 { int_vec_push(out, 92) return i + 2 }
+    if e == 34 { int_vec_push(out, 34) return i + 2 }
+    if e == 120 { return unescape_hex2(t, i + 2, out) }
+    if e == 117 { return unescape_u(t, i + 2, out) }
+    int_vec_push(out, 92)
+    return i + 1
+}
+
+// Consume up to two hex digits after `\x`. Returns new byte offset.
+func unescape_hex2(t: text, i: int, out: int): int {
+    var n = text_len(t)
+    var value = 0
+    var got = 0
+    var stop = 0
+    while (got < 2) & (i < n) & (stop == 0) {
+        var h = hex_char_value(text_byte(t, i))
+        if h < 0 {
+            stop = 1
+        } else {
+            value = value * 16 + h
+            got = got + 1
+            i = i + 1
+        }
+    }
+    if got > 0 { int_vec_push(out, value) }
+    return i
+}
+
+// Consume `{HEX}` after `\u`. Returns new byte offset.
+func unescape_u(t: text, i: int, out: int): int {
+    var n = text_len(t)
+    if i >= n { return i }
+    if text_byte(t, i) != 123 { return i }
+    i = i + 1
+    var value = 0
+    var got = 0
+    var closed = 0
+    while (i < n) & (closed == 0) {
+        var b = text_byte(t, i)
+        if b == 125 {
+            closed = 1
+            i = i + 1
+        } else {
+            var h = hex_char_value(b)
+            if h < 0 {
+                i = n
+            } else {
+                value = value * 16 + h
+                got = got + 1
+                i = i + 1
+            }
+        }
+    }
+    if got > 0 { utf8_encode_cp_into(value, out) }
+    return i
+}
+
+func hex_char_value(c: int): int {
+    if (c >= 48) & (c <= 57) { return c - 48 }
+    if (c >= 65) & (c <= 70) { return c - 55 }
+    if (c >= 97) & (c <= 102) { return c - 87 }
+    return 0 - 1
+}
+
+// ============================================================================
+// #155 — codepoint iteration
+//
+// `flux cp in text` needs a compiler-side iterator protocol and is a follow-up;
+// these free functions are the infallible primitives it will lower to. All are
+// allocation-free and O(n) over bytes. `utf8_decode` above is the streaming
+// step: `i = i + utf8_decode_len(t, i)` walks codepoints without allocating.
+// ============================================================================
+
+// Number of codepoints in a well-formed text. Stops at the first malformed
+// sequence (whose prefix is not counted) (#155).
+func text_codepoint_count(t: text): int {
+    var n = text_len(t)
+    var i = 0
+    var count = 0
+    while i < n {
+        var d = utf8_decode(t, i)
+        if d < 0 { return count }
+        i = i + (d - (d / 8) * 8)
+        count = count + 1
+    }
+    return count
+}
+
+// Codepoint at `cp_index` (0-based, in codepoints), or the locked sentinel -1
+// when out of range or input is malformed (#155).
+func text_codepoint_at(t: text, cp_index: int): int {
+    if cp_index < 0 { return 0 - 1 }
+    var n = text_len(t)
+    var i = 0
+    var c = 0
+    while i < n {
+        var d = utf8_decode(t, i)
+        if d < 0 { return 0 - 1 }
+        if c == cp_index { return d / 8 }
+        i = i + (d - (d / 8) * 8)
+        c = c + 1
+    }
+    return 0 - 1
+}
+
+// ============================================================================
+// #157 — byte <-> codepoint index mapping
+//
+// Complexity is linear in bytes (documented, no O(1) side table per value).
+// Codepoint indices count codepoints; byte offsets count bytes. Passing a byte
+// offset inside a multibyte sequence returns -1 (not a codepoint boundary).
+// ============================================================================
+
+// Byte offset of codepoint index `cp_index`, or -1 if out of range (#157).
+func text_byte_of_codepoint_index(t: text, cp_index: int): int {
+    if cp_index < 0 { return 0 - 1 }
+    var n = text_len(t)
+    var i = 0
+    var c = 0
+    while i < n {
+        if c == cp_index { return i }
+        var d = utf8_decode(t, i)
+        if d < 0 { return 0 - 1 }
+        i = i + (d - (d / 8) * 8)
+        c = c + 1
+    }
+    if c == cp_index { return i }
+    return 0 - 1
+}
+
+// Codepoint index of a byte offset, or -1 if the offset is not a codepoint
+// boundary / out of range. `off == text_len(t)` maps to the final index (#157).
+func text_codepoint_index_of_byte(t: text, off: int): int {
+    if off < 0 { return 0 - 1 }
+    var n = text_len(t)
+    if off > n { return 0 - 1 }
+    var i = 0
+    var c = 0
+    while i < n {
+        if i == off { return c }
+        var d = utf8_decode(t, i)
+        if d < 0 { return 0 - 1 }
+        i = i + (d - (d / 8) * 8)
+        c = c + 1
+    }
+    if i == off { return c }
+    return 0 - 1
 }
 
 // str bridge composition (#153): parse a leading decimal integer from text.
@@ -46,4 +523,572 @@ func int_from_text(t: text): int {
     }
     if neg == 1 { return 0 - acc }
     return acc
+}
+// ============================================================================
+// #159 — Unicode property tables
+//
+// std/ucd.diva is generated data (see scripts/gen-unicode-tables.py). Integers
+// are three base-255 digits, little-endian, each digit byte stored as digit+1
+// so no 0x00 (unrepresentable in a Diva text literal) ever appears.
+// ============================================================================
+
+// Decode one 3-byte base-255 field at byte offset `off`.
+func ucd_dec3(t: text, off: int): int {
+    return (text_byte(t, off) - 1) + (text_byte(t, off + 1) - 1) * 255 + (text_byte(t, off + 2) - 1) * 65025
+}
+
+// Binary-search a 9-byte (key, v1, v2) table sorted by key; returns the record's
+// byte offset, or -1 when absent.
+func ucd_find3(t: text, n: int, key: int): int {
+    var lo = 0
+    var hi = n - 1
+    while lo <= hi {
+        var mid = (lo + hi) / 2
+        var base = mid * 9
+        var k = ucd_dec3(t, base)
+        if k == key { return base }
+        if k < key { lo = mid + 1 } else { hi = mid - 1 }
+    }
+    return 0 - 1
+}
+
+// Binary-search a 6-byte (key, value) table sorted by key; returns record base
+// offset, or -1 when absent.
+func ucd_find_pair(t: text, n: int, key: int): int {
+    var lo = 0
+    var hi = n - 1
+    while lo <= hi {
+        var mid = (lo + hi) / 2
+        var base = mid * 6
+        var k = ucd_dec3(t, base)
+        if k == key { return base }
+        if k < key { lo = mid + 1 } else { hi = mid - 1 }
+    }
+    return 0 - 1
+}
+
+// Membership test for a sorted, disjoint (start, end) range table.
+func cp_in_ranges(t: text, n: int, cp: int): bool {
+    var lo = 0
+    var hi = n - 1
+    while lo <= hi {
+        var mid = (lo + hi) / 2
+        var base = mid * 6
+        var s = ucd_dec3(t, base)
+        var e = ucd_dec3(t, base + 3)
+        if cp < s {
+            hi = mid - 1
+        } else {
+            if cp > e {
+                lo = mid + 1
+            } else {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+// --- general category slices ------------------------------------------------
+func cp_is_letter(cp: int): bool { return cp_in_ranges(ucd_letter_ranges(), ucd_letter_ranges_count(), cp) }
+func cp_is_upper(cp: int): bool { return cp_in_ranges(ucd_upper_ranges(), ucd_upper_ranges_count(), cp) }
+func cp_is_lower(cp: int): bool { return cp_in_ranges(ucd_lower_ranges(), ucd_lower_ranges_count(), cp) }
+func cp_is_mark(cp: int): bool { return cp_in_ranges(ucd_mark_ranges(), ucd_mark_ranges_count(), cp) }
+func cp_is_digit(cp: int): bool { return cp_in_ranges(ucd_digit_ranges(), ucd_digit_ranges_count(), cp) }
+func cp_is_whitespace(cp: int): bool { return cp_in_ranges(ucd_whitespace_ranges(), ucd_whitespace_ranges_count(), cp) }
+
+// Canonical combining class (0 for starters).
+func cp_combining_class(cp: int): int {
+    var base = ucd_find_pair(ucd_ccc_table(), ucd_ccc_count(), cp)
+    if base < 0 { return 0 }
+    return ucd_dec3(ucd_ccc_table(), base + 3)
+}
+
+// Grapheme_Cluster_Break class (see GCB codes in scripts/gen-unicode-tables.py).
+func cp_grapheme_break(cp: int): int {
+    var t = ucd_gcb_table()
+    var n = ucd_gcb_count()
+    var lo = 0
+    var hi = n - 1
+    while lo <= hi {
+        var mid = (lo + hi) / 2
+        var base = mid * 9
+        var s = ucd_dec3(t, base)
+        var e = ucd_dec3(t, base + 3)
+        if cp < s {
+            hi = mid - 1
+        } else {
+            if cp > e {
+                lo = mid + 1
+            } else {
+                return ucd_dec3(t, base + 6)
+            }
+        }
+    }
+    return 0
+}
+
+// ============================================================================
+// #158 — case mapping and case folding
+// ============================================================================
+
+// Append the full mapping of `cp` (via the given table) to int_vec `out`.
+func cp_map_into(tbl: text, n: int, seqs: text, cp: int, out: int): int {
+    var base = ucd_find3(tbl, n, cp)
+    if base < 0 {
+        int_vec_push(out, cp)
+        return 1
+    }
+    var off = ucd_dec3(tbl, base + 3)
+    var len = ucd_dec3(tbl, base + 6)
+    var i = 0
+    while i < len {
+        int_vec_push(out, ucd_dec3(seqs, off + i * 3))
+        i = i + 1
+    }
+    return len
+}
+
+// First codepoint of the full mapping of `cp` (cp itself when unmapped).
+func cp_map_first(tbl: text, n: int, seqs: text, cp: int): int {
+    var base = ucd_find3(tbl, n, cp)
+    if base < 0 { return cp }
+    return ucd_dec3(seqs, ucd_dec3(tbl, base + 3))
+}
+
+func cp_to_upper(cp: int): int {
+    return cp_map_first(ucd_upper_table(), ucd_upper_count(), ucd_upper_seqs(), cp)
+}
+
+func cp_to_lower(cp: int): int {
+    return cp_map_first(ucd_lower_table(), ucd_lower_count(), ucd_lower_seqs(), cp)
+}
+
+func cp_case_fold(cp: int): int {
+    return cp_map_first(ucd_fold_table(), ucd_fold_count(), ucd_fold_seqs(), cp)
+}
+
+// Apply a mapping table over every codepoint of `t`.
+func text_map(t: text, tbl: text, n: int, seqs: text): text {
+    var out = int_vec_new()
+    var len = text_len(t)
+    var i = 0
+    while i < len {
+        var d = utf8_decode(t, i)
+        if d < 0 {
+            i = len
+        } else {
+            cp_map_into(tbl, n, seqs, d / 8, out)
+            i = i + (d - (d / 8) * 8)
+        }
+    }
+    var r = text_from_codepoints(out)
+    int_vec_free(out)
+    return r
+}
+
+// Full uppercase ("straße" -> "STRASSE"), Unicode 15.0.0.
+func text_to_upper(t: text): text {
+    return text_map(t, ucd_upper_table(), ucd_upper_count(), ucd_upper_seqs())
+}
+
+// Full lowercase.
+func text_to_lower(t: text): text {
+    return text_map(t, ucd_lower_table(), ucd_lower_count(), ucd_lower_seqs())
+}
+
+// Full case folding (locale-independent, for caseless comparison and search).
+func text_case_fold(t: text): text {
+    return text_map(t, ucd_fold_table(), ucd_fold_count(), ucd_fold_seqs())
+}
+
+// Caseless equality under full folding.
+func text_case_eq(a: text, b: text): bool {
+    if text_case_fold(a) == text_case_fold(b) { return true }
+    return false
+}
+
+// ============================================================================
+// #160 — normalization (canonical NFD / NFC)
+//
+// Compatibility (NFKD/NFKC) is not generated yet: compatibility decompositions
+// are unbounded in length and need a variable-length record; canonical pairs
+// fit the fixed 3-field table. See docs/text-native-direction.md.
+// ============================================================================
+
+// Emit the fully recursive canonical decomposition of `cp` (NFD form) into out.
+// Hangul syllables decompose algorithmically (UAX #15).
+func cp_decompose_into(cp: int, out: int): int {
+    if (cp >= 44032) & (cp <= 55203) {
+        var si = cp - 44032
+        var l = 4352 + si / 588
+        var v = 4449 + (si - (si / 588) * 588) / 28
+        var t = si - (si / 28) * 28
+        int_vec_push(out, l)
+        int_vec_push(out, v)
+        if t != 0 { int_vec_push(out, 4519 + t) }
+        return 0
+    }
+    var base = ucd_find3(ucd_decomp_table(), ucd_decomp_count(), cp)
+    if base < 0 {
+        int_vec_push(out, cp)
+        return 0
+    }
+    var d1 = ucd_dec3(ucd_decomp_table(), base + 3)
+    var d2 = ucd_dec3(ucd_decomp_table(), base + 6)
+    cp_decompose_into(d1, out)
+    if d2 != 0 { cp_decompose_into(d2, out) }
+    return 0
+}
+
+// Append every element of int_vec `src` to int_vec `dst`.
+func push_vec(dst: int, src: int): int {
+    var n = int_vec_len(src)
+    var i = 0
+    while i < n {
+        int_vec_push(dst, int_vec_get(src, i))
+        i = i + 1
+    }
+    return n
+}
+
+// Stable sort of one non-starter run by combining class (levels 1..254).
+func reorder_run(run: int): int {
+    var out = int_vec_new()
+    var n = int_vec_len(run)
+    var level = 1
+    while level <= 254 {
+        var i = 0
+        while i < n {
+            var c = int_vec_get(run, i)
+            if cp_combining_class(c) == level { int_vec_push(out, c) }
+            i = i + 1
+        }
+        level = level + 1
+    }
+    return out
+}
+
+// Canonically reorder a codepoint vector, returning a fresh vector.
+func canonical_reorder(src: int): int {
+    var out = int_vec_new()
+    var n = int_vec_len(src)
+    var j = 0
+    while j < n {
+        var c = int_vec_get(src, j)
+        if cp_combining_class(c) == 0 {
+            int_vec_push(out, c)
+            j = j + 1
+        } else {
+            var run = int_vec_new()
+            while (j < n) & (cp_combining_class(int_vec_get(src, j)) != 0) {
+                int_vec_push(run, int_vec_get(src, j))
+                j = j + 1
+            }
+            var s = reorder_run(run)
+            push_vec(out, s)
+            int_vec_free(run)
+            int_vec_free(s)
+        }
+    }
+    return out
+}
+
+// Decompose `t` to NFD codepoints, canonically ordered.
+func nfd_vec(t: text): int {
+    var cps = int_vec_new()
+    var n = text_len(t)
+    var i = 0
+    while i < n {
+        var d = utf8_decode(t, i)
+        if d < 0 {
+            i = n
+        } else {
+            cp_decompose_into(d / 8, cps)
+            i = i + (d - (d / 8) * 8)
+        }
+    }
+    var ordered = canonical_reorder(cps)
+    int_vec_free(cps)
+    return ordered
+}
+
+// Canonical decomposition (NFD).
+func text_nfd(t: text): text {
+    var v = nfd_vec(t)
+    var r = text_from_codepoints(v)
+    int_vec_free(v)
+    return r
+}
+
+// Primary composite lookup: (a, b) -> c, or -1. Hangul is algorithmic.
+func cp_compose_table(a: int, b: int): int {
+    var t = ucd_comp_table()
+    var n = ucd_comp_count()
+    var lo = 0
+    var hi = n - 1
+    while lo <= hi {
+        var mid = (lo + hi) / 2
+        var base = mid * 9
+        var ka = ucd_dec3(t, base)
+        var kb = ucd_dec3(t, base + 3)
+        if (ka == a) & (kb == b) { return ucd_dec3(t, base + 6) }
+        if (ka < a) | ((ka == a) & (kb < b)) {
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    return 0 - 1
+}
+
+func cp_compose(a: int, b: int): int {
+    if (a >= 4352) & (a <= 4370) {
+        if (b >= 4449) & (b <= 4469) {
+            return 44032 + (a - 4352) * 588 + (b - 4449) * 28
+        }
+    }
+    if (a >= 44032) & (a <= 55203) {
+        var si = a - 44032
+        if si - (si / 28) * 28 == 0 {
+            if (b >= 4520) & (b <= 4546) { return a + (b - 4519) }
+        }
+    }
+    return cp_compose_table(a, b)
+}
+
+// Canonical composition (NFC): decompose, then recompose with blocking.
+func text_nfc(t: text): text {
+    var v = nfd_vec(t)
+    var n = int_vec_len(v)
+    var stable = int_vec_new()
+    var marks = int_vec_new()
+    var pending = 0 - 1
+    var last_cc = 0
+    var i = 0
+    while i < n {
+        var c = int_vec_get(v, i)
+        var cc = cp_combining_class(c)
+        var composed = 0 - 1
+        if pending >= 0 {
+            if (last_cc == 0) | (last_cc < cc) {
+                composed = cp_compose(pending, c)
+            }
+        }
+        if composed >= 0 {
+            pending = composed
+        } else {
+            if cc == 0 {
+                if pending >= 0 {
+                    int_vec_push(stable, pending)
+                    push_vec(stable, marks)
+                    int_vec_free(marks)
+                    marks = int_vec_new()
+                }
+                pending = c
+                last_cc = 0
+            } else {
+                int_vec_push(marks, c)
+                last_cc = cc
+            }
+        }
+        i = i + 1
+    }
+    if pending >= 0 {
+        int_vec_push(stable, pending)
+        push_vec(stable, marks)
+    }
+    var r = text_from_codepoints(stable)
+    int_vec_free(v)
+    int_vec_free(stable)
+    int_vec_free(marks)
+    return r
+}
+
+// ============================================================================
+// #156 / #162 — grapheme clusters and display width
+// ============================================================================
+
+// 1 when a grapheme cluster boundary is allowed between `prev` and `next`
+// (simplified UAX #29: GB3-GB13). `ri_odd` tracks an unpaired Regional_Indicator.
+func grapheme_break_allowed(prev: int, next: int, ri_odd: int): int {
+    if (prev == 1) & (next == 2) { return 0 }
+    if (prev == 1) | (prev == 2) | (prev == 3) { return 1 }
+    if (next == 1) | (next == 2) | (next == 3) { return 1 }
+    if prev == 9 {
+        if (next == 9) | (next == 10) | (next == 12) | (next == 13) { return 0 }
+    }
+    if (prev == 12) | (prev == 10) {
+        if (next == 10) | (next == 11) { return 0 }
+    }
+    if (prev == 13) | (prev == 11) {
+        if next == 11 { return 0 }
+    }
+    if (next == 4) | (next == 5) { return 0 }
+    if next == 8 { return 0 }
+    if prev == 7 { return 0 }
+    // GB11 approximated: any ZWJ joins the next codepoint (the real rule needs
+    // Extended_Pictographic, which we do not carry as a separate table).
+    if prev == 5 { return 0 }
+    if (prev == 6) & (next == 6) & (ri_odd == 1) { return 0 }
+    return 1
+}
+
+// Byte offset of the next grapheme cluster boundary after `off`.
+func text_next_grapheme(t: text, off: int): int {
+    var n = text_len(t)
+    if off >= n { return n }
+    var d = utf8_decode(t, off)
+    if d < 0 { return off + 1 }
+    var prev = cp_grapheme_break(d / 8)
+    var i = off + (d - (d / 8) * 8)
+    if prev == 1 {
+        if i < n {
+            var e = utf8_decode(t, i)
+            if e >= 0 {
+                if cp_grapheme_break(e / 8) == 2 { return i + (e - (e / 8) * 8) }
+            }
+        }
+        return i
+    }
+    if (prev == 2) | (prev == 3) { return i }
+    var ri_odd = 0
+    if prev == 6 { ri_odd = 1 }
+    while i < n {
+        var e2 = utf8_decode(t, i)
+        if e2 < 0 { return i + 1 }
+        var cur = cp_grapheme_break(e2 / 8)
+        if grapheme_break_allowed(prev, cur, ri_odd) == 1 { return i }
+        if cur == 6 { ri_odd = 1 - ri_odd } else { ri_odd = 0 }
+        prev = cur
+        i = i + (e2 - (e2 / 8) * 8)
+    }
+    return i
+}
+
+func text_grapheme_count(t: text): int {
+    var n = text_len(t)
+    var i = 0
+    var c = 0
+    while i < n {
+        var j = text_next_grapheme(t, i)
+        if j <= i { return c }
+        i = j
+        c = c + 1
+    }
+    return c
+}
+
+// Display width of one codepoint: 0 (zero-width/combining/control), 2 (wide or
+// emoji), else 1.
+func cp_display_width(cp: int): int {
+    if cp < 0 { return 0 }
+    if (cp >= 127462) & (cp <= 127487) { return 2 }
+    if cp_in_ranges(ucd_zero_ranges(), ucd_zero_ranges_count(), cp) { return 0 }
+    if cp_in_ranges(ucd_wide_ranges(), ucd_wide_ranges_count(), cp) { return 2 }
+    return 1
+}
+
+// Width of one grapheme cluster [start, end): the widest cell group, with
+// ZWJ-joined glyphs contributing once and RI pairs forming one flag.
+func cluster_width(t: text, start: int, end: int): int {
+    var w = 0
+    var after_zwj = 0
+    var has_ri = 0
+    var i = start
+    while i < end {
+        var d = utf8_decode(t, i)
+        if d < 0 {
+            i = i + 1
+        } else {
+            var cp = d / 8
+            if cp == 8205 {
+                after_zwj = 1
+            } else {
+                var cw = cp_display_width(cp)
+                if after_zwj == 1 { after_zwj = 0 cw = 0 }
+                if (cp >= 127462) & (cp <= 127487) { has_ri = 1 }
+                if cw > w { w = cw }
+            }
+            i = i + (d - (d / 8) * 8)
+        }
+    }
+    if (has_ri == 1) & (w < 2) { return 2 }
+    return w
+}
+
+// Terminal display width of `t`, grapheme-aware (#162).
+func text_display_width(t: text): int {
+    var n = text_len(t)
+    var i = 0
+    var w = 0
+    while i < n {
+        var j = text_next_grapheme(t, i)
+        if j <= i { j = i + 1 }
+        w = w + cluster_width(t, i, j)
+        i = j
+    }
+    return w
+}
+
+// ============================================================================
+// #161 — collation scaffolding
+//
+// Deterministic, DUCET-free primary weights: NFD + case fold, then letters and
+// digits ordered by category band. This is the seam a real Unicode Collation
+// Algorithm weight table plugs into; it is not a UCA implementation.
+// ============================================================================
+
+func collation_primary_weight(cp: int): int {
+    if cp_is_digit(cp) { return 1000000 + cp }
+    if cp_is_letter(cp) { return 2000000 + cp }
+    return 3000000 + cp
+}
+
+// Primary collation weights of `t` as an int_vec.
+func text_collation_primary(t: text): int {
+    var folded = text_case_fold(t)
+    var nfd = text_nfd(folded)
+    var cps = text_to_codepoints(nfd)
+    var out = int_vec_new()
+    var n = int_vec_len(cps)
+    var i = 0
+    while i < n {
+        var cp = int_vec_get(cps, i)
+        if cp_combining_class(cp) == 0 {
+            int_vec_push(out, collation_primary_weight(cp))
+        }
+        i = i + 1
+    }
+    int_vec_free(cps)
+    return out
+}
+
+// Lexicographic compare of two int_vec weight sequences.
+func coll_compare_vec(a: int, b: int): int {
+    var na = int_vec_len(a)
+    var nb = int_vec_len(b)
+    var n = na
+    if nb < n { n = nb }
+    var i = 0
+    while i < n {
+        var x = int_vec_get(a, i)
+        var y = int_vec_get(b, i)
+        if x < y { return 0 - 1 }
+        if x > y { return 1 }
+        i = i + 1
+    }
+    if na < nb { return 0 - 1 }
+    if na > nb { return 1 }
+    return 0
+}
+
+// Three-way collation compare (-1, 0, 1) at primary strength.
+func text_collate(a: text, b: text): int {
+    var ka = text_collation_primary(a)
+    var kb = text_collation_primary(b)
+    var r = coll_compare_vec(ka, kb)
+    int_vec_free(ka)
+    int_vec_free(kb)
+    return r
 }

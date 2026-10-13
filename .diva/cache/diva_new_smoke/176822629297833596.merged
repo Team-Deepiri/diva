@@ -1,8 +1,0 @@
-//@diva-file:/tmp/diva-tests-Be3mQl/diva_new_smoke/src/main.diva
-extern func print_str(s: str): void
-
-func main(): int {
-    print_str("new_smoke_ok")
-    return 0
-}
-

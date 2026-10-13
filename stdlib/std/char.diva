@@ -1,4 +1,16 @@
 import "std/host.diva"
+import "std/text.diva"
+
+// Unicode-aware codepoint predicates (#159). These take a full scalar value,
+// not a byte; the ASCII functions below stay for byte-oriented fast paths.
+func is_letter_unicode(c: int): int { if cp_is_letter(c) { return 1 } return 0 }
+func is_upper_unicode(c: int): int { if cp_is_upper(c) { return 1 } return 0 }
+func is_lower_unicode(c: int): int { if cp_is_lower(c) { return 1 } return 0 }
+func is_digit_unicode(c: int): int { if cp_is_digit(c) { return 1 } return 0 }
+func is_mark_unicode(c: int): int { if cp_is_mark(c) { return 1 } return 0 }
+func is_whitespace_unicode(c: int): int { if cp_is_whitespace(c) { return 1 } return 0 }
+func to_upper_unicode(c: int): int { return cp_to_upper(c) }
+func to_lower_unicode(c: int): int { return cp_to_lower(c) }
 
 func is_upper(c: int): int {
     if (c >= 65) {
