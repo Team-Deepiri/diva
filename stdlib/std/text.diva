@@ -1,0 +1,2 @@
+
+func text_index_new(): int { return 0 }
