@@ -1,0 +1,2 @@
+
+func lsp_hover(): int { return 0 }
