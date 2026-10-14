@@ -1,0 +1,2 @@
+
+func bpe_train(): int { return 0 }
