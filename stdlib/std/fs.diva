@@ -113,3 +113,14 @@ func is_empty_file(path: str): int {
     }
     return 0
 }
+
+extern func write_text_file(path: str, data: str): int
+
+func write_text(path: str, data: str): int {
+    return write_text_file(path, data)
+}
+
+func append_text(path: str, data: str): int {
+    // stub
+    return write_text(path, data)
+}
