@@ -1,0 +1,2 @@
+
+func vocab_load(s: str): int { return 0 }
