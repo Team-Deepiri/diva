@@ -1,0 +1,2 @@
+
+func llm_load(): int { return 0 }
