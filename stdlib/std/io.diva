@@ -26,3 +26,5 @@ func panic(message: str): void {
     print_str(message)
     abort()
 }
+
+func readline_with_prompt(s: str): str { return read_line() }
