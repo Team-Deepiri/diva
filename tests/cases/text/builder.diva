@@ -1,0 +1,26 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #171 growable text builder.
+func main(): int {
+    var h = text_builder_new()
+    text_builder_push(h, text"ab")
+    text_builder_append_byte(h, 99)
+    text_builder_append_int(h, 42)
+    text_builder_push(h, text"!")
+    print_int(text_builder_len(h))
+    if text_builder_to_text(h) == text"abc42!" { print_str("build_ok\n") }
+    text_builder_free(h)
+
+    var h2 = text_builder_new()
+    text_builder_append_byte(h2, 195)
+    text_builder_append_byte(h2, 169)
+    if text_builder_to_text(h2) == text"é" { print_str("utf8_ok\n") }
+    text_builder_free(h2)
+
+    var h3 = text_builder_new()
+    text_builder_append_int(h3, 12345)
+    if text_builder_to_text(h3) == text"12345" { print_str("int_ok\n") }
+    text_builder_free(h3)
+    return 0
+}

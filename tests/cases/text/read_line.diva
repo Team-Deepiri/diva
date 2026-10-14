@@ -1,0 +1,13 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #164 read_line: two lines then EOF. stdin is piped by the harness.
+func main(): int {
+    var a = read_line()
+    var b = read_line()
+    print_str(str_from_text(a + text"|"))
+    print_str(str_from_text(b + text"|"))
+    var c = read_line()
+    print_int(text_len(c))
+    return 0
+}

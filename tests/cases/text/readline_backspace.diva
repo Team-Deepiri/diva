@@ -1,0 +1,10 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #170 readline echoes the prompt and applies DEL (\x7f) backspaces.
+func main(): int {
+    var r = readline(text"P> ")
+    print_str(str_from_text(r + text""))
+    print_str(str_from_text(text"|\n"))
+    return 0
+}
