@@ -1,0 +1,155 @@
+import "std/regex.diva"
+import "std/io.diva"
+import "std/text.diva"
+
+// #172-#177 regex engine self-test. Prints deterministic lines.
+//
+// Note: str_from_text only reads up to a NUL terminator, so matched substrings
+// that are interior `text_slice` views are copied through text_concat(x, "")
+// before printing (see `pr`). print_int always emits a trailing newline.
+
+func pr(t: text): int {
+    print_str(str_from_text(text_concat(t, text"")))
+    return 0
+}
+
+// Print the leftmost match as two lines (start, end) then the matched text.
+func find(p: int, s: text): int {
+    var r = regex_search(p, s)
+    if r < 0 { print_str("none\n") return 0 }
+    var a = regex_span_start(p)
+    var b = regex_span_end(p)
+    print_int(a)
+    print_int(b)
+    pr(text_slice(s, a, b - a))
+    print_str("\n")
+    return 0
+}
+
+// Print start/end of capture group n (each on its own line).
+func grp(p: int, s: text, n: int): int {
+    var r = regex_search(p, s)
+    if r < 0 { print_str("none\n") return 0 }
+    print_int(regex_group_start(p, n))
+    print_int(regex_group_end(p, n))
+    return 0
+}
+
+func repl(pt: text, s: text, rp: text): int {
+    var p = regex_compile(pt)
+    pr(regex_replace_all(p, s, rp))
+    print_str("\n")
+    return 0
+}
+
+func spl(pt: text, s: text): int {
+    var p = regex_compile(pt)
+    var h = regex_split(p, s)
+    var c = regex_split_count(h)
+    print_int(c)
+    var i = 0
+    while i < c {
+        print_str("[")
+        pr(regex_split_at(h, i, s))
+        print_str("]")
+        i = i + 1
+    }
+    print_str("\n")
+    return 0
+}
+
+func main(): int {
+    print_str("literal\n")
+    find(regex_compile(text"hello"), text"say hello world")
+
+    print_str("dot\n")
+    find(regex_compile(text"a.c"), text"xxaXcyy")
+
+    print_str("star\n")
+    find(regex_compile(text"ab*c"), text"ac and abbbc")
+    find(regex_compile(text"ab*c"), text"abbbc")
+
+    print_str("plus\n")
+    find(regex_compile(text"a+"), text"baaa")
+
+    print_str("opt\n")
+    find(regex_compile(text"colou?r"), text"color")
+    find(regex_compile(text"colou?r"), text"colour")
+
+    print_str("braces\n")
+    find(regex_compile(text"a{2,3}"), text"aaaa")
+    find(regex_compile(text"a{2}"), text"aaaa")
+    find(regex_compile(text"a{2,}"), text"aaaa")
+
+    print_str("lazy\n")
+    find(regex_compile(text"<.*?>"), text"<a><b>")
+
+    print_str("alt\n")
+    find(regex_compile(text"cat|dog|fox"), text"a fox here")
+
+    print_str("group_backref\n")
+    find(regex_compile(text"(ab)\\1"), text"zababz")
+    grp(regex_compile(text"(\\w+)@(\\w+)"), text"bob@host", 1)
+    grp(regex_compile(text"(\\w+)@(\\w+)"), text"bob@host", 2)
+
+    print_str("shorthand\n")
+    find(regex_compile(text"\\d+"), text"abc12345")
+    find(regex_compile(text"\\w+"), text"  _hi2  ")
+    find(regex_compile(text"\\s+"), text"ab   cd")
+
+    print_str("ranges\n")
+    find(regex_compile(text"[a-z]+"), text"12abcDEF")
+    find(regex_compile(text"[^0-9]+"), text"12abc45")
+
+    print_str("unicode_prop\n")
+    find(regex_compile(text"\\p{L}+"), text"123éXYZ")
+    find(regex_compile(text"\\P{L}+"), text"ab12cd")
+
+    print_str("anchors\n")
+    print_bool(regex_match(regex_compile(text"^ab"), text"abc"))
+    print_str("\n")
+    print_bool(regex_match(regex_compile(text"^b"), text"abc"))
+    print_str("\n")
+    find(regex_compile(text"ab$"), text"xxab")
+    find(regex_compile(text"^ab$"), text"ab")
+
+    print_str("word_boundary\n")
+    find(regex_compile(text"\\bcat\\b"), text"a cat here")
+    find(regex_compile(text"\\Bcat"), text"scatty")
+
+    print_str("lookahead\n")
+    find(regex_compile(text"ab(?=cd)"), text"xabcd")
+    find(regex_compile(text"ab(?!cd)"), text"xabzz")
+
+    print_str("lookbehind\n")
+    find(regex_compile(text"(?<=ab)cd"), text"xabcd")
+    find(regex_compile(text"(?<!ab)cd"), text"xzzcd")
+
+    print_str("noncapture\n")
+    find(regex_compile(text"(?:ab)+"), text"--abab--")
+
+    print_str("dotall\n")
+    var pd = regex_compile(text"a.b")
+    regex_flags(pd, 1)
+    find(pd, text"a\nb")
+
+    print_str("replace\n")
+    repl(text"\\d+", text"a1b22c", text"<[$0]>")
+    repl(text"(\\w+)@(\\w+)", text"bob@x alice@y", text"$2/$1")
+
+    print_str("split\n")
+    spl(text",\\s*", text"a, b,c")
+    spl(text"[a-z]+", text"abc123def")
+
+    print_str("errors\n")
+    var pe = regex_compile(text"(")
+    print_int(pe)
+    pr(regex_error(pe))
+    print_str("\n")
+    var pl = regex_compile(text"a{5000}")
+    print_int(pl)
+    pr(regex_error(pl))
+    print_str("\n")
+
+    return 0
+}

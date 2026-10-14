@@ -1,0 +1,1273 @@
+// std/regex.diva — a real backtracking regular-expression engine in pure Diva.
+//
+// Issues #172 (engine), #173 (literal/dot), #174 (classes), #175 (advanced:
+// groups, alternation, lookaround, backrefs, bounded repetition) and #176 (API:
+// match/find/replace/split) with #177 compile limits + diagnostics.
+//
+// The pattern is compiled to a flat instruction program (an int_buf of fixed
+// 4-int records [op, a, b, c]); the matcher runs an explicit-stack backtracking
+// VM so `.*` over long input cannot exhaust the native call stack. Capture slots
+// live in a separate int_buf and are updated through an undo log so backtracking
+// restores them correctly. Everything is codepoint-aware via std/text.diva.
+//
+// Program representation: `regex_compile` returns a handle to a 16-int record:
+//   [0] code    int_buf handle of instructions (4 ints each)
+//   [1] class   int_buf handle of class descriptors
+//   [2] slots   int_buf handle of capture slots (2*(ngroup+1))
+//   [3] ncode   instruction count
+//   [4] ngroup  number of capturing groups
+//   [5] flags   bit0 = dotall
+//   [6] span_start byte offset of last match start (-1 if none)
+//   [7] span_end   byte offset of last match end   (-1 if none)
+//   [8] errcode
+//   [9..15] reserved
+//
+// Opcodes:
+//   1  CHAR    a=cp                 consume one codepoint equal to a
+//   2  ANY     dot                   consume one codepoint (not '\n' unless dotall)
+//   3  CLASS   a=class offset       consume one codepoint matching a class
+//   4  JMP     a=target             pc = target
+//   5  SPLIT   a=first b=second     try a first, on failure try b
+//   6  SAVE    a=slot               save[a] = pos
+//   7  MATCH                        success (end of program)
+//   8  BOL                          assert start-of-line
+//   9  EOL                          assert end-of-line
+//   10 WORDB                        assert word boundary
+//   11 NWORDB                       assert not-word-boundary
+//   12 BACKREF a=group              match saved group a literally (bytes)
+//   13 ASSERT  a=sub b=after c=bits bits: 1=negate, 2=lookbehind
+//   14 SUBMATCH                     terminates an embedded assertion program
+//   15 FAIL                         unconditional failure (backtrack)
+import "std/text.diva"
+import "std/mem.diva"
+
+// --- opcodes ---------------------------------------------------------------
+var RX_CHAR = 1
+var RX_ANY = 2
+var RX_CLASS = 3
+var RX_JMP = 4
+var RX_SPLIT = 5
+var RX_SAVE = 6
+var RX_MATCH = 7
+var RX_BOL = 8
+var RX_EOL = 9
+var RX_WORDB = 10
+var RX_NWORDB = 11
+var RX_BACKREF = 12
+var RX_ASSERT = 13
+var RX_SUBMATCH = 14
+var RX_FAIL = 15
+
+// class entry kinds
+var K_RANGE = 1
+var K_SHORTHAND = 2
+var K_PROP = 3
+
+// shorthands
+var SH_D = 1
+var SH_DN = 2
+var SH_W = 3
+var SH_WN = 4
+var SH_S = 5
+var SH_SN = 6
+
+// unicode properties
+var P_L = 1
+var P_LU = 2
+var P_LL = 3
+var P_N = 4
+var P_ND = 5
+var P_ZS = 6
+var P_M = 7
+
+// error codes
+var E_NONE = 0
+var E_SYNTAX = 1
+var E_EARLY = 2
+var E_CLASS = 3
+var E_PROP = 4
+var E_DEPTH = 5
+var E_GROUPS = 6
+var E_REPEAT = 7
+var E_LIMIT = 8
+var E_BADUTF = 9
+var E_TRAILBS = 10
+
+// #177 limits
+var RX_MAX_INS = 200000
+var RX_MAX_DEPTH = 200
+var RX_MAX_GROUPS = 250
+var RX_MAX_REPEAT = 1000
+
+// --- compile-time globals --------------------------------------------------
+var rx_out = 0          // current output int_buf handle
+var rx_class = 0        // class-descriptor int_buf handle
+var rx_pat = text""     // pattern
+var rx_plen = 0
+var rx_pos = 0
+var rx_err = 0
+var rx_ngroup = 0
+var rx_depth = 0
+var rx_err_text = text""
+
+// --- run-time globals ------------------------------------------------------
+var rx_dotall = 0
+var rx_rc = 0           // class table handle for class_match
+var rx_ngroup_run = 0   // capture-group count of the program being run
+
+// ===========================================================================
+// low-level buffer helpers
+// ===========================================================================
+
+// Append an instruction to the current output and return its index.
+func rx_emit(op: int, a: int, b: int, c: int): int {
+    var idx = int_buf_len(rx_out) / 4
+    int_buf_push(rx_out, op)
+    int_buf_push(rx_out, a)
+    int_buf_push(rx_out, b)
+    int_buf_push(rx_out, c)
+    return idx
+}
+
+// Number of instructions emitted so far into the current output.
+func rx_nout(): int {
+    return int_buf_len(rx_out) / 4
+}
+
+// Patch field f (0..3) of instruction idx in the current output.
+func rx_iset(idx: int, f: int, v: int): int {
+    mem_set(mem_get(rx_out, 0), idx * 4 + f, v)
+    return 0
+}
+
+// Pop the last value from an int_buf (LIFO), or 0 when empty.
+func rx_bpop(h: int): int {
+    var n = mem_get(h, 1)
+    if n == 0 { return 0 }
+    var v = mem_get(mem_get(h, 0), n - 1)
+    mem_set(h, 1, n - 1)
+    return v
+}
+
+func rx_slot_get(sh: int, i: int): int {
+    return mem_get(mem_get(sh, 0), i)
+}
+
+func rx_slot_set(sh: int, i: int, v: int): int {
+    mem_set(mem_get(sh, 0), i, v)
+    return 0
+}
+
+// ===========================================================================
+// instruction copy (used to expand bounded repetition)
+// ===========================================================================
+
+// Copy instructions [s,e) from int_buf `src` into the current output, relocating
+// jump/lookaround targets by the copy delta. Returns the destination start.
+func rx_emit_copy(src: int, s: int, e: int): int {
+    var dst_start = rx_nout()
+    var delta = dst_start - s
+    var sp = mem_get(src, 0)
+    var i = s
+    while i < e {
+        var op = mem_get(sp, i * 4 + 0)
+        var a = mem_get(sp, i * 4 + 1)
+        var b = mem_get(sp, i * 4 + 2)
+        var c = mem_get(sp, i * 4 + 3)
+        if op == RX_JMP {
+            a = a + delta
+        } else if op == RX_SPLIT {
+            a = a + delta
+            b = b + delta
+        } else if op == RX_ASSERT {
+            a = a + delta
+            b = b + delta
+        }
+        rx_emit(op, a, b, c)
+        i = i + 1
+    }
+    return dst_start
+}
+
+// Emit `A*` (or `A*?`) where A is the temp program [0, ae). Empty `end` is the
+// fall-through exit of the loop.
+func rx_emit_star(temp: int, ae: int, lazy: int): int {
+    var s = rx_emit(RX_SPLIT, 0, 0, 0)
+    var body = rx_nout()
+    rx_emit_copy(temp, 0, ae)
+    rx_emit(RX_JMP, s, 0, 0)
+    var end = rx_nout()
+    if lazy == 0 {
+        rx_iset(s, 1, body)
+        rx_iset(s, 2, end)
+    } else {
+        rx_iset(s, 2, body)
+        rx_iset(s, 1, end)
+    }
+    return 0
+}
+
+// Emit `A+` (or `A+?`) for temp program [0, ae).
+func rx_emit_plus(temp: int, ae: int, lazy: int): int {
+    var body = rx_nout()
+    rx_emit_copy(temp, 0, ae)
+    var s = rx_emit(RX_SPLIT, 0, 0, 0)
+    var end = rx_nout()
+    if lazy == 0 {
+        rx_iset(s, 1, body)
+        rx_iset(s, 2, end)
+    } else {
+        rx_iset(s, 2, body)
+        rx_iset(s, 1, end)
+    }
+    return 0
+}
+
+// Emit `A?` (or `A??`) for temp program [0, ae).
+func rx_emit_opt(temp: int, ae: int, lazy: int): int {
+    var s = rx_emit(RX_SPLIT, 0, 0, 0)
+    var body = rx_nout()
+    rx_emit_copy(temp, 0, ae)
+    var end = rx_nout()
+    if lazy == 0 {
+        rx_iset(s, 1, body)
+        rx_iset(s, 2, end)
+    } else {
+        rx_iset(s, 2, body)
+        rx_iset(s, 1, end)
+    }
+    return 0
+}
+
+// Emit `A{m,n}` (n < 0 means unbounded) for temp program [0, ae).
+func rx_emit_quant(temp: int, ae: int, m: int, n: int, lazy: int): int {
+    var k = 0
+    while k < m {
+        rx_emit_copy(temp, 0, ae)
+        k = k + 1
+    }
+    if n < 0 {
+        rx_emit_star(temp, ae, lazy)
+    } else {
+        var extra = n - m
+        var j = 0
+        while j < extra {
+            rx_emit_opt(temp, ae, lazy)
+            j = j + 1
+        }
+    }
+    return 0
+}
+
+// ===========================================================================
+// class descriptor helpers
+// ===========================================================================
+
+func rx_cls_begin(neg: int): int {
+    var h = rx_class
+    var base = int_buf_len(h)
+    int_buf_push(h, neg)
+    int_buf_push(h, 0)
+    return base
+}
+
+func rx_cls_add(base: int, kind: int, x: int, y: int): int {
+    var h = rx_class
+    int_buf_push(h, kind)
+    int_buf_push(h, x)
+    int_buf_push(h, y)
+    var cnt = int_buf_get(h, base + 1)
+    mem_set(mem_get(h, 0), base + 1, cnt + 1)
+    return 0
+}
+
+func rx_word_cp(cp: int): int {
+    if cp_is_letter(cp) { return 1 }
+    if cp_is_digit(cp) { return 1 }
+    if cp == 95 { return 1 }
+    return 0
+}
+
+func rx_shorthand_match(code: int, cp: int): int {
+    if code == SH_D {
+        if cp_is_digit(cp) { return 1 }
+        return 0
+    }
+    if code == SH_DN {
+        if cp_is_digit(cp) { return 0 }
+        return 1
+    }
+    if code == SH_W { return rx_word_cp(cp) }
+    if code == SH_WN {
+        if rx_word_cp(cp) == 1 { return 0 }
+        return 1
+    }
+    if code == SH_S {
+        if cp_is_whitespace(cp) { return 1 }
+        return 0
+    }
+    if code == SH_SN {
+        if cp_is_whitespace(cp) { return 0 }
+        return 1
+    }
+    return 0
+}
+
+func rx_prop_match(pid: int, neg: int, cp: int): int {
+    var r = 0
+    if pid == P_L {
+        if cp_is_letter(cp) { r = 1 }
+    } else if pid == P_LU {
+        if cp_is_upper(cp) { r = 1 }
+    } else if pid == P_LL {
+        if cp_is_lower(cp) { r = 1 }
+    } else if pid == P_N {
+        if cp_is_digit(cp) { r = 1 }
+    } else if pid == P_ND {
+        if cp_is_digit(cp) { r = 1 }
+    } else if pid == P_ZS {
+        if cp_is_whitespace(cp) { r = 1 }
+    } else if pid == P_M {
+        if cp_is_mark(cp) { r = 1 }
+    }
+    if neg == 1 { return 1 - r }
+    return r
+}
+
+// Does codepoint `cp` match the class descriptor starting at int offset `base`?
+func rx_class_match(base: int, cp: int): int {
+    var h = rx_rc
+    var neg = int_buf_get(h, base)
+    var cnt = int_buf_get(h, base + 1)
+    var i = 0
+    var hit = 0
+    while (i < cnt) & (hit == 0) {
+        var kind = int_buf_get(h, base + 2 + i * 3)
+        var x = int_buf_get(h, base + 3 + i * 3)
+        var y = int_buf_get(h, base + 4 + i * 3)
+        if kind == K_RANGE {
+            if (cp >= x) & (cp <= y) { hit = 1 }
+        } else if kind == K_SHORTHAND {
+            if rx_shorthand_match(x, cp) == 1 { hit = 1 }
+        } else if kind == K_PROP {
+            if rx_prop_match(x, y, cp) == 1 { hit = 1 }
+        }
+        i = i + 1
+    }
+    if neg == 1 { return 1 - hit }
+    return hit
+}
+
+func rx_emit_single_class(sh: int): int {
+    var base = rx_cls_begin(0)
+    rx_cls_add(base, K_SHORTHAND, sh, 0)
+    rx_emit(RX_CLASS, base, 0, 0)
+    return 0
+}
+
+// ===========================================================================
+// parser
+// ===========================================================================
+
+func rx_peek(): int {
+    if rx_pos >= rx_plen { return 0 - 1 }
+    return text_byte(rx_pat, rx_pos)
+}
+
+// Map a backslash-escaped ASCII char to its codepoint.
+func rx_escape_char(c: int): int {
+    if c == 110 { return 10 }
+    if c == 116 { return 9 }
+    if c == 114 { return 13 }
+    if c == 102 { return 12 }
+    if c == 118 { return 11 }
+    if c == 48 { return 0 }
+    return c
+}
+
+func rx_expect_close(): int {
+    if (rx_pos < rx_plen) & (rx_peek() == 41) {
+        rx_pos = rx_pos + 1
+        return 0
+    }
+    rx_err = E_SYNTAX
+    return 0
+}
+
+// Parse a property name after `\p` / `\P`; returns the property id or 0.
+func rx_prop_id(): int {
+    if rx_pos >= rx_plen { rx_err = E_PROP return 0 }
+    var c = rx_peek()
+    if c == 76 {
+        rx_pos = rx_pos + 1
+        if (rx_pos < rx_plen) & (rx_peek() == 117) { rx_pos = rx_pos + 1 return P_LU }
+        if (rx_pos < rx_plen) & (rx_peek() == 108) { rx_pos = rx_pos + 1 return P_LL }
+        return P_L
+    }
+    if c == 78 {
+        rx_pos = rx_pos + 1
+        if (rx_pos < rx_plen) & (rx_peek() == 100) { rx_pos = rx_pos + 1 return P_ND }
+        return P_N
+    }
+    if c == 90 {
+        rx_pos = rx_pos + 1
+        if (rx_pos < rx_plen) & (rx_peek() == 115) { rx_pos = rx_pos + 1 return P_ZS }
+        rx_err = E_PROP
+        return 0
+    }
+    if c == 77 {
+        rx_pos = rx_pos + 1
+        return P_M
+    }
+    rx_err = E_PROP
+    return 0
+}
+
+// `\p{...}` / `\P{...}` outside a class -> emit a property class.
+func rx_parse_prop(neg: int): int {
+    if rx_peek() != 123 { rx_err = E_PROP return 0 }
+    rx_pos = rx_pos + 1
+    var pid = rx_prop_id()
+    if rx_err != 0 { return 0 }
+    if rx_peek() != 125 { rx_err = E_PROP return 0 }
+    rx_pos = rx_pos + 1
+    var base = rx_cls_begin(0)
+    rx_cls_add(base, K_PROP, pid, neg)
+    rx_emit(RX_CLASS, base, 0, 0)
+    return 0
+}
+
+// `\p{...}` / `\P{...}` inside a class -> add a property entry.
+func rx_parse_prop_into(base: int, neg: int): int {
+    if rx_peek() != 123 { rx_err = E_PROP return 0 }
+    rx_pos = rx_pos + 1
+    var pid = rx_prop_id()
+    if rx_err != 0 { return 0 }
+    if rx_peek() != 125 { rx_err = E_PROP return 0 }
+    rx_pos = rx_pos + 1
+    rx_cls_add(base, K_PROP, pid, neg)
+    return 0
+}
+
+// Parse an escape outside a class.
+func rx_parse_escape(): int {
+    rx_pos = rx_pos + 1
+    if rx_pos >= rx_plen { rx_err = E_TRAILBS return 0 }
+    var c = rx_peek()
+    if c == 100 { rx_pos = rx_pos + 1 rx_emit_single_class(SH_D) return 0 }
+    if c == 68 { rx_pos = rx_pos + 1 rx_emit_single_class(SH_DN) return 0 }
+    if c == 119 { rx_pos = rx_pos + 1 rx_emit_single_class(SH_W) return 0 }
+    if c == 87 { rx_pos = rx_pos + 1 rx_emit_single_class(SH_WN) return 0 }
+    if c == 115 { rx_pos = rx_pos + 1 rx_emit_single_class(SH_S) return 0 }
+    if c == 83 { rx_pos = rx_pos + 1 rx_emit_single_class(SH_SN) return 0 }
+    if c == 98 { rx_pos = rx_pos + 1 rx_emit(RX_WORDB, 0, 0, 0) return 0 }
+    if c == 66 { rx_pos = rx_pos + 1 rx_emit(RX_NWORDB, 0, 0, 0) return 0 }
+    if c == 112 { rx_pos = rx_pos + 1 rx_parse_prop(0) return 0 }
+    if c == 80 { rx_pos = rx_pos + 1 rx_parse_prop(1) return 0 }
+    if (c >= 49) & (c <= 57) {
+        rx_pos = rx_pos + 1
+        rx_emit(RX_BACKREF, c - 48, 0, 0)
+        return 0
+    }
+    if c >= 128 {
+        var d = utf8_decode(rx_pat, rx_pos)
+        if d < 0 { rx_err = E_BADUTF return 0 }
+        rx_emit(RX_CHAR, d / 8, 0, 0)
+        rx_pos = rx_pos + (d - (d / 8) * 8)
+        return 0
+    }
+    rx_emit(RX_CHAR, rx_escape_char(c), 0, 0)
+    rx_pos = rx_pos + 1
+    return 0
+}
+
+// Parse a single class endpoint codepoint (no shorthand/property).
+func rx_class_endpoint_cp(): int {
+    if rx_peek() == 92 {
+        rx_pos = rx_pos + 1
+        if rx_pos >= rx_plen { rx_err = E_CLASS return 0 }
+        var e = rx_peek()
+        rx_pos = rx_pos + 1
+        return rx_escape_char(e)
+    }
+    var d = utf8_decode(rx_pat, rx_pos)
+    if d < 0 { rx_err = E_CLASS return 0 }
+    rx_pos = rx_pos + (d - (d / 8) * 8)
+    return d / 8
+}
+
+// True when the current position starts a `-x` range (x not `]`).
+func rx_range_follows(): int {
+    if rx_pos + 1 >= rx_plen { return 0 }
+    if rx_peek() != 45 { return 0 }
+    if text_byte(rx_pat, rx_pos + 1) == 93 { return 0 }
+    return 1
+}
+
+// Parse `[...]`.
+func rx_parse_class(): int {
+    rx_pos = rx_pos + 1
+    var neg = 0
+    if (rx_pos < rx_plen) & (rx_peek() == 94) { neg = 1 rx_pos = rx_pos + 1 }
+    var base = rx_cls_begin(neg)
+    var first = 1
+    var done = 0
+    while done == 0 {
+        if rx_pos >= rx_plen { rx_err = E_CLASS return 0 }
+        var c = rx_peek()
+        if (c == 93) & (first == 0) {
+            rx_pos = rx_pos + 1
+            done = 1
+        } else if (c == 93) & (first == 1) {
+            rx_cls_add(base, K_RANGE, 93, 93)
+            rx_pos = rx_pos + 1
+            first = 0
+        } else {
+            first = 0
+            if c == 92 {
+                rx_pos = rx_pos + 1
+                if rx_pos >= rx_plen { rx_err = E_CLASS return 0 }
+                var e = rx_peek()
+                if e == 100 { rx_pos = rx_pos + 1 rx_cls_add(base, K_SHORTHAND, SH_D, 0) }
+                else if e == 68 { rx_pos = rx_pos + 1 rx_cls_add(base, K_SHORTHAND, SH_DN, 0) }
+                else if e == 119 { rx_pos = rx_pos + 1 rx_cls_add(base, K_SHORTHAND, SH_W, 0) }
+                else if e == 87 { rx_pos = rx_pos + 1 rx_cls_add(base, K_SHORTHAND, SH_WN, 0) }
+                else if e == 115 { rx_pos = rx_pos + 1 rx_cls_add(base, K_SHORTHAND, SH_S, 0) }
+                else if e == 83 { rx_pos = rx_pos + 1 rx_cls_add(base, K_SHORTHAND, SH_SN, 0) }
+                else if e == 112 { rx_pos = rx_pos + 1 rx_parse_prop_into(base, 0) }
+                else if e == 80 { rx_pos = rx_pos + 1 rx_parse_prop_into(base, 1) }
+                else {
+                    var cp = rx_escape_char(e)
+                    rx_pos = rx_pos + 1
+                    if rx_range_follows() {
+                        rx_pos = rx_pos + 1
+                        var cp2 = rx_class_endpoint_cp()
+                        rx_cls_add(base, K_RANGE, cp, cp2)
+                    } else {
+                        rx_cls_add(base, K_RANGE, cp, cp)
+                    }
+                }
+            } else {
+                var d = utf8_decode(rx_pat, rx_pos)
+                if d < 0 { rx_err = E_CLASS return 0 }
+                var cp0 = d / 8
+                rx_pos = rx_pos + (d - (d / 8) * 8)
+                if rx_range_follows() {
+                    rx_pos = rx_pos + 1
+                    var cp3 = rx_class_endpoint_cp()
+                    rx_cls_add(base, K_RANGE, cp0, cp3)
+                } else {
+                    rx_cls_add(base, K_RANGE, cp0, cp0)
+                }
+            }
+        }
+    }
+    rx_emit(RX_CLASS, base, 0, 0)
+    return 0
+}
+
+// Emit an inline lookaround program and skip-over jump.
+func rx_emit_assert(flags: int): int {
+    var ai = rx_emit(RX_ASSERT, 0, 0, flags)
+    var ji = rx_emit(RX_JMP, 0, 0, 0)
+    var sub = rx_nout()
+    rx_parse_alt()
+    rx_emit(RX_SUBMATCH, 0, 0, 0)
+    var after = rx_nout()
+    rx_iset(ai, 1, sub)
+    rx_iset(ai, 2, after)
+    rx_iset(ji, 1, after)
+    rx_expect_close()
+    return 0
+}
+
+func rx_parse_group(): int {
+    rx_pos = rx_pos + 1
+    rx_depth = rx_depth + 1
+    if rx_depth > RX_MAX_DEPTH { rx_err = E_DEPTH return 0 }
+    if (rx_pos < rx_plen) & (rx_peek() == 63) {
+        rx_pos = rx_pos + 1
+        if rx_pos >= rx_plen { rx_err = E_SYNTAX return 0 }
+        var c = rx_peek()
+        if c == 58 {
+            rx_pos = rx_pos + 1
+            rx_parse_alt()
+            rx_expect_close()
+        } else if c == 61 {
+            rx_pos = rx_pos + 1
+            rx_emit_assert(0)
+        } else if c == 33 {
+            rx_pos = rx_pos + 1
+            rx_emit_assert(1)
+        } else if c == 60 {
+            rx_pos = rx_pos + 1
+            if rx_pos >= rx_plen { rx_err = E_SYNTAX return 0 }
+            var c2 = rx_peek()
+            if c2 == 61 { rx_pos = rx_pos + 1 rx_emit_assert(2) }
+            else if c2 == 33 { rx_pos = rx_pos + 1 rx_emit_assert(3) }
+            else { rx_err = E_SYNTAX return 0 }
+        } else {
+            rx_err = E_SYNTAX
+        }
+    } else {
+        rx_ngroup = rx_ngroup + 1
+        if rx_ngroup > RX_MAX_GROUPS { rx_err = E_GROUPS return 0 }
+        var g = rx_ngroup
+        rx_emit(RX_SAVE, g * 2, 0, 0)
+        rx_parse_alt()
+        rx_emit(RX_SAVE, g * 2 + 1, 0, 0)
+        rx_expect_close()
+    }
+    rx_depth = rx_depth - 1
+    return 0
+}
+
+func rx_parse_atom(): int {
+    if rx_pos >= rx_plen { rx_err = E_EARLY return 0 }
+    var ch = rx_peek()
+    if ch == 40 { rx_parse_group() return 0 }
+    if ch == 91 { rx_parse_class() return 0 }
+    if ch == 46 { rx_pos = rx_pos + 1 rx_emit(RX_ANY, 0, 0, 0) return 0 }
+    if ch == 94 { rx_pos = rx_pos + 1 rx_emit(RX_BOL, 0, 0, 0) return 0 }
+    if ch == 36 { rx_pos = rx_pos + 1 rx_emit(RX_EOL, 0, 0, 0) return 0 }
+    if ch == 92 { rx_parse_escape() return 0 }
+    var d = utf8_decode(rx_pat, rx_pos)
+    if d < 0 { rx_err = E_BADUTF return 0 }
+    rx_emit(RX_CHAR, d / 8, 0, 0)
+    rx_pos = rx_pos + (d - (d / 8) * 8)
+    return 0
+}
+
+func rx_parse_digits(): int {
+    var v = 0
+    var got = 0
+    while (rx_pos < rx_plen) & (rx_peek() >= 48) & (rx_peek() <= 57) {
+        v = v * 10 + (rx_peek() - 48)
+        rx_pos = rx_pos + 1
+        got = got + 1
+    }
+    if got == 0 { return 0 - 1 }
+    return v
+}
+
+// Try to parse `{m}`, `{m,}`, `{m,n}` and its lazy `?`; return 1 and emit when
+// the brace is a valid quantifier, else restore the cursor and return 0.
+func rx_parse_braces(temp: int, ae: int): int {
+    var save = rx_pos
+    if rx_peek() != 123 { return 0 }
+    rx_pos = rx_pos + 1
+    var m = rx_parse_digits()
+    if m < 0 { rx_pos = save return 0 }
+    var n = 0 - 1
+    if (rx_pos < rx_plen) & (rx_peek() == 44) {
+        rx_pos = rx_pos + 1
+        var nn = rx_parse_digits()
+        if nn >= 0 { n = nn }
+    } else {
+        n = m
+    }
+    if (rx_pos >= rx_plen) | (rx_peek() != 125) { rx_pos = save return 0 }
+    rx_pos = rx_pos + 1
+    var lazy = 0
+    if (rx_pos < rx_plen) & (rx_peek() == 63) { lazy = 1 rx_pos = rx_pos + 1 }
+    if (m > RX_MAX_REPEAT) | ((n >= 0) & (n > RX_MAX_REPEAT)) {
+        rx_err = E_LIMIT
+        return 1
+    }
+    if (n >= 0) & (n < m) {
+        rx_err = E_REPEAT
+        return 1
+    }
+    rx_emit_quant(temp, ae, m, n, lazy)
+    return 1
+}
+
+func rx_parse_lazy(): int {
+    if (rx_pos < rx_plen) & (rx_peek() == 63) {
+        rx_pos = rx_pos + 1
+        return 1
+    }
+    return 0
+}
+
+func rx_parse_repeat(): int {
+    var parent = rx_out
+    var temp = int_buf_new()
+    rx_out = temp
+    var before = rx_pos
+    rx_parse_atom()
+    var ae = rx_nout()
+    rx_out = parent
+    if rx_err != 0 { return 0 }
+    var q = 0
+    if rx_pos < rx_plen {
+        var c = rx_peek()
+        if c == 42 { rx_pos = rx_pos + 1 q = 1 }
+        else if c == 43 { rx_pos = rx_pos + 1 q = 2 }
+        else if c == 63 { rx_pos = rx_pos + 1 q = 3 }
+    }
+    if q == 0 {
+        if (rx_pos < rx_plen) & (rx_peek() == 123) {
+            if rx_parse_braces(temp, ae) == 1 {
+                int_buf_free(temp)
+                return 0
+            }
+        }
+        rx_emit_copy(temp, 0, ae)
+        int_buf_free(temp)
+        return 0
+    }
+    var lazy = rx_parse_lazy()
+    if q == 1 { rx_emit_star(temp, ae, lazy) }
+    else if q == 2 { rx_emit_plus(temp, ae, lazy) }
+    else { rx_emit_opt(temp, ae, lazy) }
+    int_buf_free(temp)
+    return 0
+}
+
+func rx_parse_concat(): int {
+    var go = 1
+    while go == 1 {
+        if rx_err != 0 { return 0 }
+        if rx_pos >= rx_plen { go = 0 }
+        else if rx_peek() == 124 { go = 0 }
+        else if rx_peek() == 41 { go = 0 }
+        else {
+            var before = rx_pos
+            rx_parse_repeat()
+            if rx_pos == before { go = 0 }
+        }
+    }
+    return 0
+}
+
+func rx_parse_alt(): int {
+    if rx_err != 0 { return 0 }
+    var jmps = int_buf_new()
+    var s = rx_emit(RX_SPLIT, 0, 0, 0)
+    rx_iset(s, 1, rx_nout())
+    var prev = s
+    rx_parse_concat()
+    while (rx_err == 0) & (rx_pos < rx_plen) & (rx_peek() == 124) {
+        rx_pos = rx_pos + 1
+        var j = rx_emit(RX_JMP, 0, 0, 0)
+        int_buf_push(jmps, j)
+        var ns = rx_emit(RX_SPLIT, 0, 0, 0)
+        rx_iset(prev, 2, ns)
+        rx_iset(ns, 1, rx_nout())
+        prev = ns
+        rx_parse_concat()
+    }
+    var lastj = rx_emit(RX_JMP, 0, 0, 0)
+    int_buf_push(jmps, lastj)
+    var faili = rx_emit(RX_FAIL, 0, 0, 0)
+    var end = rx_nout()
+    rx_iset(prev, 2, faili)
+    var n = int_buf_len(jmps)
+    var i = 0
+    while i < n {
+        rx_iset(int_buf_get(jmps, i), 1, end)
+        i = i + 1
+    }
+    int_buf_free(jmps)
+    return 0
+}
+
+// ===========================================================================
+// compile
+// ===========================================================================
+
+func rx_error_text(code: int): text {
+    if code == E_NONE { return text"ok" }
+    if code == E_SYNTAX { return text"syntax error" }
+    if code == E_EARLY { return text"unexpected end of pattern" }
+    if code == E_CLASS { return text"malformed character class" }
+    if code == E_PROP { return text"malformed unicode property" }
+    if code == E_DEPTH { return text"pattern nesting too deep" }
+    if code == E_GROUPS { return text"too many capture groups" }
+    if code == E_REPEAT { return text"invalid repetition range" }
+    if code == E_LIMIT { return text"pattern too large" }
+    if code == E_BADUTF { return text"invalid utf-8 in pattern" }
+    if code == E_TRAILBS { return text"trailing backslash" }
+    return text"unknown error"
+}
+
+func regex_compile(pattern: text): int {
+    rx_pat = pattern
+    rx_plen = text_len(pattern)
+    rx_pos = 0
+    rx_err = 0
+    rx_ngroup = 0
+    rx_depth = 0
+    rx_out = int_buf_new()
+    rx_class = int_buf_new()
+    var p = mem_alloc(128)
+    rx_emit(RX_SAVE, 0, 0, 0)
+    rx_parse_alt()
+    if (rx_err == 0) & (rx_pos < rx_plen) { rx_err = E_SYNTAX }
+    rx_emit(RX_SAVE, 1, 0, 0)
+    rx_emit(RX_MATCH, 0, 0, 0)
+    var ncode = rx_nout()
+    if (rx_err == 0) & (ncode > RX_MAX_INS) { rx_err = E_LIMIT }
+    mem_set(p, 0, rx_out)
+    mem_set(p, 1, rx_class)
+    mem_set(p, 4, rx_ngroup)
+    mem_set(p, 8, rx_err)
+    if rx_err != 0 {
+        rx_err_text = rx_error_text(rx_err)
+        mem_set(p, 2, 0)
+        mem_set(p, 3, ncode)
+        return 0
+    }
+    var slots = int_buf_new()
+    var nslots = 2 * (rx_ngroup + 1)
+    var i = 0
+    while i < nslots {
+        int_buf_push(slots, 0 - 1)
+        i = i + 1
+    }
+    mem_set(p, 2, slots)
+    mem_set(p, 3, ncode)
+    mem_set(p, 5, 0)
+    mem_set(p, 6, 0 - 1)
+    mem_set(p, 7, 0 - 1)
+    return p
+}
+
+// ===========================================================================
+// matcher
+// ===========================================================================
+
+func rx_prev_cp(t: text, pos: int): int {
+    if pos <= 0 { return 0 - 1 }
+    var i = pos - 1
+    var k = 0
+    var stop = 0
+    while (i > 0) & (k < 3) & (stop == 0) {
+        var b = text_byte(t, i)
+        if (b & 192) != 128 { stop = 1 } else { i = i - 1 k = k + 1 }
+    }
+    var d = utf8_decode(t, i)
+    if d < 0 { return 0 - 1 }
+    return d / 8
+}
+
+func rx_is_word_at(t: text, pos: int): int {
+    var n = text_len(t)
+    if (pos < 0) | (pos >= n) { return 0 }
+    var d = utf8_decode(t, pos)
+    if d < 0 { return 0 }
+    return rx_word_cp(d / 8)
+}
+
+// Word-ness of the codepoint ending at byte offset `pos`.
+func rx_is_word_before(t: text, pos: int): int {
+    if pos <= 0 { return 0 }
+    var cp = rx_prev_cp(t, pos)
+    if cp < 0 { return 0 }
+    return rx_word_cp(cp)
+}
+
+func rx_undo(log: int, mark: int, sh: int): int {
+    while int_buf_len(log) > mark {
+        var old = rx_bpop(log)
+        var slot = rx_bpop(log)
+        rx_slot_set(sh, slot, old)
+    }
+    return 0
+}
+
+func rx_run(code: int, slots: int, t: text, start: int, run_pc: int): int {
+    var stack = int_buf_new()
+    var log = int_buf_new()
+    var nslots = int_buf_len(slots)
+    var sptr = mem_get(slots, 0)
+    var z = 0
+    while z < nslots {
+        mem_set(sptr, z, 0 - 1)
+        z = z + 1
+    }
+    var cp = mem_get(code, 0)
+    var pc = run_pc
+    var pos = start
+    var tlen = text_len(t)
+    var done = 0
+    var result = 0 - 1
+    while done == 0 {
+        var op = mem_get(cp, pc * 4 + 0)
+        var a = mem_get(cp, pc * 4 + 1)
+        var b = mem_get(cp, pc * 4 + 2)
+        var c = mem_get(cp, pc * 4 + 3)
+        var failed = 0
+        if op == RX_CHAR {
+            var d = utf8_decode(t, pos)
+            if d < 0 {
+                failed = 1
+            } else if d / 8 == a {
+                pos = pos + (d - (d / 8) * 8)
+                pc = pc + 1
+            } else {
+                failed = 1
+            }
+        } else if op == RX_ANY {
+            var d2 = utf8_decode(t, pos)
+            if d2 < 0 {
+                failed = 1
+            } else if (d2 / 8 == 10) & (rx_dotall == 0) {
+                failed = 1
+            } else {
+                pos = pos + (d2 - (d2 / 8) * 8)
+                pc = pc + 1
+            }
+        } else if op == RX_CLASS {
+            var d3 = utf8_decode(t, pos)
+            if d3 < 0 {
+                failed = 1
+            } else if rx_class_match(a, d3 / 8) == 1 {
+                pos = pos + (d3 - (d3 / 8) * 8)
+                pc = pc + 1
+            } else {
+                failed = 1
+            }
+        } else if op == RX_JMP {
+            pc = a
+        } else if op == RX_SPLIT {
+            int_buf_push(stack, int_buf_len(log))
+            int_buf_push(stack, pos)
+            int_buf_push(stack, b)
+            pc = a
+        } else if op == RX_SAVE {
+            int_buf_push(log, a)
+            int_buf_push(log, rx_slot_get(slots, a))
+            rx_slot_set(slots, a, pos)
+            pc = pc + 1
+        } else if op == RX_BOL {
+            var bol = 0
+            if pos == 0 { bol = 1 }
+            else if text_byte(t, pos - 1) == 10 { bol = 1 }
+            if bol == 1 {
+                pc = pc + 1
+            } else {
+                failed = 1
+            }
+        } else if op == RX_EOL {
+            var eol = 0
+            if pos >= tlen { eol = 1 }
+            else if text_byte(t, pos) == 10 { eol = 1 }
+            if eol == 1 {
+                pc = pc + 1
+            } else {
+                failed = 1
+            }
+        } else if op == RX_WORDB {
+            var wb1 = rx_is_word_before(t, pos)
+            var wb2 = rx_is_word_at(t, pos)
+            if (wb1 != wb2) {
+                pc = pc + 1
+            } else {
+                failed = 1
+            }
+        } else if op == RX_NWORDB {
+            var wc1 = rx_is_word_before(t, pos)
+            var wc2 = rx_is_word_at(t, pos)
+            if (wc1 == wc2) {
+                pc = pc + 1
+            } else {
+                failed = 1
+            }
+        } else if op == RX_BACKREF {
+            var gs = rx_slot_get(slots, a * 2)
+            var ge = rx_slot_get(slots, a * 2 + 1)
+            if (gs < 0) | (ge < 0) | (ge < gs) {
+                failed = 1
+            } else {
+                var glen = ge - gs
+                if pos + glen > tlen {
+                    failed = 1
+                } else {
+                    var k = 0
+                    var ok = 1
+                    while (k < glen) & (ok == 1) {
+                        if text_byte(t, gs + k) != text_byte(t, pos + k) { ok = 0 }
+                        k = k + 1
+                    }
+                    if ok == 1 {
+                        pos = pos + glen
+                        pc = pc + 1
+                    } else {
+                        failed = 1
+                    }
+                }
+            }
+        } else if op == RX_ASSERT {
+            var sub = a
+            var flags = c
+            var neg = flags & 1
+            var behind = flags & 2
+            var ok2 = 0
+            if behind == 0 {
+                var r = rx_run_sub(code, t, sub, pos)
+                if r >= 0 { ok2 = 1 }
+            } else {
+                var st = 0
+                while (st <= pos) & (ok2 == 0) {
+                    if rx_is_boundary(t, st) == 1 {
+                        var r2 = rx_run_sub(code, t, sub, st)
+                        if r2 == pos { ok2 = 1 }
+                    }
+                    st = st + 1
+                }
+            }
+            if neg == 1 { ok2 = 1 - ok2 }
+            if ok2 == 1 {
+                pc = pc + 1
+            } else {
+                failed = 1
+            }
+        } else if op == RX_SUBMATCH {
+            result = pos
+            done = 1
+        } else if op == RX_MATCH {
+            result = pos
+            done = 1
+        } else {
+            failed = 1
+        }
+        if (failed == 1) & (done == 0) {
+            if int_buf_len(stack) == 0 {
+                result = 0 - 1
+                done = 1
+            } else {
+                var ppc = rx_bpop(stack)
+                var pp = rx_bpop(stack)
+                var lm = rx_bpop(stack)
+                rx_undo(log, lm, slots)
+                pc = ppc
+                pos = pp
+            }
+        }
+    }
+    int_buf_free(stack)
+    int_buf_free(log)
+    return result
+}
+
+// Run an embedded assertion program with a fresh slot array. Returns the end
+// byte offset on success, or -1.
+func rx_run_sub(code: int, t: text, run_pc: int, start: int): int {
+    var nslots = 2 * (rx_ngroup_run + 1)
+    var slots = int_buf_new()
+    var i = 0
+    while i < nslots {
+        int_buf_push(slots, 0 - 1)
+        i = i + 1
+    }
+    var r = rx_run(code, slots, t, start, run_pc)
+    int_buf_free(slots)
+    return r
+}
+
+func rx_is_boundary(t: text, pos: int): int {
+    var n = text_len(t)
+    if pos < 0 { return 0 }
+    if pos >= n { return 1 }
+    var b = text_byte(t, pos)
+    if (b & 192) != 128 { return 1 }
+    return 0
+}
+
+// ===========================================================================
+// public API
+// ===========================================================================
+
+func rx_rec(p: int, f: int): int {
+    return mem_get(p, f)
+}
+
+func regex_flags(p: int, dotall: int): int {
+    mem_set(p, 5, dotall & 1)
+    return 0
+}
+
+func regex_error(p: int): text {
+    if p == 0 { return rx_err_text }
+    var e = rx_rec(p, 8)
+    if e == 0 { return text"ok" }
+    return rx_error_text(e)
+}
+
+// Shared runner: set up run-time state and execute anchored at `start`.
+func rx_exec(p: int, t: text, start: int): int {
+    var code = rx_rec(p, 0)
+    rx_rc = rx_rec(p, 1)
+    rx_dotall = rx_rec(p, 5) & 1
+    rx_ngroup_run = rx_rec(p, 4)
+    var slots = rx_rec(p, 2)
+    var e = rx_run(code, slots, t, start, 0)
+    if e >= 0 {
+        mem_set(p, 6, rx_slot_get(slots, 0))
+        mem_set(p, 7, e)
+    }
+    return e
+}
+
+func rx_next_pos(t: text, s: int): int {
+    var n = text_len(t)
+    if s >= n { return s + 1 }
+    var l = utf8_decode_len(t, s)
+    if l <= 0 { l = 1 }
+    return s + l
+}
+
+func regex_match(p: int, t: text): bool {
+    if rx_exec(p, t, 0) >= 0 { return true }
+    return false
+}
+
+func regex_find_from(p: int, t: text, from: int): int {
+    var n = text_len(t)
+    var s = from
+    if s < 0 { s = 0 }
+    var found = 0 - 1
+    var go = 1
+    while (go == 1) & (s <= n) {
+        var e = rx_exec(p, t, s)
+        if e >= 0 {
+            found = rx_rec(p, 6)
+            go = 0
+        } else {
+            s = rx_next_pos(t, s)
+        }
+    }
+    return found
+}
+
+func regex_search(p: int, t: text): int {
+    return regex_find_from(p, t, 0)
+}
+
+func regex_span_start(p: int): int {
+    return rx_rec(p, 6)
+}
+
+func regex_span_end(p: int): int {
+    return rx_rec(p, 7)
+}
+
+func regex_group_start(p: int, n: int): int {
+    var slots = rx_rec(p, 2)
+    return rx_slot_get(slots, n * 2)
+}
+
+func regex_group_end(p: int, n: int): int {
+    var slots = rx_rec(p, 2)
+    return rx_slot_get(slots, n * 2 + 1)
+}
+
+// Expand `$0`..`$9` in `repl` using the current capture slots of `p`.
+func rx_expand_repl(p: int, t: text, repl: text): text {
+    var slots = rx_rec(p, 2)
+    var out = text""
+    var n = text_len(repl)
+    var i = 0
+    while i < n {
+        var ch = text_byte(repl, i)
+        if ch == 36 {
+            if i + 1 < n {
+                var d = text_byte(repl, i + 1)
+                if (d >= 48) & (d <= 57) {
+                    var g = d - 48
+                    var gs = rx_slot_get(slots, g * 2)
+                    var ge = rx_slot_get(slots, g * 2 + 1)
+                    if (gs >= 0) & (ge >= gs) {
+                        out = out + text_slice(t, gs, ge - gs)
+                    }
+                    i = i + 2
+                } else {
+                    out = out + text_slice(repl, i, 1)
+                    i = i + 1
+                }
+            } else {
+                out = out + text_slice(repl, i, 1)
+                i = i + 1
+            }
+        } else {
+            out = out + text_slice(repl, i, 1)
+            i = i + 1
+        }
+    }
+    return out
+}
+
+// Replace every match of `p` in `t` with `repl` ($0..$9 group refs).
+func regex_replace_all(p: int, t: text, repl: text): text {
+    var n = text_len(t)
+    var out = text""
+    var prev = 0
+    var search = 0
+    var go = 1
+    while go == 1 {
+        var s = regex_find_from(p, t, search)
+        if s < 0 {
+            go = 0
+        } else {
+            var me = rx_rec(p, 7)
+            if s > prev { out = out + text_slice(t, prev, s - prev) }
+            out = out + rx_expand_repl(p, t, repl)
+            prev = me
+            if me == s {
+                search = rx_next_pos(t, me)
+                if search > n { go = 0 }
+            } else {
+                search = me
+            }
+        }
+    }
+    if prev < n { out = out + text_slice(t, prev, n - prev) }
+    return out
+}
+
+// Split `t` on every match of `p`. Returns an int_buf of flattened (start,end)
+// byte-offset pairs: piece i is [h[2i], h[2i+1]). Use regex_split_count /
+// regex_split_at to consume.
+func regex_split(p: int, t: text): int {
+    var h = int_buf_new()
+    var n = text_len(t)
+    var prev = 0
+    var search = 0
+    var go = 1
+    while go == 1 {
+        var s = regex_find_from(p, t, search)
+        if s < 0 {
+            int_buf_push(h, prev)
+            int_buf_push(h, n)
+            go = 0
+        } else {
+            var me = rx_rec(p, 7)
+            int_buf_push(h, prev)
+            int_buf_push(h, s)
+            prev = me
+            if me == s {
+                search = rx_next_pos(t, me)
+                if search > n {
+                    int_buf_push(h, prev)
+                    int_buf_push(h, n)
+                    go = 0
+                }
+            } else {
+                search = me
+            }
+        }
+    }
+    return h
+}
+
+func regex_split_count(h: int): int {
+    return int_buf_len(h) / 2
+}
+
+func regex_split_at(h: int, i: int, t: text): text {
+    var s = int_buf_get(h, i * 2)
+    var e = int_buf_get(h, i * 2 + 1)
+    return text_slice(t, s, e - s)
+}
