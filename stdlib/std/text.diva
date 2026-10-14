@@ -1,0 +1,2 @@
+
+func text_similarity(a: text,b: text): int { return 0 }
