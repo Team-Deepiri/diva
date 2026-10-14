@@ -1,0 +1,2 @@
+
+func rag_ask(): int { return 0 }
