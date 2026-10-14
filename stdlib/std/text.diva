@@ -1,0 +1,2 @@
+
+func text_line_insert(t: text, i: int, s: text): text { return t }
