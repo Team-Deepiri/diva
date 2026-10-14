@@ -1,0 +1,217 @@
+// #180 embedding store + nearest-neighbour with span-carrying hits.
+//
+// Vectors are fixed-point integers scaled by EMBED_SCALE (1000). The built-in
+// "model" is the hashing trick: each codepoint (and each adjacent codepoint
+// bigram) is hashed into one of `dim` buckets with a signed weight, then the
+// vector is L2-normalised in fixed point. This is a real deterministic text
+// embedding, not a learned neural embedding — see the comment on text_embed.
+import "std/mem.diva"
+import "std/text.diva"
+
+const EMBED_SCALE = 1000
+
+func emod(x: int, d: int): int {
+    if d <= 0 { return 0 }
+    var r = x - (x / d) * d
+    if r < 0 { r = r + d }
+    return r
+}
+
+func eib_set(h: int, i: int, v: int): int {
+    mem_set(mem_get(h, 0), i, v)
+    return 0
+}
+
+func embed_default_dim(): int { return 64 }
+
+// Integer square root (floor) via Newton iteration.
+func isqrt(n: int): int {
+    if n <= 0 { return 0 }
+    var x = n
+    var y = (x + 1) / 2
+    while y < x {
+        x = y
+        y = (x + n / x) / 2
+    }
+    return x
+}
+
+func embed_hash(x: int): int {
+    var h = x * 2654435761
+    h = h + 40503
+    return h
+}
+
+func embed_hash2(x: int): int {
+    var h = (x + 2654435769) * 2246822519
+    h = h + 374761393
+    return h
+}
+
+// Add one feature into the hashed embedding: signed accumulator into one bucket.
+func embed_add_feature(v: int, feat: int, dim: int, weight: int): int {
+    var idx = emod(embed_hash(feat), dim)
+    var sign = emod(embed_hash2(feat), 2) * 2 - 1
+    var cur = int_buf_get(v, idx)
+    eib_set(v, idx, cur + sign * EMBED_SCALE * weight)
+    return 0
+}
+
+// Deterministic hashing embedding of `t` into an int_buf of `dim` fixed-point
+// values (EMBED_SCALE), L2-normalised. Features: codepoints + adjacent bigrams.
+// Documented limit: this is a bag-of-features hashing embedding, not trained.
+func text_embed(t: text, dim: int): int {
+    var v = int_buf_new()
+    var i = 0
+    while i < dim {
+        int_buf_push(v, 0)
+        i = i + 1
+    }
+    var n = text_len(t)
+    i = 0
+    var prev = 0 - 1
+    while i < n {
+        var d = utf8_decode(t, i)
+        if d < 0 { i = n } else {
+            var cp = d / 8
+            embed_add_feature(v, cp, dim, 1)
+            if prev >= 0 {
+                embed_add_feature(v, prev * 1000003 + cp, dim, 1)
+            }
+            prev = cp
+            i = i + (d - (d / 8) * 8)
+        }
+    }
+    var sumsq = 0
+    i = 0
+    while i < dim {
+        var x = int_buf_get(v, i)
+        sumsq = sumsq + x * x
+        i = i + 1
+    }
+    var norm = isqrt(sumsq)
+    if norm > 0 {
+        i = 0
+        while i < dim {
+            eib_set(v, i, int_buf_get(v, i) * EMBED_SCALE / norm)
+            i = i + 1
+        }
+    }
+    return v
+}
+
+// ---------------------------------------------------------------------------
+// embedding store
+//
+// s[0]=dim, s[1]=vecs buffer (dim ints per entry), s[2]=starts, s[3]=ends.
+// count = int_buf_len(starts).
+// ---------------------------------------------------------------------------
+
+func embed_new(dim: int): int {
+    var s = int_buf_new()
+    if s == 0 { return 0 }
+    int_buf_push(s, dim)
+    int_buf_push(s, int_buf_new())
+    int_buf_push(s, int_buf_new())
+    int_buf_push(s, int_buf_new())
+    return s
+}
+
+func embed_dim(s: int): int { return int_buf_get(s, 0) }
+func embed_vecs(s: int): int { return int_buf_get(s, 1) }
+func embed_count(s: int): int { return int_buf_len(int_buf_get(s, 2)) }
+func embed_span_start(s: int, idx: int): int { return int_buf_get(int_buf_get(s, 2), idx) }
+func embed_span_end(s: int, idx: int): int { return int_buf_get(int_buf_get(s, 3), idx) }
+
+func embed_vec_at(s: int, idx: int, j: int): int {
+    return int_buf_get(embed_vecs(s), idx * embed_dim(s) + j)
+}
+
+func embed_add(s: int, vec: int, span_start: int, span_end: int): int {
+    var dim = embed_dim(s)
+    var vecs = embed_vecs(s)
+    var i = 0
+    while i < dim {
+        int_buf_push(vecs, int_buf_get(vec, i))
+        i = i + 1
+    }
+    int_buf_push(int_buf_get(s, 2), span_start)
+    int_buf_push(int_buf_get(s, 3), span_end)
+    return embed_count(s) - 1
+}
+
+// Cosine similarity in fixed point (EMBED_SCALE) between two normalised vectors.
+func embed_cosine(s: int, vec: int, idx: int): int {
+    var dim = embed_dim(s)
+    var dot = 0
+    var j = 0
+    while j < dim {
+        dot = dot + int_buf_get(vec, j) * embed_vec_at(s, idx, j)
+        j = j + 1
+    }
+    return dot / EMBED_SCALE
+}
+
+// Cosine between two normalised int_buf vectors, fixed point.
+func vec_cosine_fp(a: int, b: int, dim: int): int {
+    var dot = 0
+    var j = 0
+    while j < dim {
+        dot = dot + int_buf_get(a, j) * int_buf_get(b, j)
+        j = j + 1
+    }
+    return dot / EMBED_SCALE
+}
+
+// Top-k nearest neighbours of `query`. Returns an int_buf of (index, score)
+// pairs sorted by descending score (score is fixed-point cosine).
+func embed_search(s: int, query: text, k: int): int {
+    var dim = embed_dim(s)
+    var q = text_embed(query, dim)
+    var count = embed_count(s)
+    var pairs = int_buf_new()
+    var idx = 0
+    while idx < count {
+        var score = embed_cosine(s, q, idx)
+        int_buf_push(pairs, idx)
+        int_buf_push(pairs, score)
+        idx = idx + 1
+    }
+    var n = count
+    var i = 0
+    while i < n {
+        var best = i
+        var j = i + 1
+        while j < n {
+            if int_buf_get(pairs, j * 2 + 1) > int_buf_get(pairs, best * 2 + 1) {
+                best = j
+            }
+            j = j + 1
+        }
+        if best != i {
+            var ti = int_buf_get(pairs, i * 2)
+            var ts = int_buf_get(pairs, i * 2 + 1)
+            eib_set(pairs, i * 2, int_buf_get(pairs, best * 2))
+            eib_set(pairs, i * 2 + 1, int_buf_get(pairs, best * 2 + 1))
+            eib_set(pairs, best * 2, ti)
+            eib_set(pairs, best * 2 + 1, ts)
+        }
+        i = i + 1
+    }
+    var out = int_buf_new()
+    var take = k
+    if take > count { take = count }
+    i = 0
+    while i < take {
+        int_buf_push(out, int_buf_get(pairs, i * 2))
+        int_buf_push(out, int_buf_get(pairs, i * 2 + 1))
+        i = i + 1
+    }
+    int_buf_free(pairs)
+    int_buf_free(q)
+    return out
+}
+
+func embed_hits_count(hits: int): int { return int_buf_len(hits) / 2 }
+func embed_hit_index(hits: int, i: int): int { return int_buf_get(hits, i * 2) }
+func embed_hit_score(hits: int, i: int): int { return int_buf_get(hits, i * 2 + 1) }

@@ -1,0 +1,146 @@
+// #183 RAG over local in-memory documents, with citations.
+//
+// Documents are chunked into passages on sentence boundaries (or a codepoint
+// cap). Each passage is embedded (#180) and stored with its byte span and doc id.
+// rag_answer composes an extractive answer from the top passage plus a citation.
+import "std/mem.diva"
+import "std/text.diva"
+import "std/embed.diva"
+import "std/token.diva"
+
+func rag_new(): int {
+    var r = int_buf_new()
+    if r == 0 { return 0 }
+    int_buf_push(r, embed_new(embed_default_dim()))  // [0] embed store
+    int_buf_push(r, int_buf_new())                    // [1] docs: (doc_id, textptr) pairs
+    int_buf_push(r, int_buf_new())                    // [2] passages: (doc_id, start, end) triples
+    return r
+}
+
+func rag_store(r: int): int { return int_buf_get(r, 0) }
+func rag_docs(r: int): int { return int_buf_get(r, 1) }
+func rag_passages(r: int): int { return int_buf_get(r, 2) }
+func rag_doc_count(r: int): int { return int_buf_len(rag_docs(r)) / 2 }
+func rag_passage_count(r: int): int { return int_buf_len(rag_passages(r)) / 3 }
+
+func rag_passage_doc(r: int, i: int): int { return int_buf_get(rag_passages(r), i * 3) }
+func rag_passage_start(r: int, i: int): int { return int_buf_get(rag_passages(r), i * 3 + 1) }
+func rag_passage_end(r: int, i: int): int { return int_buf_get(rag_passages(r), i * 3 + 2) }
+
+func rag_doc_text(r: int, doc_id: int): text {
+    var docs = rag_docs(r)
+    var n = rag_doc_count(r)
+    var i = 0
+    while i < n {
+        if int_buf_get(docs, i * 2) == doc_id {
+            return rag_text_from_ptr(int_buf_get(docs, i * 2 + 1))
+        }
+        i = i + 1
+    }
+    return text""
+}
+
+func rag_text_from_ptr(p: int): text {
+    if p == 0 { return text"" }
+    return text_slice(p, 0, text_len(p))
+}
+// Add one passage span [s, e) of `t` to the store.
+func rag_add_passage(r: int, doc_id: int, t: text, s: int, e: int, count: int): int {
+    var passage = text_concat(text_slice(t, s, e - s), text"")
+    var v = text_embed(passage, embed_dim(rag_store(r)))
+    embed_add(rag_store(r), v, s, e)
+    int_buf_push(rag_passages(r), doc_id)
+    int_buf_push(rag_passages(r), s)
+    int_buf_push(rag_passages(r), e)
+    return count + 1
+}
+
+// Chunk `t` into passages, embed each, and record spans. Returns passage count.
+func rag_add_doc(r: int, doc_id: int, t: text): int {
+    int_buf_push(rag_docs(r), doc_id)
+    int_buf_push(rag_docs(r), t)
+    var n = text_len(t)
+    var i = 0
+    var start = 0
+    var cplen = 0
+    var count = 0
+    while i < n {
+        var d = utf8_decode(t, i)
+        if d < 0 { i = n } else {
+            var cp = d / 8
+            i = i + (d - (d / 8) * 8)
+            cplen = cplen + 1
+            var boundary = 0
+            if (cp == 46) | (cp == 33) | (cp == 63) | (cp == 10) { boundary = 1 }
+            if cplen >= 120 { boundary = 1 }
+            if boundary == 1 {
+                count = rag_emit_span(r, doc_id, t, start, i, count)
+                start = i
+                cplen = 0
+            }
+        }
+    }
+    if start < n {
+        count = rag_emit_span(r, doc_id, t, start, n, count)
+    }
+    return count
+}
+
+// Trim whitespace from [s,e) and add the passage when non-empty.
+func rag_emit_span(r: int, doc_id: int, t: text, s: int, e: int, count: int): int {
+    var ss = s
+    var go = 1
+    while (ss < e) & (go == 1) {
+        var d = utf8_decode(t, ss)
+        if d < 0 {
+            go = 0
+        } else {
+            if cp_is_whitespace(d / 8) {
+                ss = ss + (d - (d / 8) * 8)
+            } else {
+                go = 0
+            }
+        }
+    }
+    var cur = ss
+    var last = ss
+    while cur < e {
+        var d2 = utf8_decode(t, cur)
+        if d2 < 0 {
+            cur = e
+        } else {
+            cur = cur + (d2 - (d2 / 8) * 8)
+            if cp_is_whitespace(d2 / 8) == false { last = cur }
+        }
+    }
+    var ee = last
+    if ee > ss {
+        return rag_add_passage(r, doc_id, t, ss, ee, count)
+    }
+    return count
+}
+
+// Top-k retrieved passages as an int_buf of (passage_index, score) pairs.
+func rag_search(r: int, query: text, k: int): int {
+    return embed_search(rag_store(r), query, k)
+}
+
+// Extractive answer: the top passage's text plus a `[doc:start-end]` citation.
+func rag_answer(r: int, query: text): text {
+    var hits = embed_search(rag_store(r), query, 1)
+    if embed_hits_count(hits) == 0 { return text"" }
+    var idx = embed_hit_index(hits, 0)
+    var doc_id = rag_passage_doc(r, idx)
+    var s = rag_passage_start(r, idx)
+    var e = rag_passage_end(r, idx)
+    var doc = rag_doc_text(r, doc_id)
+    var passage = text_concat(text_slice(doc, s, e - s), text"")
+    var out = text_concat(passage, text" [doc:")
+    out = text_concat(out, text_from_int(doc_id))
+    out = text_concat(out, text":")
+    out = text_concat(out, text_from_int(s))
+    out = text_concat(out, text"-")
+    out = text_concat(out, text_from_int(e))
+    out = text_concat(out, text"]")
+    return out
+}
