@@ -1,0 +1,2 @@
+
+func chat_message(): int { return 0 }
