@@ -1,0 +1,2 @@
+
+func text_builder(): int { return 0 }
