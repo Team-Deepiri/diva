@@ -1,0 +1,2 @@
+
+func text_words(t: text): int { return 0 }
