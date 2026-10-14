@@ -1,0 +1,6 @@
+
+// #166 line/para/sentence iteration scaffolding
+func text_lines(t: text): int { return 0 }
+func text_paragraphs(t: text): int { return 0 }
+func text_sentences(t: text): int { return 0 }
+func text_line_count(t: text): int { return 0 }
