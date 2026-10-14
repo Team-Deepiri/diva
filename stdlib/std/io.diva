@@ -26,3 +26,26 @@ func panic(message: str): void {
     print_str(message)
     abort()
 }
+
+extern func read_stdin_line(): str
+
+func read_line(): str {
+    return read_stdin_line()
+}
+
+func prompt(msg: str): str {
+    stdout(msg)
+    return read_line()
+}
+' 2>&1 | tail -2
+
+extern func read_stdin_line(): str
+
+func read_line(): str {
+    return read_stdin_line()
+}
+
+func prompt(msg: str): str {
+    stdout(msg)
+    return read_line()
+}
