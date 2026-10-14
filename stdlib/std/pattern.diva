@@ -249,3 +249,5 @@ func str_is_blank(s: str): int {
     }
     return 1
 }
+
+func regex_compile(s: str): int { return 0 }
