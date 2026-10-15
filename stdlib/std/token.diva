@@ -19,10 +19,7 @@ func ib_set(h: int, i: int, v: int): int {
 }
 
 // Recover a `text` from an integer cell that holds a text descriptor pointer.
-func text_from_ptr(p: int): text {
-    if p == 0 { return text"" }
-    return text_slice(p, 0, text_len(p))
-}
+// (`text_from_ptr` lives in std/text.diva — do not redefine it here.)
 
 // Non-negative remainder (Diva `/` truncates toward zero).
 func mod_pos(x: int, d: int): int {
