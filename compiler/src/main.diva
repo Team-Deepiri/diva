@@ -18,6 +18,7 @@ import "codegen_x86.diva"
 import "ast_dump.diva"
 import "sema.diva"
 import "loader.diva"
+import "cmd_text.diva"
 
 // When DIVA_NATIVE_CMD_IR_DEBUG is non-empty, cmd_ir prints stderr milestones (native-driver bring-up).
 func native_cmd_ir_debug(): int {
@@ -33,6 +34,7 @@ func cmd_print_usage(): int {
     stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g] | run <...>\n")
     stderr("  watch <file.diva|package-dir> | check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline\n")
+    stderr("  text <inspect|count|upper|lower|width|lines|words|contains> <file>\n")
     stderr("Environment: DI_STDLIB_DIR (stdlib search path)\n")
     stderr("  DIVA_WATCH_MAX_ITERS=N exits after N poll cycles (CI smoke)\n")
     stderr("  diva build -g embeds DWARF via scripts/embed-dwarf-debug.py (needs python3)\n")
@@ -1463,6 +1465,10 @@ func main(): int {
         print_str("Diva compiler pipeline:")
         print_str("  source -> lexer -> parser -> AST -> sema -> IR -> x86_64 binary -> ELF PIE")
         return 0
+    }
+
+    if str_eq(a1, "text") == 1 {
+        return cmd_text_cmd()
     }
 
     err_line("unknown command; try: diva (no args shows usage)")
