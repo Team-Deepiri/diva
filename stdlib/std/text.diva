@@ -881,10 +881,10 @@ func text_nfc(t: text): text {
             if cc == 0 {
                 if pending >= 0 {
                     int_vec_push(stable, pending)
-                    push_vec(stable, marks)
-                    int_vec_free(marks)
-                    marks = int_vec_new()
                 }
+                push_vec(stable, marks)
+                int_vec_free(marks)
+                marks = int_vec_new()
                 pending = c
                 last_cc = 0
             } else {
@@ -896,8 +896,8 @@ func text_nfc(t: text): text {
     }
     if pending >= 0 {
         int_vec_push(stable, pending)
-        push_vec(stable, marks)
     }
+    push_vec(stable, marks)
     var r = text_from_codepoints(stable)
     int_vec_free(v)
     int_vec_free(stable)
