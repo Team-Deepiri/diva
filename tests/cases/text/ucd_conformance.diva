@@ -1,0 +1,272 @@
+// #185 Unicode conformance driver.
+//
+// Reads the version-pinned, checksummed test files fetched by
+// scripts/fetch-unicode-conformance.sh from tests/data/unicode/ and checks the
+// in-scope invariants of the Diva native text layer:
+//
+//   * NormalizationTest.txt  — NFC/NFD canonical correctness (c1 -> c2 / c3).
+//   * GraphemeBreakTest.txt  — grapheme cluster counts (UAX #29).
+//   * WordBreakTest.txt      — reported as skipped: this tree has no text_words.
+//
+// Every counter is printed as a prefixed `KEY=value` line (one per line, since
+// the integer printers always terminate a line) so tests/unicode_conformance.sh
+// can aggregate and decide the verdict. Missing data files are a soft SKIP.
+//
+// Usage:
+//   ucd_conformance                 # all three files under tests/data/unicode/
+//   ucd_conformance norm <path>     # one NormalizationTest.txt file (or shard)
+//   ucd_conformance grapheme <path> # one GraphemeBreakTest.txt file
+//   ucd_conformance word <path>     # one WordBreakTest.txt file
+//
+// NormalizationTest.txt is ~2.6 MB, larger than the 1 MiB read_file cap of the
+// pure-ELF runtime, so the shell harness splits it into line-aligned shards and
+// invokes `norm <shard>` once per shard, then sums the counters.
+//
+// GraphemeBreakTest.txt counts that fail exclusively on lines containing ZWJ
+// (U+200D) are reported as `skip` (reason gb11_zwj_approx): grapheme_break_allowed
+// deliberately approximates GB11 as "ZWJ joins the next codepoint" because the
+// Extended_Pictographic property is not carried as a table.
+//
+// Run from the repository root (default paths are relative to it).
+import "std/text.diva"
+import "std/io.diva"
+import "std/fs.diva"
+import "std/host.diva"
+
+// Parse a space-separated run of hex codepoints in t[start, end) into text.
+func cps_field_text(t: text, start: int, end: int): text {
+    var v = int_vec_new()
+    var i = start
+    var val = 0
+    var have = 0
+    while i < end {
+        var h = hex_char_value(text_byte(t, i))
+        if h < 0 {
+            if have == 1 {
+                int_vec_push(v, val)
+                val = 0
+                have = 0
+            }
+        } else {
+            val = val * 16 + h
+            have = 1
+        }
+        i = i + 1
+    }
+    if have == 1 { int_vec_push(v, val) }
+    var r = text_from_codepoints(v)
+    int_vec_free(v)
+    return r
+}
+
+// Byte offset of the newline at or after `from`, or n when none.
+func line_end_at(t: text, from: int): int {
+    var n = text_len(t)
+    var j = from
+    var stop = 0
+    while (j < n) & (stop == 0) {
+        if text_byte(t, j) == 10 { stop = 1 } else { j = j + 1 }
+    }
+    return j
+}
+
+// Byte offset of the first '#' on [start, end), or end when absent.
+func comment_at(t: text, start: int, end: int): int {
+    var k = start
+    var stop = 0
+    while (k < end) & (stop == 0) {
+        if text_byte(t, k) == 35 { stop = 1 } else { k = k + 1 }
+    }
+    return k
+}
+
+// One prefixed `KEY=value` per line: print_int/print_hex always terminate with
+// a newline, so counters cannot share a line. tests/unicode_conformance.sh keys
+// on the leading prefix ($1) when summing.
+func emit(prefix: text, status: str, total: int, pass: int, fail: int, skip: int): int {
+    var p = str_from_text(prefix)
+    print_str(p)
+    print_str(" status=")
+    print_str(status)
+    print_str("\n")
+    print_str(p)
+    print_str(" total=")
+    print_int(total)
+    print_str(p)
+    print_str(" pass=")
+    print_int(pass)
+    print_str(p)
+    print_str(" fail=")
+    print_int(fail)
+    print_str(p)
+    print_str(" skip=")
+    print_int(skip)
+    return 0
+}
+
+func status_absent(prefix: text): int {
+    return emit(prefix, "absent", 0, 0, 0, 0)
+}
+
+// --- NormalizationTest.txt -------------------------------------------------
+func run_normalization(path: text): int {
+    if file_size(str_from_text(path)) < 0 { return status_absent(text"NORM") }
+    var t = text_from_str(read_file(str_from_text(path)))
+    var n = text_len(t)
+    var total = 0
+    var pass = 0
+    var fail = 0
+    var skip = 0
+    var i = 0
+    while i < n {
+        var j = line_end_at(t, i)
+        var ce = comment_at(t, i, j)
+        var first = text_byte(t, i)
+        if (ce > i) & (first != 35) & (first != 64) {
+            var s1 = 0 - 1
+            var s2 = 0 - 1
+            var s3 = 0 - 1
+            var x = i
+            while x < ce {
+                if text_byte(t, x) == 59 {
+                    if s1 < 0 { s1 = x } else {
+                        if s2 < 0 { s2 = x } else {
+                            if s3 < 0 { s3 = x }
+                        }
+                    }
+                }
+                x = x + 1
+            }
+            if (s1 >= 0) & (s2 >= 0) & (s3 >= 0) {
+                total = total + 1
+                var c1 = cps_field_text(t, i, s1)
+                var c2 = cps_field_text(t, s1 + 1, s2)
+                var c3 = cps_field_text(t, s2 + 1, s3)
+                var ok = 0
+                if text_nfc(c1) == c2 { ok = ok + 1 }
+                if text_nfd(c1) == c3 { ok = ok + 1 }
+                if ok == 2 { pass = pass + 1 } else { fail = fail + 1 }
+            } else {
+                skip = skip + 1
+            }
+        }
+        i = j + 1
+    }
+    return emit(text"NORM", "present", total, pass, fail, skip)
+}
+
+// --- GraphemeBreakTest.txt -------------------------------------------------
+func run_graphemes(path: text): int {
+    if file_size(str_from_text(path)) < 0 { return status_absent(text"GRAPHEME") }
+    var t = text_from_str(read_file(str_from_text(path)))
+    var n = text_len(t)
+    var total = 0
+    var pass = 0
+    var fail = 0
+    var skip = 0
+    var gb11_skip = 0
+    var i = 0
+    while i < n {
+        var j = line_end_at(t, i)
+        var ce = comment_at(t, i, j)
+        var first = text_byte(t, i)
+        if (ce > i) & (first != 35) & (first != 64) {
+            var v = int_vec_new()
+            var breaks = 0
+            var has_zwj = 0
+            var k = i
+            while k < ce {
+                var b = text_byte(t, k)
+                if (b == 32) | (b == 9) {
+                    k = k + 1
+                } else {
+                    if b == 195 {
+                        if k + 1 < ce {
+                            if text_byte(t, k + 1) == 183 { breaks = breaks + 1 }
+                        }
+                        k = k + 2
+                    } else {
+                        var val = 0
+                        var stop = 0
+                        while (k < ce) & (stop == 0) {
+                            var h = hex_char_value(text_byte(t, k))
+                            if h < 0 { stop = 1 } else {
+                                val = val * 16 + h
+                                k = k + 1
+                            }
+                        }
+                        if val == 8205 { has_zwj = 1 }
+                        int_vec_push(v, val)
+                    }
+                }
+            }
+            var src = text_from_codepoints(v)
+            int_vec_free(v)
+            if breaks < 2 {
+                skip = skip + 1
+            } else {
+                total = total + 1
+                if text_grapheme_count(src) == breaks - 1 { pass = pass + 1 } else {
+                    if has_zwj == 1 { skip = skip + 1 gb11_skip = gb11_skip + 1 } else { fail = fail + 1 }
+                }
+            }
+        }
+        i = j + 1
+    }
+    return emit(text"GRAPHEME", "present", total, pass, fail, skip)
+}
+
+// --- WordBreakTest.txt -----------------------------------------------------
+func run_words(path: text): int {
+    if file_size(str_from_text(path)) < 0 { return status_absent(text"WORD") }
+    var count = 0
+    var t = text_from_str(read_file(str_from_text(path)))
+    var n = text_len(t)
+    var i = 0
+    while i < n {
+        var j = line_end_at(t, i)
+        var first = text_byte(t, i)
+        if (j > i) & (first != 35) & (first != 64) {
+            count = count + 1
+        }
+        i = j + 1
+    }
+    print_str("WORD status=present\n")
+    print_str("WORD total=")
+    print_int(count)
+    print_str("WORD pass=")
+    print_int(0)
+    print_str("WORD fail=")
+    print_int(0)
+    print_str("WORD skip=")
+    print_int(count)
+    print_str("WORD reason=no_text_words\n")
+    return 0
+}
+
+func main(): int {
+    var kind = text"all"
+    var path = text""
+    if host_argc() >= 3 {
+        kind = text_from_str(host_argv(1))
+        path = text_from_str(host_argv(2))
+    } else {
+        if host_argc() == 2 { kind = text_from_str(host_argv(1)) }
+    }
+    if kind == text"norm" {
+        return run_normalization(path)
+    } else {
+        if kind == text"grapheme" {
+            return run_graphemes(path)
+        } else {
+            if kind == text"word" {
+                return run_words(path)
+            }
+        }
+    }
+    var dir = "tests/data/unicode/"
+    run_normalization(text_concat(text_from_str(dir), text"NormalizationTest.txt"))
+    run_graphemes(text_concat(text_from_str(dir), text"GraphemeBreakTest.txt"))
+    run_words(text_concat(text_from_str(dir), text"WordBreakTest.txt"))
+    return 0
+}

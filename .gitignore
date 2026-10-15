@@ -3,6 +3,11 @@ compiler/src/_bootstrap_merged.diva
 *.ll
 *.c
 !compiler/res/legacy/runtime_int_to_str.c
+!bench/*.c
 *.exe
 .cursor
 bootstrap/diva-linux-amd64.bak-*
+# Unicode conformance data is fetched + checksum-verified, not committed (#185).
+# VERSION and SHA256SUMS ARE committed as the pin.
+tests/data/unicode/*.txt
+tests/data/unicode/*.part
