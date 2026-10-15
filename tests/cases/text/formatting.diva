@@ -1,0 +1,30 @@
+import "std/text.diva"
+import "std/io.diva"
+import "std/mem.diva"
+
+// #168 runtime formatting: join / repeat / pad / `{}` placeholders.
+func main(): int {
+    var parts = int_buf_new()
+    int_buf_push(parts, text"a")
+    int_buf_push(parts, text"bb")
+    int_buf_push(parts, text"c")
+    if text_join(parts) == text"abbc" { print_str("join_ok\n") }
+    if text_join(int_buf_new()) == text"" { print_str("join_empty_ok\n") }
+
+    if text_repeat(text"ab", 3) == text"ababab" { print_str("repeat_ok\n") }
+    if text_len(text_repeat(text"x", 0)) == 0 { print_str("repeat_zero_ok\n") }
+
+    if text_pad_left(text"7", 3, text"0") == text"007" { print_str("padl_ok\n") }
+    if text_pad_right(text"7", 3, text".") == text"7.." { print_str("padr_ok\n") }
+    if text_pad_left(text"hello", 3, text"0") == text"hello" { print_str("pad_noop_ok\n") }
+
+    var nums = int_buf_new()
+    int_buf_push(nums, 2)
+    int_buf_push(nums, 3)
+    int_buf_push(nums, 5)
+    if text_format_ints(text"{}+{}={}", nums) == text"2+3=5" { print_str("fmt_ok\n") }
+    if text_format_ints(text"x{}y", nums) == text"x2y" { print_str("fmt2_ok\n") }
+    if text_format_ints(text"{}", nums) == text"2" { print_str("fmt3_ok\n") }
+    if text_format_ints(text"{}-{}", nums) == text"2-3" { print_str("fmt4_ok\n") }
+    return 0
+}

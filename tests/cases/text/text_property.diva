@@ -1,0 +1,156 @@
+// #186 Unicode text property / golden tests.
+//
+// Property-based assertions over a UTF-8 corpus (tests/data/text_corpus/) plus a
+// set of explicit golden expectations. Every file path passed on the command
+// line is checked; the harness passes the whole corpus in one invocation so the
+// golden block runs exactly once.
+//
+// Properties checked per input:
+//   validate          — accepted by utf8_validate
+//   roundtrip         — text_from_codepoints(text_to_codepoints(t)) == t
+//   nfd_idem          — NFD(NFD(t)) == NFD(t)
+//   nfc_idem          — NFC(NFC(t)) == NFC(t)
+//   nfc_of_nfd        — NFC(t) == NFC(NFD(t))
+//   nfd_of_nfc        — NFD(NFC(t)) == NFD(t)
+//   nfd_ordered       — NFD output is canonically ordered (ccc non-decreasing
+//                       within each combining run)
+//   width_nonneg      — display width is never negative
+//   grapheme_positive — a non-empty string has at least one grapheme cluster
+//   grapheme_spans    — repeated text_next_grapheme spans exactly the input
+//
+// Output (aggregated by tests/text_property.sh):
+//   PROPERTY checks=<n>
+//   PROPERTY failures=<m>
+import "std/text.diva"
+import "std/io.diva"
+import "std/fs.diva"
+import "std/host.diva"
+
+var g_checks = 0
+var g_fails = 0
+
+func expect(name: str, cond: bool): int {
+    g_checks = g_checks + 1
+    if cond == false {
+        g_fails = g_fails + 1
+        print_str("FAIL ")
+        print_str(name)
+        print_str("\n")
+    }
+    return 0
+}
+
+func cp1(cp: int): text {
+    var v = int_vec_new()
+    int_vec_push(v, cp)
+    var r = text_from_codepoints(v)
+    int_vec_free(v)
+    return r
+}
+
+func cps2(a: int, b: int): text {
+    var v = int_vec_new()
+    int_vec_push(v, a)
+    int_vec_push(v, b)
+    var r = text_from_codepoints(v)
+    int_vec_free(v)
+    return r
+}
+
+// ccc values must be non-decreasing inside a combining run (UAX #15 D108).
+func canonical_order_ok(v: int): bool {
+    var n = int_vec_len(v)
+    var i = 0
+    var prev = 0
+    while i < n {
+        var cc = cp_combining_class(int_vec_get(v, i))
+        if cc == 0 {
+            prev = 0
+        } else {
+            if cc < prev { return false }
+            prev = cc
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// Grapheme iteration must partition the string exactly with no zero advances.
+func grapheme_spans_ok(t: text): bool {
+    var n = text_len(t)
+    var i = 0
+    while i < n {
+        var j = text_next_grapheme(t, i)
+        if j <= i { return false }
+        i = j
+    }
+    return i == n
+}
+
+func run_file(path: text): int {
+    var raw = read_file(str_from_text(path))
+    var t = text_from_str(raw)
+    var tag = str_from_text(path)
+
+    expect("validate", utf8_validate(t))
+
+    var cps = text_to_codepoints(t)
+    var rt = text_from_codepoints(cps)
+    expect("roundtrip", rt == t)
+    int_vec_free(cps)
+
+    var d1 = text_nfd(t)
+    var d2 = text_nfd(d1)
+    expect("nfd_idem", d1 == d2)
+
+    var c1 = text_nfc(t)
+    var c2 = text_nfc(c1)
+    expect("nfc_idem", c1 == c2)
+    expect("nfc_of_nfd", text_nfc(d1) == c1)
+    expect("nfd_of_nfc", text_nfd(c1) == d1)
+
+    var dcps = text_to_codepoints(d1)
+    expect("nfd_ordered", canonical_order_ok(dcps))
+    int_vec_free(dcps)
+
+    expect("width_nonneg", text_display_width(t) >= 0)
+    if text_len(t) > 0 {
+        expect("grapheme_positive", text_grapheme_count(t) >= 1)
+    }
+    expect("grapheme_spans", grapheme_spans_ok(t))
+
+    if g_fails > 0 { print_str("  in ") print_str(tag) print_str("\n") }
+    return 0
+}
+
+func golden(): int {
+    // NFC of a precomposed Latin letter is itself.
+    expect("golden_angstrom_nfc", text_nfc(cp1(197)) == cp1(197))
+    // NFD of A-ring is A + combining ring.
+    expect("golden_angstrom_nfd", text_nfd(cp1(197)) == cps2(65, 778))
+    // NFC recomposes the decomposed form.
+    expect("golden_compose", text_nfc(cps2(65, 778)) == cp1(197))
+    // Regression (#185): a leading combining mark is not dropped by NFC;
+    // U+0340 has a singleton canonical decomposition to U+0300.
+    expect("golden_leading_mark_nfc", text_nfc(cp1(832)) == cp1(768))
+    expect("golden_leading_mark_nfd", text_nfd(cp1(832)) == cp1(768))
+    // Hangul L + V composes to a precomposed syllable.
+    expect("golden_hangul_lv", text_nfc(cps2(4352, 4449)) == cp1(44032))
+    // Hangul L + V composes to a (different) precomposed LV syllable.
+    expect("golden_hangul_lv2", text_nfc(cps2(4363, 4466)) == cp1(50976))
+    return 0
+}
+
+func main(): int {
+    golden()
+    var i = 1
+    while i < host_argc() {
+        run_file(text_from_str(host_argv(i)))
+        i = i + 1
+    }
+    print_str("PROPERTY checks=")
+    print_int(g_checks)
+    print_str("PROPERTY failures=")
+    print_int(g_fails)
+    return 0
+}

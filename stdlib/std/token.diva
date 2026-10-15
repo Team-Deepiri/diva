@@ -1,0 +1,378 @@
+// #178 token/vocab with spans + #179 byte-level BPE.
+//
+// Everything here is pure Diva over int_buf / int_vec and the native `text`
+// value type. A `text` value is a pointer to a 24-byte descriptor; it can be
+// stored in an int_buf as an integer cell and recovered with text_from_ptr
+// (which is just text_slice over the whole value). There is no GC, so a stored
+// pointer stays valid for the life of the process.
+import "std/mem.diva"
+import "std/text.diva"
+import "std/vec.diva"
+
+// ---------------------------------------------------------------------------
+// small int_buf helpers (int_buf has no setter)
+// ---------------------------------------------------------------------------
+
+func ib_set(h: int, i: int, v: int): int {
+    mem_set(mem_get(h, 0), i, v)
+    return 0
+}
+
+// Recover a `text` from an integer cell that holds a text descriptor pointer.
+func text_from_ptr(p: int): text {
+    if p == 0 { return text"" }
+    return text_slice(p, 0, text_len(p))
+}
+
+// Non-negative remainder (Diva `/` truncates toward zero).
+func mod_pos(x: int, d: int): int {
+    if d <= 0 { return 0 }
+    var r = x - (x / d) * d
+    if r < 0 { r = r + d }
+    return r
+}
+
+// ---------------------------------------------------------------------------
+// #178 — vocabulary
+//
+// Layout: v = int_buf with
+//   v[0]     = entries buffer (int_buf of text descriptor pointers)
+//   v[i+1]   = text pointer for entry i
+// count = int_buf_len(v) - 1
+// ---------------------------------------------------------------------------
+
+func vocab_new(): int {
+    var v = int_buf_new()
+    if v == 0 { return 0 }
+    int_buf_push(v, int_buf_new())
+    return v
+}
+
+func vocab_size(v: int): int {
+    if v == 0 { return 0 }
+    return int_buf_len(int_buf_get(v, 0))
+}
+
+func vocab_entry_ptr(v: int, id: int): int {
+    var e = int_buf_get(v, 0)
+    return int_buf_get(e, id)
+}
+
+// Linear search (vocabularies here are small and explicit).
+func vocab_id(v: int, t: text): int {
+    if v == 0 { return 0 - 1 }
+    var n = vocab_size(v)
+    var i = 0
+    while i < n {
+        var e = text_from_ptr(vocab_entry_ptr(v, i))
+        if text_cmp(e, t) == 0 { return i }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func vocab_add(v: int, t: text): int {
+    if v == 0 { return 0 - 1 }
+    var id = vocab_id(v, t)
+    if id >= 0 { return id }
+    var e = int_buf_get(v, 0)
+    int_buf_push(e, t)
+    return vocab_size(v) - 1
+}
+
+func vocab_token_text(v: int, id: int): text {
+    if (id < 0) | (id >= vocab_size(v)) { return text"" }
+    return text_from_ptr(vocab_entry_ptr(v, id))
+}
+
+// ---------------------------------------------------------------------------
+// #178 — tokenizer with byte spans back into the source text
+//
+// Layout: tok = int_buf with
+//   tok[0] = vocab handle
+//   tok[1] = tokens buffer (int_buf of (id, span_start, span_end) triples)
+//   tok[2] = source text descriptor pointer
+// ---------------------------------------------------------------------------
+
+func tokenizer_new(vocab: int): int {
+    var t = int_buf_new()
+    if t == 0 { return 0 }
+    int_buf_push(t, vocab)
+    int_buf_push(t, int_buf_new())
+    int_buf_push(t, 0)
+    return t
+}
+
+func tokenizer_vocab(t: int): int { return int_buf_get(t, 0) }
+func tokenizer_tokens(t: int): int { return int_buf_get(t, 1) }
+func tokenizer_src(t: int): text { return text_from_ptr(int_buf_get(t, 2)) }
+
+func tokenizer_count(t: int): int {
+    return int_buf_len(tokenizer_tokens(t)) / 3
+}
+
+func tokenizer_token(t: int, i: int): int {
+    return int_buf_get(tokenizer_tokens(t), i * 3)
+}
+
+func tokenizer_start(t: int, i: int): int {
+    return int_buf_get(tokenizer_tokens(t), i * 3 + 1)
+}
+
+func tokenizer_end(t: int, i: int): int {
+    return int_buf_get(tokenizer_tokens(t), i * 3 + 2)
+}
+
+func tokenizer_token_text(t: int, i: int): text {
+    var s = tokenizer_start(t, i)
+    var e = tokenizer_end(t, i)
+    return text_slice(tokenizer_src(t), s, e - s)
+}
+
+// A "word" codepoint: letters, digits, underscore, or any non-ASCII codepoint
+// (covers scripts not in the compact property tables). ASCII punctuation is a
+// single-codepoint token.
+func tok_is_word_cp(cp: int): bool {
+    if cp_is_letter(cp) { return true }
+    if cp_is_digit(cp) { return true }
+    if cp == 95 { return true }
+    if cp >= 128 { return true }
+    return false
+}
+
+// Tokenize `src` into the tokenizer, assigning ids from its vocabulary.
+// Returns the token count.
+func tokenizer_run(t: int, src: text): int {
+    var tb = tokenizer_tokens(t)
+    mem_set(tb, 1, 0)
+    var p = mem_get(t, 0)
+    mem_set(p, 2, src)
+    var vocab = tokenizer_vocab(t)
+    var n = text_len(src)
+    var i = 0
+    while i < n {
+        var d = utf8_decode(src, i)
+        if d < 0 { i = n } else {
+            var cp = d / 8
+            var bl = d - (d / 8) * 8
+            if cp_is_whitespace(cp) {
+                i = i + bl
+            } else {
+                if tok_is_word_cp(cp) {
+                    var start = i
+                    i = i + bl
+                    var go = 1
+                    while (i < n) & (go == 1) {
+                        var d2 = utf8_decode(src, i)
+                        if d2 < 0 {
+                            go = 0
+                        } else {
+                            var cp2 = d2 / 8
+                            if tok_is_word_cp(cp2) {
+                                i = i + (d2 - (d2 / 8) * 8)
+                            } else {
+                                go = 0
+                            }
+                        }
+                    }
+                    var id = vocab_add(vocab, text_slice(src, start, i - start))
+                    int_buf_push(tb, id)
+                    int_buf_push(tb, start)
+                    int_buf_push(tb, i)
+                } else {
+                    var id2 = vocab_add(vocab, text_slice(src, i, bl))
+                    int_buf_push(tb, id2)
+                    int_buf_push(tb, i)
+                    int_buf_push(tb, i + bl)
+                    i = i + bl
+                }
+            }
+        }
+    }
+    return tokenizer_count(t)
+}
+
+// ---------------------------------------------------------------------------
+// #179 — byte-level BPE
+//
+// Base alphabet is the 256 byte values. Merge r combines a pair of ids into id
+// 256+r. Every merge preserves the byte expansion, so
+// bpe_decode(bpe_encode(x)) == x for any NUL-free text.
+//
+// Layout: bpe[0] = merges buffer (int_buf of (a, b) pairs); n = len/2.
+// ---------------------------------------------------------------------------
+
+func bpe_new(): int {
+    var b = int_buf_new()
+    if b == 0 { return 0 }
+    int_buf_push(b, int_buf_new())
+    return b
+}
+
+func bpe_merges(b: int): int { return int_buf_get(b, 0) }
+func bpe_n_merges(b: int): int { return int_buf_len(bpe_merges(b)) / 2 }
+
+// Most frequent adjacent pair over `seq` (int_buf). Returns -1 when fewer than
+// two tokens; otherwise writes a,b into out_a/out_b via the pair buffer.
+func bpe_best_pair(seq: int, pair: int): int {
+    var n = int_buf_len(seq)
+    if n < 2 { return 0 }
+    var best_c = 0
+    var best_a = 0 - 1
+    var best_b = 0 - 1
+    var i = 0
+    while i < n - 1 {
+        var a = int_buf_get(seq, i)
+        var b = int_buf_get(seq, i + 1)
+        var c = 0
+        var j = i
+        while j < n - 1 {
+            if (int_buf_get(seq, j) == a) & (int_buf_get(seq, j + 1) == b) {
+                c = c + 1
+            }
+            j = j + 1
+        }
+        if c > best_c {
+            best_c = c
+            best_a = a
+            best_b = b
+        }
+        i = i + 1
+    }
+    ib_set(pair, 0, best_a)
+    ib_set(pair, 1, best_b)
+    return best_c
+}
+
+// Replace every non-overlapping (a,b) in `seq` with `new_id`, in place.
+func bpe_apply_merge(seq: int, a: int, b: int, new_id: int): int {
+    var n = int_buf_len(seq)
+    var out = int_buf_new()
+    var i = 0
+    while i < n {
+        if i + 1 < n {
+            if (int_buf_get(seq, i) == a) & (int_buf_get(seq, i + 1) == b) {
+                int_buf_push(out, new_id)
+                i = i + 2
+            } else {
+                int_buf_push(out, int_buf_get(seq, i))
+                i = i + 1
+            }
+        } else {
+            int_buf_push(out, int_buf_get(seq, i))
+            i = i + 1
+        }
+    }
+    // copy back
+    mem_set(seq, 1, 0)
+    var k = 0
+    var m = int_buf_len(out)
+    while k < m {
+        int_buf_push(seq, int_buf_get(out, k))
+        k = k + 1
+    }
+    int_buf_free(out)
+    return int_buf_len(seq)
+}
+
+func bpe_bytes_of(corpus: text): int {
+    var seq = int_buf_new()
+    var n = text_len(corpus)
+    var i = 0
+    while i < n {
+        int_buf_push(seq, text_byte(corpus, i))
+        i = i + 1
+    }
+    return seq
+}
+
+// Learn up to `n_merges` merges by pair frequency. Returns the number learned.
+func bpe_train(b: int, corpus: text, n_merges: int): int {
+    var merges = bpe_merges(b)
+    var seq = bpe_bytes_of(corpus)
+    var pair = int_buf_new()
+    var learned = 0
+    while learned < n_merges {
+        var c = bpe_best_pair(seq, pair)
+        if c < 2 { learned = n_merges }
+        else {
+            var a = int_buf_get(pair, 0)
+            var bb = int_buf_get(pair, 1)
+            int_buf_push(merges, a)
+            int_buf_push(merges, bb)
+            var new_id = 256 + learned
+            bpe_apply_merge(seq, a, bb, new_id)
+            learned = learned + 1
+        }
+        // guard against a stall
+        if learned < n_merges {
+            if int_buf_len(seq) < 2 { learned = n_merges }
+        }
+    }
+    int_buf_free(pair)
+    int_buf_free(seq)
+    return bpe_n_merges(b)
+}
+
+// Encode: apply merges in rank order (canonical BPE).
+func bpe_encode(b: int, corpus: text): int {
+    var seq = bpe_bytes_of(corpus)
+    var n = bpe_n_merges(b)
+    var merges = bpe_merges(b)
+    var r = 0
+    while r < n {
+        var a = int_buf_get(merges, r * 2)
+        var bb = int_buf_get(merges, r * 2 + 1)
+        bpe_apply_merge(seq, a, bb, 256 + r)
+        r = r + 1
+    }
+    return seq
+}
+
+// Expand one token id into bytes, iteratively (no recursion in Diva).
+func bpe_expand_into(b: int, id: int, out: int): int {
+    var merges = bpe_merges(b)
+    var stack = int_buf_new()
+    int_buf_push(stack, id)
+    while int_buf_len(stack) > 0 {
+        var k = int_buf_len(stack) - 1
+        var cur = int_buf_get(stack, k)
+        mem_set(stack, 1, k)
+        if cur < 256 {
+            int_buf_push(out, cur)
+        } else {
+            var r = cur - 256
+            var a = int_buf_get(merges, r * 2)
+            var bb = int_buf_get(merges, r * 2 + 1)
+            // push b then a so a pops first
+            int_buf_push(stack, bb)
+            int_buf_push(stack, a)
+        }
+    }
+    int_buf_free(stack)
+    return 0
+}
+
+// Decode an int_buf of token ids back to text, exactly.
+func bpe_decode(b: int, ids: int): text {
+    var bytes = int_buf_new()
+    var n = int_buf_len(ids)
+    var i = 0
+    while i < n {
+        bpe_expand_into(b, int_buf_get(ids, i), bytes)
+        i = i + 1
+    }
+    var tbl = utf8_byte_table()
+    var out = text""
+    var m = int_buf_len(bytes)
+    var j = 0
+    while j < m {
+        var by = int_buf_get(bytes, j)
+        if by > 0 {
+            out = out + text_slice(tbl, by - 1, 1)
+        }
+        j = j + 1
+    }
+    int_buf_free(bytes)
+    return out
+}

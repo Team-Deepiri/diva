@@ -1,0 +1,23 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #169 LCS line diff: 0=keep, 1=add, 2=del.
+func main(): int {
+    var a = text"a\nb\nc\n"
+    var b = text"a\nx\nc\nd\n"
+    var d = text_diff_lines(a, b)
+    print_int(text_diff_count(d))
+    var i = 0
+    while i < text_diff_count(d) {
+        var line = text_from_int(text_diff_op(d, i)) + text"|" + text_diff_text(d, i) + text"\n"
+        print_str(str_from_text(line))
+        i = i + 1
+    }
+
+    var same = text_diff_lines(a, a)
+    print_int(text_diff_count(same))
+
+    var ins = text_diff_lines(text"", text"x\ny\n")
+    print_int(text_diff_count(ins))
+    return 0
+}

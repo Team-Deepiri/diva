@@ -1,0 +1,93 @@
+// #178-#184 built-in NLP layer — deterministic end-to-end exercise.
+// Every value below is stable across runs (integer-only, fixed-point math).
+import "std/nlp.diva"
+import "std/io.diva"
+
+func line(t: text): int {
+    print_str(str_from_text(text_concat(t, text"")))
+    print_str("\n")
+    return 0
+}
+
+func num(n: int): int {
+    print_int(n)
+    return 0
+}
+
+func main(): int {
+    // ---- #178 vocab + tokenizer spans ----
+    var v = vocab_new()
+    num(vocab_add(v, text"cat"))
+    num(vocab_add(v, text"cat"))
+    num(vocab_size(v))
+
+    var tok = tokenizer_new(v)
+    var n = tokenizer_run(tok, text"Hi, café!")
+    num(n)
+    var i = 0
+    while i < n {
+        var sp = text_concat(text_from_int(tokenizer_start(tok, i)), text"-")
+        sp = text_concat(sp, text_from_int(tokenizer_end(tok, i)))
+        var ln = text_concat(tokenizer_token_text(tok, i), text" ")
+        ln = text_concat(ln, sp)
+        line(ln)
+        i = i + 1
+    }
+
+    // ---- #179 byte-level BPE round-trip over UTF-8 ----
+    var b = bpe_new()
+    var c = text"banana café 日本語 😀"
+    num(bpe_train(b, c, 24))
+    var ids = bpe_encode(b, c)
+    num(int_buf_len(ids))
+    var back = bpe_decode(b, ids)
+    if text_cmp(back, c) == 0 { line(text"bpe_rt_ok") } else { line(text"bpe_rt_fail") }
+
+    // ---- #180 hashing embeddings + nearest neighbour with spans ----
+    var s = embed_new(64)
+    var e0 = text_embed(text"the quick brown fox jumps", 64)
+    embed_add(s, e0, 0, 25)
+    var e1 = text_embed(text"a lazy dog sleeps all day", 64)
+    embed_add(s, e1, 26, 51)
+    var e2 = text_embed(text"the quick brown cat runs", 64)
+    embed_add(s, e2, 52, 76)
+    var hits = embed_search(s, text"quick brown fox", 2)
+    num(embed_hits_count(hits))
+    num(embed_hit_index(hits, 0))
+    num(embed_hit_index(hits, 1))
+    num(embed_span_start(s, embed_hit_index(hits, 0)))
+    num(embed_span_end(s, embed_hit_index(hits, 0)))
+
+    // ---- #181 prompt render + safe template substitution ----
+    var h = prompt_new(text"you are helpful")
+    prompt_add_user(h, text"hi")
+    prompt_add_assistant(h, text"hello")
+    line(prompt_render(h))
+
+    var vars = prompt_vars_new()
+    prompt_vars_set(vars, text"who", text"Ada")
+    prompt_vars_set(vars, text"n", text"7")
+    line(prompt_template(text"Hello {{who}}, you have {{n}} messages. Literal: {{{{ok}}}}", vars))
+    line(prompt_template(text"unbound=[{{missing}}] injection={braces}", vars))
+
+    // ---- #182 tiny built-in model runtime ----
+    var m = model_new(32)
+    num(model_fit(m, text"the cat sat on the mat the cat ran to the cat"))
+    line(model_generate(m, text"the cat", 4))
+
+    // ---- #183 RAG with citations ----
+    var r = rag_new()
+    rag_add_doc(r, 1, text"The sky is blue. Water is wet. Fire is hot.")
+    rag_add_doc(r, 2, text"A cat is a small furry animal. Dogs bark loudly.")
+    num(rag_passage_count(r))
+    line(rag_answer(r, text"what colour is the sky"))
+    line(rag_answer(r, text"which animal barks"))
+
+    // ---- #184 similarity ----
+    num(text_similarity(text"hello world", text"hello there world"))
+    num(text_jaccard(text"the cat sat", text"the cat ran"))
+    num(text_edit_distance(text"kitten", text"sitting"))
+    if text_similar(text"hello world", text"hello there world", 500) { line(text"similar_yes") }
+    if text_similar(text"hello", text"zebra", 900) == false { line(text"similar_no") }
+    return 0
+}

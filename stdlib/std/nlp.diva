@@ -1,0 +1,499 @@
+// #181 prompts/chat templates + #182 tiny built-in model runtime +
+// #184 text similarity. Re-exports the rest of the built-in NLP layer.
+//
+// Everything is self-contained: no Python, no external model, no shelling out.
+// Where a "model" is needed the code uses small explicit numeric tables over
+// int_buf. See the honesty note above model_next / model_generate for #182.
+import "std/token.diva"
+import "std/embed.diva"
+import "std/rag.diva"
+import "std/text.diva"
+import "std/mem.diva"
+import "std/vec.diva"
+
+// int_buf setter
+func nlp_set(h: int, i: int, v: int): int {
+    mem_set(mem_get(h, 0), i, v)
+    return 0
+}
+
+// A text value recovered from an integer cell.
+func nlp_text(p: int): text {
+    if p == 0 { return text"" }
+    return text_slice(p, 0, text_len(p))
+}
+
+// ===========================================================================
+// #181 — prompt / chat messages
+//
+// Layout: h = int_buf with
+//   h[0] = messages buffer (int_buf of (role, textptr) pairs)
+//   roles: 0=system, 1=user, 2=assistant
+// ===========================================================================
+
+func prompt_new(system: text): int {
+    var h = int_buf_new()
+    var msgs = int_buf_new()
+    int_buf_push(h, msgs)
+    int_buf_push(msgs, 0)
+    int_buf_push(msgs, system)
+    return h
+}
+
+func prompt_msgs(h: int): int { return int_buf_get(h, 0) }
+func prompt_count(h: int): int { return int_buf_len(prompt_msgs(h)) / 2 }
+func prompt_role(h: int, i: int): int { return int_buf_get(prompt_msgs(h), i * 2) }
+func prompt_message(h: int, i: int): text { return nlp_text(int_buf_get(prompt_msgs(h), i * 2 + 1)) }
+
+func prompt_add_user(h: int, t: text): int {
+    int_buf_push(prompt_msgs(h), 1)
+    int_buf_push(prompt_msgs(h), t)
+    return prompt_count(h)
+}
+
+func prompt_add_assistant(h: int, t: text): int {
+    int_buf_push(prompt_msgs(h), 2)
+    int_buf_push(prompt_msgs(h), t)
+    return prompt_count(h)
+}
+
+func prompt_role_tag(role: int): text {
+    if role == 0 { return text"<|system|>" }
+    if role == 1 { return text"<|user|>" }
+    return text"<|assistant|>"
+}
+
+// Role-tagged transcript: one line per message, `<|role|>\n<text>\n`.
+func prompt_render(h: int): text {
+    var out = text""
+    var n = prompt_count(h)
+    var i = 0
+    while i < n {
+        out = text_concat(out, prompt_role_tag(prompt_role(h, i)))
+        out = text_concat(out, text"\n")
+        out = text_concat(out, prompt_message(h, i))
+        out = text_concat(out, text"\n")
+        i = i + 1
+    }
+    return out
+}
+
+// ---- safe template rendering: {{name}} substitution ----
+//
+// Rules (single pass; inserted values are never re-scanned, so no injection):
+//   * `{{name}}`  -> value bound to `name` (empty when unbound)
+//   * `{{{{`      -> literal `{{`
+//   * `}}}}`      -> literal `}}`
+//   * any other brace is emitted literally
+//
+// vars: int_buf of (nameptr, valueptr) pairs.
+
+func prompt_vars_new(): int {
+    return int_buf_new()
+}
+
+func prompt_vars_set(vars: int, name: text, value: text): int {
+    var n = int_buf_len(vars) / 2
+    var i = 0
+    while i < n {
+        if text_cmp(nlp_text(int_buf_get(vars, i * 2)), name) == 0 {
+            nlp_set(vars, i * 2 + 1, value)
+            return i
+        }
+        i = i + 1
+    }
+    int_buf_push(vars, name)
+    int_buf_push(vars, value)
+    return n
+}
+
+func prompt_vars_get(vars: int, name: text): text {
+    var n = int_buf_len(vars) / 2
+    var i = 0
+    while i < n {
+        if text_cmp(nlp_text(int_buf_get(vars, i * 2)), name) == 0 {
+            return nlp_text(int_buf_get(vars, i * 2 + 1))
+        }
+        i = i + 1
+    }
+    return text""
+}
+
+func tpl_append_text(bytes: int, t: text): int {
+    var n = text_len(t)
+    var i = 0
+    while i < n {
+        int_buf_push(bytes, text_byte(t, i))
+        i = i + 1
+    }
+    return 0
+}
+
+func tpl_build(bytes: int): text {
+    var tbl = utf8_byte_table()
+    var out = text""
+    var n = int_buf_len(bytes)
+    var i = 0
+    while i < n {
+        var b = int_buf_get(bytes, i)
+        if b > 0 {
+            out = out + text_slice(tbl, b - 1, 1)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// True when bytes [i, i+2) of `fmt` are `}}`.
+func tpl_close_at(fmt: text, i: int): bool {
+    if i + 1 >= text_len(fmt) { return false }
+    if text_byte(fmt, i) == 125 {
+        if text_byte(fmt, i + 1) == 125 { return true }
+    }
+    return false
+}
+
+func prompt_template(fmt: text, vars: int): text {
+    var bytes = int_buf_new()
+    var n = text_len(fmt)
+    var i = 0
+    while i < n {
+        var b = text_byte(fmt, i)
+        if b == 123 {
+            if (i + 1 < n) & (text_byte(fmt, i + 1) == 123) {
+                // doubled open -> literal {{
+                if (i + 3 < n) & (text_byte(fmt, i + 2) == 123) & (text_byte(fmt, i + 3) == 123) {
+                    int_buf_push(bytes, 123)
+                    int_buf_push(bytes, 123)
+                    i = i + 4
+                } else {
+                    var j = i + 2
+                    var found = 0
+                    while (j + 1 < n) & (found == 0) {
+                        if tpl_close_at(fmt, j) { found = 1 } else { j = j + 1 }
+                    }
+                    if found == 1 {
+                        var name = text_slice(fmt, i + 2, j - (i + 2))
+                        tpl_append_text(bytes, prompt_vars_get(vars, name))
+                        i = j + 2
+                    } else {
+                        int_buf_push(bytes, 123)
+                        i = i + 1
+                    }
+                }
+            } else {
+                int_buf_push(bytes, 123)
+                i = i + 1
+            }
+        } else {
+            if b == 125 {
+                if (i + 3 < n) & (text_byte(fmt, i + 1) == 125) & (text_byte(fmt, i + 2) == 125) & (text_byte(fmt, i + 3) == 125) {
+                    int_buf_push(bytes, 125)
+                    int_buf_push(bytes, 125)
+                    i = i + 4
+                } else {
+                    int_buf_push(bytes, 125)
+                    i = i + 1
+                }
+            } else {
+                int_buf_push(bytes, b)
+                i = i + 1
+            }
+        }
+    }
+    var out = tpl_build(bytes)
+    int_buf_free(bytes)
+    return out
+}
+
+// ===========================================================================
+// #182 — built-in tiny model runtime (pure Diva)
+//
+// HONEST DESCRIPTION: this is NOT a neural LLM. It is a small, deterministic,
+// built-in statistical model over the token vocabulary:
+//   * a unigram count table, and
+//   * a bigram count table (previous token -> next token), plus
+//   * a single-head dot-product "attention" score between the context's hashed
+//     embedding (#180) and each candidate token's hashed embedding.
+// Next-token ranking = bigram_count * 1e6 + cosine(context, candidate). Greedy
+// decoding with lowest-id tie-break makes it fully reproducible. It runs
+// end-to-end inside Diva with integer-only math.
+//
+// Layout: m = int_buf with
+//   m[0] = vocab, m[1] = bigram buf (prev,next,count triples),
+//   m[2] = unigram buf (id,count pairs), m[3] = dim
+// ===========================================================================
+
+func model_new(dim: int): int {
+    var m = int_buf_new()
+    int_buf_push(m, vocab_new())
+    int_buf_push(m, int_buf_new())
+    int_buf_push(m, int_buf_new())
+    int_buf_push(m, dim)
+    return m
+}
+
+func model_vocab(m: int): int { return int_buf_get(m, 0) }
+func model_dim(m: int): int { return int_buf_get(m, 3) }
+func model_bigrams(m: int): int { return int_buf_get(m, 1) }
+func model_unigrams(m: int): int { return int_buf_get(m, 2) }
+
+func model_bump_unigram(m: int, id: int): int {
+    var u = model_unigrams(m)
+    var n = int_buf_len(u) / 2
+    var i = 0
+    while i < n {
+        if int_buf_get(u, i * 2) == id {
+            nlp_set(u, i * 2 + 1, int_buf_get(u, i * 2 + 1) + 1)
+            return 0
+        }
+        i = i + 1
+    }
+    int_buf_push(u, id)
+    int_buf_push(u, 1)
+    return 0
+}
+
+func model_bump_bigram(m: int, prev: int, next: int): int {
+    var g = model_bigrams(m)
+    var n = int_buf_len(g) / 3
+    var i = 0
+    while i < n {
+        if (int_buf_get(g, i * 3) == prev) & (int_buf_get(g, i * 3 + 1) == next) {
+            nlp_set(g, i * 3 + 2, int_buf_get(g, i * 3 + 2) + 1)
+            return 0
+        }
+        i = i + 1
+    }
+    int_buf_push(g, prev)
+    int_buf_push(g, next)
+    int_buf_push(g, 1)
+    return 0
+}
+
+func model_unigram_count(m: int, id: int): int {
+    var u = model_unigrams(m)
+    var n = int_buf_len(u) / 2
+    var i = 0
+    while i < n {
+        if int_buf_get(u, i * 2) == id { return int_buf_get(u, i * 2 + 1) }
+        i = i + 1
+    }
+    return 0
+}
+
+func model_bigram_count(m: int, prev: int, next: int): int {
+    var g = model_bigrams(m)
+    var n = int_buf_len(g) / 3
+    var i = 0
+    while i < n {
+        if (int_buf_get(g, i * 3) == prev) & (int_buf_get(g, i * 3 + 1) == next) {
+            return int_buf_get(g, i * 3 + 2)
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Count unigram + bigram statistics over `corpus`. Returns token count.
+func model_fit(m: int, corpus: text): int {
+    var v = model_vocab(m)
+    var tok = tokenizer_new(v)
+    var n = tokenizer_run(tok, corpus)
+    var prev = 0 - 1
+    var i = 0
+    while i < n {
+        var id = tokenizer_token(tok, i)
+        model_bump_unigram(m, id)
+        if prev >= 0 { model_bump_bigram(m, prev, id) }
+        prev = id
+        i = i + 1
+    }
+    return n
+}
+
+// Rank the next token after `context` and return its vocab id, or -1.
+func model_next(m: int, context: text): int {
+    var v = model_vocab(m)
+    var dim = model_dim(m)
+    var tok = tokenizer_new(v)
+    var n = tokenizer_run(tok, context)
+    var last = 0 - 1
+    if n > 0 { last = tokenizer_token(tok, n - 1) }
+    var ctx = text_embed(context, dim)
+    var vsize = vocab_size(v)
+    var best = 0 - 1
+    var best_score = 0
+    var id = 0
+    while id < vsize {
+        var ct = vocab_token_text(v, id)
+        if text_len(ct) > 0 {
+            var cemb = text_embed(ct, dim)
+            var cos = vec_cosine_fp(ctx, cemb, dim)
+            var big = 0
+            if last >= 0 { big = model_bigram_count(m, last, id) }
+            var uni = model_unigram_count(m, id)
+            var score = big * 1000000 + uni * 1000 + cos
+            if (best < 0) | (score > best_score) {
+                best = id
+                best_score = score
+            }
+            int_buf_free(cemb)
+        }
+        id = id + 1
+    }
+    int_buf_free(ctx)
+    return best
+}
+
+// Greedy generation: append `n` tokens after `seed`, space-separated.
+func model_generate(m: int, seed: text, n: int): text {
+    var v = model_vocab(m)
+    var out = seed
+    var i = 0
+    while i < n {
+        var id = model_next(m, out)
+        if id < 0 { i = n } else {
+            var tt = vocab_token_text(v, id)
+            if text_len(tt) == 0 { i = n } else {
+                out = text_concat(out, text" ")
+                out = text_concat(out, tt)
+                i = i + 1
+            }
+        }
+    }
+    return out
+}
+
+// ===========================================================================
+// #184 — similarity
+// ===========================================================================
+
+func nlp_min3(a: int, b: int, c: int): int {
+    var m = a
+    if b < m { m = b }
+    if c < m { m = c }
+    return m
+}
+
+// Cosine of the built-in hashing embedding, fixed point (scale 1000).
+func text_similarity(a: text, b: text): int {
+    var dim = embed_default_dim()
+    var x = text_embed(a, dim)
+    var y = text_embed(b, dim)
+    var c = vec_cosine_fp(x, y, dim)
+    int_buf_free(x)
+    int_buf_free(y)
+    return c
+}
+
+// Unique token texts of `t` as an int_buf of text pointers.
+func nlp_unique_tokens(t: text): int {
+    var v = vocab_new()
+    var tok = tokenizer_new(v)
+    var n = tokenizer_run(tok, t)
+    var uniq = int_buf_new()
+    var i = 0
+    while i < n {
+        var tt = tokenizer_token_text(tok, i)
+        var dup = 0
+        var j = 0
+        var m = int_buf_len(uniq)
+        while j < m {
+            if text_cmp(nlp_text(int_buf_get(uniq, j)), tt) == 0 { dup = 1 j = m }
+            else { j = j + 1 }
+        }
+        if dup == 0 { int_buf_push(uniq, tt) }
+        i = i + 1
+    }
+    int_buf_free(tok)
+    return uniq
+}
+
+// Token-set Jaccard, fixed point (scale 1000).
+func text_jaccard(a: text, b: text): int {
+    var ua = nlp_unique_tokens(a)
+    var ub = nlp_unique_tokens(b)
+    var na = int_buf_len(ua)
+    var nb = int_buf_len(ub)
+    if (na == 0) & (nb == 0) { return 1000 }
+    var inter = 0
+    var i = 0
+    while i < na {
+        var ta = nlp_text(int_buf_get(ua, i))
+        var j = 0
+        while j < nb {
+            if text_cmp(ta, nlp_text(int_buf_get(ub, j))) == 0 { inter = inter + 1 j = nb }
+            else { j = j + 1 }
+        }
+        i = i + 1
+    }
+    var union = na + nb - inter
+    if union <= 0 { return 1000 }
+    int_buf_free(ua)
+    int_buf_free(ub)
+    return inter * 1000 / union
+}
+
+func nlp_cps_as_buf(t: text): int {
+    var b = int_buf_new()
+    var cps = text_to_codepoints(t)
+    var n = int_vec_len(cps)
+    var i = 0
+    while i < n {
+        int_buf_push(b, int_vec_get(cps, i))
+        i = i + 1
+    }
+    int_vec_free(cps)
+    return b
+}
+
+// Levenshtein edit distance over codepoints.
+func text_edit_distance(a: text, b: text): int {
+    var ca = nlp_cps_as_buf(a)
+    var cb = nlp_cps_as_buf(b)
+    var m = int_buf_len(ca)
+    var n = int_buf_len(cb)
+    var prev = int_buf_new()
+    var cur = int_buf_new()
+    var i = 0
+    while i <= m {
+        int_buf_push(prev, i)
+        int_buf_push(cur, 0)
+        i = i + 1
+    }
+    var j = 1
+    while j <= n {
+        nlp_set(cur, 0, j)
+        i = 1
+        while i <= m {
+            var cost = 1
+            if int_buf_get(ca, i - 1) == int_buf_get(cb, j - 1) { cost = 0 }
+            var del = int_buf_get(prev, i) + 1
+            var ins = int_buf_get(cur, i - 1) + 1
+            var sub = int_buf_get(prev, i - 1) + cost
+            nlp_set(cur, i, nlp_min3(del, ins, sub))
+            i = i + 1
+        }
+        // swap prev/cur contents
+        i = 0
+        while i <= m {
+            var tv = int_buf_get(prev, i)
+            nlp_set(prev, i, int_buf_get(cur, i))
+            nlp_set(cur, i, tv)
+            i = i + 1
+        }
+        j = j + 1
+    }
+    var dist = int_buf_get(prev, m)
+    int_buf_free(ca)
+    int_buf_free(cb)
+    int_buf_free(prev)
+    int_buf_free(cur)
+    return dist
+}
+
+func text_similar(a: text, b: text, threshold: int): bool {
+    if text_similarity(a, b) >= threshold { return true }
+    return false
+}

@@ -1,0 +1,30 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #166 lines / paragraphs and #167 words.
+func main(): int {
+    var t = text"one two\n\nthree four five\r\nsix"
+    print_int(text_line_count(t))
+    var lh = text_lines(t)
+    print_int(text_lines_count(lh))
+    if text_lines_at(lh, 2) == text"three four five" { print_str("crlf_ok\n") }
+    if text_lines_at(lh, 1) == text"" { print_str("blank_ok\n") }
+
+    var p = text"one two\n\nthree four five\nsix"
+    print_int(text_paragraph_count(p))
+    var ph = text_paragraphs(p)
+    if text_paragraphs_at(ph, 1) == text"three four five\nsix" { print_str("para_ok\n") }
+
+    print_int(text_word_count(t))
+    var wh = text_words(t)
+    if text_words_at(wh, 0) == text"one" { print_str("word0_ok\n") }
+    if text_words_at(wh, 4) == text"five" { print_str("word_ok\n") }
+
+    var u = text"café città"
+    print_int(text_word_count(u))
+    var uh = text_words(u)
+    if text_words_at(uh, 1) == text"città" { print_str("uni_word_ok\n") }
+
+    if text_line_count(text"") == 0 { print_str("empty_ok\n") }
+    return 0
+}

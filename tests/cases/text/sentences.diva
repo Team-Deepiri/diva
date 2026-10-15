@@ -1,0 +1,22 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #166 sentence segmentation: '.', '!' or '?' followed by whitespace / end.
+func main(): int {
+    var s = text"Hello world. How are you? Fine!  Yes."
+    print_int(text_sentence_count(s))
+    var sh = text_sentences(s)
+    if text_sentences_at(sh, 0) == text"Hello world." { print_str("s0_ok\n") }
+    if text_sentences_at(sh, 1) == text"How are you?" { print_str("s1_ok\n") }
+    if text_sentences_at(sh, 2) == text"Fine!" { print_str("s2_ok\n") }
+    if text_sentences_at(sh, 3) == text"Yes." { print_str("s3_ok\n") }
+
+    var t = text"no terminator here"
+    print_int(text_sentence_count(t))
+    var th = text_sentences(t)
+    if text_sentences_at(th, 0) == text"no terminator here" { print_str("s4_ok\n") }
+
+    print_int(text_sentence_count(text""))
+    print_int(text_sentence_count(text"   "))
+    return 0
+}

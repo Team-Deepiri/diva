@@ -1,0 +1,114 @@
+// #188 text benchmark workload (Diva side).
+//
+// No monotonic clock is exposed to Diva programs, so this binary performs a
+// fixed amount of work and prints a checksum; tests/text_bench.sh times the
+// process with the shell. The same "decode_scan" workload and sample text are
+// implemented byte-for-byte in bench/text_bench.c and bench/text_bench.rs so the
+// three runtimes can be compared on identical input.
+//
+//   decode_scan   — UTF-8 decode every codepoint, summing codepoint values.
+//                   Reported for Diva, C, and Rust (identical checksums).
+//   normalize_scan — NFC of the buffer, Diva only (the C/Rust baselines do not
+//                   carry Unicode tables); timed and reported as informational.
+//
+// Usage: text_bench [mode] [reps] [decode_iters] [normalize_iters]
+//   mode: decode | normalize | both (default both)
+import "std/text.diva"
+import "std/io.diva"
+import "std/conv.diva"
+import "std/host.diva"
+
+// Sample: "Caf<U+00E9> <U+2014> <U+65E5><U+672C><U+8A9E> <U+1F30D>\n"
+func sample_cps(): int {
+    var v = int_vec_new()
+    int_vec_push(v, 67)
+    int_vec_push(v, 97)
+    int_vec_push(v, 102)
+    int_vec_push(v, 233)
+    int_vec_push(v, 32)
+    int_vec_push(v, 8212)
+    int_vec_push(v, 32)
+    int_vec_push(v, 26085)
+    int_vec_push(v, 26412)
+    int_vec_push(v, 35486)
+    int_vec_push(v, 32)
+    int_vec_push(v, 127757)
+    int_vec_push(v, 10)
+    return v
+}
+
+func build_big(reps: int): text {
+    var cps = sample_cps()
+    var unit = text_from_codepoints(cps)
+    int_vec_free(cps)
+    var acc = text""
+    var i = 0
+    while i < reps {
+        acc = text_concat(acc, unit)
+        i = i + 1
+    }
+    return acc
+}
+
+func decode_scan(t: text, iters: int): int {
+    var sum = 0
+    var k = 0
+    while k < iters {
+        var n = text_len(t)
+        var i = 0
+        while i < n {
+            var d = utf8_decode(t, i)
+            if d < 0 { i = n } else {
+                sum = sum + (d / 8)
+                i = i + (d - (d / 8) * 8)
+            }
+        }
+        k = k + 1
+    }
+    return sum
+}
+
+func normalize_scan(t: text, iters: int): int {
+    var sum = 0
+    var k = 0
+    while k < iters {
+        var r = text_nfc(t)
+        sum = sum + text_len(r)
+        k = k + 1
+    }
+    return sum
+}
+
+func main(): int {
+    var mode = text"both"
+    var base = 1
+    if host_argc() >= 2 {
+        var a1 = text_from_str(host_argv(1))
+        if (a1 == text"decode") | (a1 == text"normalize") | (a1 == text"both") {
+            mode = a1
+            base = 2
+        }
+    }
+    var reps = 200
+    var diters = 1000
+    var niters = 50
+    if host_argc() >= base + 1 { reps = str_to_int(host_argv(base)) }
+    if host_argc() >= base + 2 { diters = str_to_int(host_argv(base + 1)) }
+    if host_argc() >= base + 3 { niters = str_to_int(host_argv(base + 2)) }
+    if reps <= 0 { reps = 200 }
+    if diters <= 0 { diters = 1000 }
+    if niters <= 0 { niters = 50 }
+
+    var big = build_big(reps)
+    print_str("BENCH bytes=")
+    print_int(text_len(big))
+    if (mode == text"decode") | (mode == text"both") {
+        print_str("BENCH decode_scan checksum=")
+        print_int(decode_scan(big, diters))
+    }
+    if (mode == text"normalize") | (mode == text"both") {
+        print_str("BENCH normalize_scan checksum=")
+        print_int(normalize_scan(big, niters))
+    }
+    return 0
+}

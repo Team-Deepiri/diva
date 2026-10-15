@@ -1,0 +1,155 @@
+// #187 Unicode text fuzz targets.
+//
+// Deterministic (seeded) fuzzing of the native text layer. Two generators run
+// for a fixed number of iterations:
+//
+//   valid  — random well-formed codepoint sequences (surrogates and values
+//            above U+10FFFF excluded), asserting the same invariants as #186
+//            plus utf8_validate acceptance.
+//   bytes  — random raw byte strings (via text_from_byte_vec), including
+//            malformed UTF-8, asserting that every public entry point returns
+//            without crashing or advancing out of bounds. Round-trip and
+//            normalization idempotence are asserted only for inputs that
+//            validate.
+//
+// A crash or a hang fails the harness (no output / non-zero exit); a violated
+// invariant is reported as a failure line.
+//
+// Output (aggregated by tests/text_fuzz.sh):
+//   FUZZ iterations=<n>
+//   FUZZ failures=<m>
+import "std/text.diva"
+import "std/io.diva"
+import "std/random.diva"
+import "std/conv.diva"
+import "std/host.diva"
+
+var g_iters = 0
+var g_fails = 0
+
+func expect(name: str, cond: bool): int {
+    if cond == false {
+        g_fails = g_fails + 1
+        print_str("FAIL ")
+        print_str(name)
+        print_str("\n")
+    }
+    return 0
+}
+
+func grapheme_spans_ok(t: text): bool {
+    var n = text_len(t)
+    var i = 0
+    while i < n {
+        var j = text_next_grapheme(t, i)
+        if j <= i { return false }
+        i = j
+    }
+    return i == n
+}
+
+// Random codepoint, excluding the surrogate range and values above U+10FFFF.
+func rand_cp(): int {
+    var cp = rng_range(0, 1114112)
+    while (cp >= 55296) & (cp <= 57343) {
+        cp = rng_range(0, 1114112)
+    }
+    return cp
+}
+
+func rand_valid_text(): text {
+    var n = rng_range(0, 40)
+    var v = int_vec_new()
+    var i = 0
+    while i < n {
+        int_vec_push(v, rand_cp())
+        i = i + 1
+    }
+    var t = text_from_codepoints(v)
+    int_vec_free(v)
+    return t
+}
+
+func rand_byte_text(): text {
+    var n = rng_range(0, 64)
+    var v = int_vec_new()
+    var i = 0
+    while i < n {
+        int_vec_push(v, rng_range(0, 256))
+        i = i + 1
+    }
+    var t = text_from_byte_vec(v)
+    int_vec_free(v)
+    return t
+}
+
+func fuzz_valid(): int {
+    var t = rand_valid_text()
+    expect("valid_validate", utf8_validate(t))
+    var cps = text_to_codepoints(t)
+    var rt = text_from_codepoints(cps)
+    expect("valid_roundtrip", rt == t)
+    int_vec_free(cps)
+    var d1 = text_nfd(t)
+    expect("valid_nfd_idem", text_nfd(d1) == d1)
+    var c1 = text_nfc(t)
+    expect("valid_nfc_idem", text_nfc(c1) == c1)
+    expect("valid_width_nonneg", text_display_width(t) >= 0)
+    expect("valid_grapheme_spans", grapheme_spans_ok(t))
+    return 0
+}
+
+// Decode walk must stay in range and never produce a zero-length advance.
+func decode_walk_ok(t: text): bool {
+    var n = text_len(t)
+    var i = 0
+    while i < n {
+        var d = utf8_decode(t, i)
+        if d < 0 { return true }
+        var cp = d / 8
+        if cp > 1114111 { return false }
+        var adv = d - (d / 8) * 8
+        if adv < 1 { return false }
+        i = i + adv
+    }
+    return true
+}
+
+func fuzz_bytes(): int {
+    var t = rand_byte_text()
+    expect("bytes_walk", decode_walk_ok(t))
+    expect("bytes_width_nonneg", text_display_width(t) >= 0)
+    expect("bytes_grapheme_spans", grapheme_spans_ok(t))
+    if utf8_validate(t) {
+        var cps = text_to_codepoints(t)
+        var rt = text_from_codepoints(cps)
+        expect("bytes_roundtrip", rt == t)
+        int_vec_free(cps)
+        var c1 = text_nfc(t)
+        expect("bytes_nfc_idem", text_nfc(c1) == c1)
+        var d1 = text_nfd(t)
+        expect("bytes_nfd_idem", text_nfd(d1) == d1)
+    }
+    return 0
+}
+
+func main(): int {
+    var iters = 2000
+    if host_argc() >= 2 {
+        iters = str_to_int(host_argv(1))
+        if iters <= 0 { iters = 2000 }
+    }
+    rng_seed(4660)
+    var i = 0
+    while i < iters {
+        fuzz_valid()
+        fuzz_bytes()
+        i = i + 1
+        g_iters = g_iters + 1
+    }
+    print_str("FUZZ iterations=")
+    print_int(g_iters)
+    print_str("FUZZ failures=")
+    print_int(g_fails)
+    return 0
+}

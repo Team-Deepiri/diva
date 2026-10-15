@@ -1,0 +1,16 @@
+import "std/text.diva"
+import "std/io.diva"
+import "std/host.diva"
+
+// #165 whole-file I/O: write_text / read_text round-trip through a real file.
+// argv[1] is the scratch path supplied by the harness.
+func main(): int {
+    var p = host_argv(1)
+    var data = text"alpha\nbeta\ngamma\n"
+    print_int(write_text(p, data))
+    var back = read_text(p)
+    if back == data { print_str("roundtrip_ok\n") }
+    print_int(text_len(back))
+    print_int(text_line_count(back))
+    return 0
+}

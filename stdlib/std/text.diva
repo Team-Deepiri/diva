@@ -12,6 +12,8 @@ import "std/host.diva"
 import "std/vec.diva"
 import "std/byte_table.diva"
 import "std/ucd.diva"
+import "std/mem.diva"
+import "std/io.diva"
 
 extern func text_from_str(s: str): text
 extern func str_from_text(t: text): str
@@ -881,10 +883,10 @@ func text_nfc(t: text): text {
             if cc == 0 {
                 if pending >= 0 {
                     int_vec_push(stable, pending)
-                    push_vec(stable, marks)
-                    int_vec_free(marks)
-                    marks = int_vec_new()
                 }
+                push_vec(stable, marks)
+                int_vec_free(marks)
+                marks = int_vec_new()
                 pending = c
                 last_cc = 0
             } else {
@@ -896,8 +898,8 @@ func text_nfc(t: text): text {
     }
     if pending >= 0 {
         int_vec_push(stable, pending)
-        push_vec(stable, marks)
     }
+    push_vec(stable, marks)
     var r = text_from_codepoints(stable)
     int_vec_free(v)
     int_vec_free(stable)
@@ -1091,4 +1093,716 @@ func text_collate(a: text, b: text): int {
     int_vec_free(ka)
     int_vec_free(kb)
     return r
+}
+
+// ============================================================================
+// Phase 3 — the plain-text surface (#164–#171)
+//
+// Whole-file I/O, line/paragraph/sentence/word iteration, runtime formatting,
+// line-oriented editing + LCS diff, interactive-ish readline, and a growable
+// text builder. No new externs: everything is built on the length-carrying
+// `text` value, int_buf (std/mem.diva), and the existing pure-ELF host builtins
+// (read_file / write_text_file). See docs/text-native-direction.md.
+//
+// Handle layouts (all are int_buf handles; a `text` pointer is stored in an
+// int slot — the pure ABI is a single 64-bit word for both):
+//   lines/paragraphs/sentences/words: [src_ptr, count, start0, len0, start1, …]
+//   diff:                             [count, op0, text0, op1, text1, …]
+// ============================================================================
+
+// Convert a stored `text` pointer (kept in an int slot) back to a text value.
+// text_slice is length-aware, so this is NUL-safe for borrowed views.
+func text_from_ptr(p: int): text {
+    return text_slice(p, 0, text_len(p))
+}
+
+// ============================================================================
+// #164 — stdin: read_line() / prompt()
+//
+// The pure-ELF driver exposes no raw read(2) builtin, so the freestanding
+// surface is read_file("/dev/stdin"). It slurps stdin once (cached in globals)
+// and read_line() hands back one line per call. Under an interactive TTY this
+// blocks until EOF rather than per-keystroke — see limitations in the report.
+// ============================================================================
+
+var g_stdin_text: text = text""
+var g_stdin_pos: int = 0
+var g_stdin_loaded: int = 0
+
+func stdin_text(): text {
+    if g_stdin_loaded == 0 {
+        g_stdin_text = text_from_str(read_file("/dev/stdin"))
+        g_stdin_loaded = 1
+    }
+    return g_stdin_text
+}
+
+// Read one line (without the trailing newline) from stdin. Returns text"" at EOF.
+// A trailing CR from CRLF input is stripped (consistent with text_lines).
+func read_line(): text {
+    var t = stdin_text()
+    var n = text_len(t)
+    if g_stdin_pos >= n { return text"" }
+    var start = g_stdin_pos
+    var i = start
+    var done = 0
+    while (i < n) & (done == 0) {
+        if text_byte(t, i) == 10 { done = 1 } else { i = i + 1 }
+    }
+    var len = i - start
+    if (len > 0) & (text_byte(t, start + len - 1) == 13) { len = len - 1 }
+    g_stdin_pos = i + 1
+    return text_slice(t, start, len)
+}
+
+// Print `msg`, then read one line.
+func prompt(msg: str): text {
+    print_str(msg)
+    return read_line()
+}
+
+// ============================================================================
+// #165 — whole-file I/O
+// ============================================================================
+
+// Read a whole file as text (via the pure-ELF read_file builtin).
+func read_text(path: str): text {
+    return text_from_str(read_file(path))
+}
+
+// Write `data` to `path`. `data` is copied through text_concat so the backing
+// bytes are NUL-terminated at the exact length before the str bridge.
+// Returns 0 on success, non-zero on error (from write_text_file).
+func write_text(path: str, data: text): int {
+    return write_text_file(path, str_from_text(data + text""))
+}
+
+// ============================================================================
+// #166 — lines, paragraphs, sentences
+// ============================================================================
+
+// Number of lines, matching text_lines. An empty text has 0 lines; a trailing
+// newline does not add a phantom final line; "a\n\nb" has 3 lines.
+func text_line_count(t: text): int {
+    var n = text_len(t)
+    if n == 0 { return 0 }
+    var count = 0
+    var i = 0
+    while i < n {
+        if text_byte(t, i) == 10 { count = count + 1 }
+        i = i + 1
+    }
+    if text_byte(t, n - 1) != 10 { count = count + 1 }
+    return count
+}
+
+// Split into lines on '\n' (a trailing CR on each line is stripped). Returns an
+// [src_ptr, count, start,len…] handle; use text_lines_at / text_lines_count.
+func text_lines(t: text): int {
+    var h = int_buf_new()
+    int_buf_push(h, t)
+    var cslot = int_buf_len(h)
+    int_buf_push(h, 0)
+    var n = text_len(t)
+    var start = 0
+    var i = 0
+    var count = 0
+    while i < n {
+        if text_byte(t, i) == 10 {
+            var len = i - start
+            if (len > 0) & (text_byte(t, start + len - 1) == 13) { len = len - 1 }
+            int_buf_push(h, start)
+            int_buf_push(h, len)
+            count = count + 1
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start < n {
+        var len = n - start
+        if (len > 0) & (text_byte(t, start + len - 1) == 13) { len = len - 1 }
+        int_buf_push(h, start)
+        int_buf_push(h, len)
+        count = count + 1
+    }
+    mem_set(mem_get(h, 0), cslot, count)
+    return h
+}
+
+func text_lines_count(h: int): int {
+    return int_buf_get(h, 1)
+}
+
+func text_lines_at(h: int, i: int): text {
+    var cnt = int_buf_get(h, 1)
+    if (i < 0) | (i >= cnt) { return text"" }
+    var src = int_buf_get(h, 0)
+    return text_slice(src, int_buf_get(h, 2 + i * 2), int_buf_get(h, 3 + i * 2))
+}
+
+func text_lines_free(h: int): int {
+    return int_buf_free(h)
+}
+
+// Split into paragraphs on blank lines. Leading/trailing whitespace-only lines
+// are skipped; a paragraph spans its non-blank lines including internal newlines.
+func text_paragraphs(t: text): int {
+    var h = int_buf_new()
+    int_buf_push(h, t)
+    var cslot = int_buf_len(h)
+    int_buf_push(h, 0)
+    var lh = text_lines(t)
+    var cnt = int_buf_get(lh, 1)
+    var count = 0
+    var in_para = 0
+    var pstart = 0
+    var pend = 0
+    var i = 0
+    while i < cnt {
+        var s = int_buf_get(lh, 2 + i * 2)
+        var l = int_buf_get(lh, 3 + i * 2)
+        if l > 0 {
+            if in_para == 0 { pstart = s in_para = 1 }
+            pend = s + l
+        } else {
+            if in_para == 1 {
+                int_buf_push(h, pstart)
+                int_buf_push(h, pend - pstart)
+                count = count + 1
+                in_para = 0
+            }
+        }
+        i = i + 1
+    }
+    if in_para == 1 {
+        int_buf_push(h, pstart)
+        int_buf_push(h, pend - pstart)
+        count = count + 1
+    }
+    mem_set(mem_get(h, 0), cslot, count)
+    int_buf_free(lh)
+    return h
+}
+
+func text_paragraphs_count(h: int): int {
+    return int_buf_get(h, 1)
+}
+
+func text_paragraphs_at(h: int, i: int): text {
+    var cnt = int_buf_get(h, 1)
+    if (i < 0) | (i >= cnt) { return text"" }
+    var src = int_buf_get(h, 0)
+    return text_slice(src, int_buf_get(h, 2 + i * 2), int_buf_get(h, 3 + i * 2))
+}
+
+func text_paragraph_count(t: text): int {
+    var h = text_paragraphs(t)
+    var c = int_buf_get(h, 1)
+    int_buf_free(h)
+    return c
+}
+
+// Split into sentences at '.', '!' or '?' followed by whitespace or end of text.
+// The terminator is included in the sentence; trailing whitespace is not.
+// Leading whitespace between sentences is skipped. Codepoint-aware.
+func text_sentences(t: text): int {
+    var h = int_buf_new()
+    int_buf_push(h, t)
+    var cslot = int_buf_len(h)
+    int_buf_push(h, 0)
+    var n = text_len(t)
+    var i = 0
+    var start = 0
+    var started = 0
+    var count = 0
+    while i < n {
+        var d = utf8_decode(t, i)
+        var cl = 1
+        var cp = 0 - 1
+        if d >= 0 {
+            cp = d / 8
+            cl = d - (d / 8) * 8
+        }
+        if started == 0 {
+            if (d >= 0) & cp_is_whitespace(cp) {
+                i = i + cl
+            } else {
+                start = i
+                started = 1
+                i = i + cl
+            }
+        } else {
+            if (cp == 46) | (cp == 33) | (cp == 63) {
+                var e = i + cl
+                var j = e
+                var skip = 1
+                while (j < n) & (skip == 1) {
+                    var d2 = utf8_decode(t, j)
+                    if d2 < 0 {
+                        skip = 0
+                    } else {
+                        var cp2 = d2 / 8
+                        if cp_is_whitespace(cp2) {
+                            j = j + (d2 - (d2 / 8) * 8)
+                        } else {
+                            skip = 0
+                        }
+                    }
+                }
+                int_buf_push(h, start)
+                int_buf_push(h, e - start)
+                count = count + 1
+                i = j
+                started = 0
+            } else {
+                i = i + cl
+            }
+        }
+    }
+    if started == 1 {
+        int_buf_push(h, start)
+        int_buf_push(h, n - start)
+        count = count + 1
+    }
+    mem_set(mem_get(h, 0), cslot, count)
+    return h
+}
+
+func text_sentences_count(h: int): int {
+    return int_buf_get(h, 1)
+}
+
+func text_sentences_at(h: int, i: int): text {
+    var cnt = int_buf_get(h, 1)
+    if (i < 0) | (i >= cnt) { return text"" }
+    var src = int_buf_get(h, 0)
+    return text_slice(src, int_buf_get(h, 2 + i * 2), int_buf_get(h, 3 + i * 2))
+}
+
+func text_sentence_count(t: text): int {
+    var h = text_sentences(t)
+    var c = int_buf_get(h, 1)
+    int_buf_free(h)
+    return c
+}
+
+// ============================================================================
+// #167 — Unicode word segmentation
+// ============================================================================
+
+// Split on whitespace/punctuation; a word is a maximal run of letters/digits.
+// Returns an [src_ptr, count, start,len…] handle; use text_words_at.
+func text_words(t: text): int {
+    var h = int_buf_new()
+    int_buf_push(h, t)
+    var cslot = int_buf_len(h)
+    int_buf_push(h, 0)
+    var n = text_len(t)
+    var i = 0
+    var count = 0
+    while i < n {
+        var d = utf8_decode(t, i)
+        var cl = 1
+        var isw = 0
+        if d >= 0 {
+            var cp = d / 8
+            cl = d - (d / 8) * 8
+            if cp_is_letter(cp) { isw = 1 }
+            if cp_is_digit(cp) { isw = 1 }
+        }
+        if isw == 1 {
+            var j = i
+            var go = 1
+            while (j < n) & (go == 1) {
+                var d2 = utf8_decode(t, j)
+                if d2 < 0 {
+                    go = 0
+                } else {
+                    var cp2 = d2 / 8
+                    var w2 = 0
+                    if cp_is_letter(cp2) { w2 = 1 }
+                    if cp_is_digit(cp2) { w2 = 1 }
+                    if w2 == 0 {
+                        go = 0
+                    } else {
+                        j = j + (d2 - (d2 / 8) * 8)
+                    }
+                }
+            }
+            int_buf_push(h, i)
+            int_buf_push(h, j - i)
+            count = count + 1
+            i = j
+        } else {
+            i = i + cl
+        }
+    }
+    mem_set(mem_get(h, 0), cslot, count)
+    return h
+}
+
+func text_words_count(h: int): int {
+    return int_buf_get(h, 1)
+}
+
+func text_words_at(h: int, i: int): text {
+    var cnt = int_buf_get(h, 1)
+    if (i < 0) | (i >= cnt) { return text"" }
+    var src = int_buf_get(h, 0)
+    return text_slice(src, int_buf_get(h, 2 + i * 2), int_buf_get(h, 3 + i * 2))
+}
+
+func text_word_count(t: text): int {
+    var h = text_words(t)
+    var c = int_buf_get(h, 1)
+    int_buf_free(h)
+    return c
+}
+
+// ============================================================================
+// #168 — runtime formatting
+// ============================================================================
+
+// Concatenate an int_buf whose slots hold `text` pointers (see text_from_ptr).
+func text_join(parts: int): text {
+    var out = text""
+    var n = int_buf_len(parts)
+    var i = 0
+    while i < n {
+        out = out + text_from_ptr(int_buf_get(parts, i))
+        i = i + 1
+    }
+    return out
+}
+
+// Repeat `t` exactly `n` times (n <= 0 yields text"").
+func text_repeat(t: text, n: int): text {
+    var out = text""
+    var i = 0
+    while i < n {
+        out = out + t
+        i = i + 1
+    }
+    return out
+}
+
+// Pad `t` on the left to display width `width` using copies of `fill`.
+func text_pad_left(t: text, width: int, fill: text): text {
+    var cur = text_display_width(t)
+    if cur >= width { return t }
+    var fw = text_display_width(fill)
+    if fw <= 0 { return t }
+    var k = (width - cur) / fw
+    var out = text""
+    var i = 0
+    while i < k {
+        out = out + fill
+        i = i + 1
+    }
+    return out + t
+}
+
+// Pad `t` on the right to display width `width` using copies of `fill`.
+func text_pad_right(t: text, width: int, fill: text): text {
+    var cur = text_display_width(t)
+    if cur >= width { return t }
+    var fw = text_display_width(fill)
+    if fw <= 0 { return t }
+    var k = (width - cur) / fw
+    var out = t
+    var i = 0
+    while i < k {
+        out = out + fill
+        i = i + 1
+    }
+    return out
+}
+
+// Replace each `{}` in `fmt` with the next decimal integer from the int_buf
+// `nums`. Surplus placeholders are left as `{}`; surplus numbers are ignored.
+func text_format_ints(fmt: text, nums: int): text {
+    var out = text""
+    var n = text_len(fmt)
+    var nn = int_buf_len(nums)
+    var i = 0
+    var k = 0
+    while i < n {
+        var b = text_byte(fmt, i)
+        if (b == 123) & (i + 1 < n) & (text_byte(fmt, i + 1) == 125) {
+            if k < nn {
+                out = out + text_from_int(int_buf_get(nums, k))
+                k = k + 1
+            } else {
+                out = out + text"{}"
+            }
+            i = i + 2
+        } else {
+            out = out + text_slice(fmt, i, 1)
+            i = i + 1
+        }
+    }
+    return out
+}
+
+// ============================================================================
+// #169 — line-oriented editing and diff
+// ============================================================================
+
+// Join the lines of handle `h` back into text, preserving a trailing newline if
+// `trail` is 1. Empty handle yields text"".
+func text_join_lines(h: int, trail: int): text {
+    var out = text""
+    var cnt = int_buf_get(h, 1)
+    var i = 0
+    while i < cnt {
+        if text_len(out) > 0 { out = out + text"\n" }
+        out = out + text_lines_at(h, i)
+        i = i + 1
+    }
+    if (trail == 1) & (text_len(out) > 0) { out = out + text"\n" }
+    return out
+}
+
+// Insert line `s` at `line_index` (clamped to [0, line_count]).
+func text_line_insert(t: text, line_index: int, s: text): text {
+    var n = text_len(t)
+    var trail = 0
+    if (n > 0) & (text_byte(t, n - 1) == 10) { trail = 1 }
+    var h = text_lines(t)
+    var cnt = int_buf_get(h, 1)
+    var idx = line_index
+    if idx < 0 { idx = 0 }
+    if idx > cnt { idx = cnt }
+    var out = text""
+    var i = 0
+    while i <= cnt {
+        if i == idx {
+            if text_len(out) > 0 { out = out + text"\n" }
+            out = out + s
+        }
+        if i < cnt {
+            if text_len(out) > 0 { out = out + text"\n" }
+            out = out + text_lines_at(h, i)
+        }
+        i = i + 1
+    }
+    if (trail == 1) & (text_len(out) > 0) { out = out + text"\n" }
+    int_buf_free(h)
+    return out
+}
+
+// Delete line `line_index`. Out-of-range leaves `t` unchanged.
+func text_line_delete(t: text, line_index: int): text {
+    var h = text_lines(t)
+    var cnt = int_buf_get(h, 1)
+    if (line_index < 0) | (line_index >= cnt) {
+        int_buf_free(h)
+        return t
+    }
+    var n = text_len(t)
+    var trail = 0
+    if (n > 0) & (text_byte(t, n - 1) == 10) { trail = 1 }
+    var out = text""
+    var i = 0
+    while i < cnt {
+        if i != line_index {
+            if text_len(out) > 0 { out = out + text"\n" }
+            out = out + text_lines_at(h, i)
+        }
+        i = i + 1
+    }
+    if (trail == 1) & (text_len(out) > 0) { out = out + text"\n" }
+    int_buf_free(h)
+    return out
+}
+
+// LCS-based line diff between `a` and `b`. Returns [count, op,text, op,text…]
+// where op is 0=keep, 1=add, 2=del. Use text_diff_op / text_diff_text.
+func text_diff_lines(a: text, b: text): int {
+    var ha = text_lines(a)
+    var hb = text_lines(b)
+    var na = int_buf_get(ha, 1)
+    var nb = int_buf_get(hb, 1)
+    var w = nb + 1
+    var total = (na + 1) * (nb + 1)
+    var dp = int_buf_new()
+    var z = 0
+    while z < total {
+        int_buf_push(dp, 0)
+        z = z + 1
+    }
+    var dpp = mem_get(dp, 0)
+    var i = na
+    while i >= 0 {
+        var j = nb
+        while j >= 0 {
+            var v = 0
+            if (i < na) & (j < nb) {
+                if text_cmp(text_lines_at(ha, i), text_lines_at(hb, j)) == 0 {
+                    v = 1 + mem_get(dpp, (i + 1) * w + (j + 1))
+                } else {
+                    var x = mem_get(dpp, (i + 1) * w + j)
+                    var y = mem_get(dpp, i * w + (j + 1))
+                    if x >= y { v = x } else { v = y }
+                }
+            }
+            mem_set(dpp, i * w + j, v)
+            j = j - 1
+        }
+        i = i - 1
+    }
+    var ops = int_buf_new()
+    var ci = int_buf_len(ops)
+    int_buf_push(ops, 0)
+    var cnt = 0
+    var ii = 0
+    var jj = 0
+    while (ii < na) | (jj < nb) {
+        var took = 0
+        if (ii < na) & (jj < nb) {
+            if text_cmp(text_lines_at(ha, ii), text_lines_at(hb, jj)) == 0 {
+                int_buf_push(ops, 0)
+                int_buf_push(ops, text_lines_at(ha, ii))
+                ii = ii + 1
+                jj = jj + 1
+                took = 1
+            }
+        }
+        if took == 0 {
+            if jj >= nb {
+                int_buf_push(ops, 2)
+                int_buf_push(ops, text_lines_at(ha, ii))
+                ii = ii + 1
+            } else {
+                if ii >= na {
+                    int_buf_push(ops, 1)
+                    int_buf_push(ops, text_lines_at(hb, jj))
+                    jj = jj + 1
+                } else {
+                    var x = mem_get(dpp, (ii + 1) * w + jj)
+                    var y = mem_get(dpp, ii * w + (jj + 1))
+                    if x >= y {
+                        int_buf_push(ops, 2)
+                        int_buf_push(ops, text_lines_at(ha, ii))
+                        ii = ii + 1
+                    } else {
+                        int_buf_push(ops, 1)
+                        int_buf_push(ops, text_lines_at(hb, jj))
+                        jj = jj + 1
+                    }
+                }
+            }
+        }
+        cnt = cnt + 1
+    }
+    mem_set(mem_get(ops, 0), ci, cnt)
+    int_buf_free(dp)
+    int_buf_free(ha)
+    int_buf_free(hb)
+    return ops
+}
+
+func text_diff_count(h: int): int {
+    return int_buf_get(h, 0)
+}
+
+func text_diff_op(h: int, i: int): int {
+    var cnt = int_buf_get(h, 0)
+    if (i < 0) | (i >= cnt) { return 0 - 1 }
+    return int_buf_get(h, 1 + i * 2)
+}
+
+func text_diff_text(h: int, i: int): text {
+    var cnt = int_buf_get(h, 0)
+    if (i < 0) | (i >= cnt) { return text"" }
+    return text_from_ptr(int_buf_get(h, 2 + i * 2))
+}
+
+func text_diff_free(h: int): int {
+    return int_buf_free(h)
+}
+
+// ============================================================================
+// #170 — readline: prompt + backspace handling
+// ============================================================================
+
+// Drop the last codepoint of `t`.
+func text_drop_last_cp(t: text): text {
+    var cnt = text_codepoint_count(t)
+    if cnt <= 0 { return text"" }
+    var b = text_byte_of_codepoint_index(t, cnt - 1)
+    if b < 0 { return t }
+    return text_slice(t, 0, b)
+}
+
+// Print `prompt`, read a line, echo it, and apply DEL (\x7f) backspaces.
+// Backspace removes one whole codepoint. Built on read_line (#164).
+func readline(prompt: text): text {
+    print_str(str_from_text(prompt + text""))
+    var raw = read_line()
+    var out = text""
+    var n = text_len(raw)
+    var i = 0
+    while i < n {
+        var b = text_byte(raw, i)
+        if b == 127 {
+            out = text_drop_last_cp(out)
+        } else {
+            out = out + text_slice(raw, i, 1)
+        }
+        i = i + 1
+    }
+    print_str(str_from_text(out + text""))
+    print_str("\n")
+    return out
+}
+
+// ============================================================================
+// #171 — growable text builder
+// ============================================================================
+
+// A builder is an int_buf of byte values (0..255). Byte 0 is skipped on
+// materialization (same interior-NUL limitation as text_from_byte_vec).
+func text_builder_new(): int {
+    return int_buf_new()
+}
+
+func text_builder_len(h: int): int {
+    return int_buf_len(h)
+}
+
+func text_builder_append_byte(h: int, b: int): int {
+    return int_buf_push(h, b & 255)
+}
+
+func text_builder_push(h: int, t: text): int {
+    var n = text_len(t)
+    var i = 0
+    while i < n {
+        int_buf_push(h, text_byte(t, i))
+        i = i + 1
+    }
+    return 0
+}
+
+func text_builder_append_int(h: int, n: int): int {
+    var t = text_from_int(n)
+    return text_builder_push(h, t)
+}
+
+func text_builder_to_text(h: int): text {
+    var n = int_buf_len(h)
+    var out = text""
+    var tbl = utf8_byte_table()
+    var i = 0
+    while i < n {
+        var b = int_buf_get(h, i)
+        if b > 0 { out = out + text_slice(tbl, b - 1, 1) }
+        i = i + 1
+    }
+    return out
+}
+
+func text_builder_free(h: int): int {
+    return int_buf_free(h)
 }
