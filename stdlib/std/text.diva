@@ -1113,6 +1113,7 @@ func text_collate(a: text, b: text): int {
 // Convert a stored `text` pointer (kept in an int slot) back to a text value.
 // text_slice is length-aware, so this is NUL-safe for borrowed views.
 func text_from_ptr(p: int): text {
+    if p == 0 { return text"" }
     return text_slice(p, 0, text_len(p))
 }
 
