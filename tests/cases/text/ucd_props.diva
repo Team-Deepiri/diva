@@ -1,0 +1,20 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #159 Unicode property tables: general-category slices, combining class,
+// grapheme break classes, version.
+func main(): int {
+    if cp_is_letter(97) { print_str("ascii_letter\n") }
+    if cp_is_letter(26085) { print_str("cjk_letter\n") }
+    if cp_is_upper(201) { print_str("upper_latin\n") }
+    if cp_is_lower(233) { print_str("lower_latin\n") }
+    if cp_is_digit(1633) { print_str("arabic_digit\n") }
+    if cp_is_mark(769) { print_str("combining_mark\n") }
+    if cp_is_whitespace(12288) { print_str("ideographic_space\n") }
+    if cp_is_letter(48) == false { print_str("digit_not_letter\n") }
+    print_int(cp_combining_class(769))
+    print_int(cp_grapheme_break(8205))
+    print_int(cp_grapheme_break(127462))
+    print_int(ucd_version_major())
+    return 0
+}

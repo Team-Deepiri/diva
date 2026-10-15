@@ -1,0 +1,43 @@
+import "std/text.diva"
+import "std/io.diva"
+import "std/vec.diva"
+
+// #163 codepoint encode/decode and escape round-trips.
+func main(): int {
+    var e = utf8_encode_cp(233)
+    print_int(text_len(e))
+    print_int(text_byte(e, 0))
+    print_int(text_byte(e, 1))
+
+    var v = int_vec_new()
+    int_vec_push(v, 128512)
+    int_vec_push(v, 65)
+    var t = text_from_codepoints(v)
+    if t == text"😀A" { print_str("from_cp_eq\n") }
+    print_int(text_len(t))
+
+    var cps = text_to_codepoints(t)
+    print_int(int_vec_len(cps))
+    print_int(int_vec_get(cps, 0))
+    var back = text_from_codepoints(cps)
+    if back == t { print_str("cp_roundtrip\n") }
+
+    var src = text"a\tb"
+    var esc = text_escape(src)
+    if esc == text"a\\tb" { print_str("esc_ok\n") }
+    var un = text_unescape(esc)
+    if un == src { print_str("un_ok\n") }
+    var u = text_unescape(text"\\u{1F600}")
+    if u == text"😀" { print_str("u_ok\n") }
+    var nul = text_unescape(text"\\u{0}")
+    print_int(text_len(nul))
+
+    var r = int_vec_new()
+    int_vec_push(r, 0)
+    int_vec_push(r, 1114111)
+    int_vec_push(r, 55296)
+    var rt = text_from_codepoints(r)
+    print_int(text_len(rt))
+    if utf8_validate(rt) { print_str("rt_valid\n") }
+    return 0
+}

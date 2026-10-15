@@ -1,0 +1,17 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #158 full case mapping and case folding.
+func main(): int {
+    if text_to_upper(text"straße") == text"STRASSE" { print_str("upper_ss\n") }
+    if text_to_lower(text"ÀÉÎ") == text"àéî" { print_str("lower_acc\n") }
+    if text_case_fold(text"Straße") == text"strasse" { print_str("fold_ss\n") }
+    if text_case_eq(text"Hello", text"HELLO") { print_str("case_eq\n") }
+    if text_case_eq(text"café", text"CAFÉ") { print_str("case_eq_acc\n") }
+    print_int(cp_to_upper(97))
+    print_int(cp_to_lower(65))
+    print_int(cp_case_fold(223))
+    print_int(cp_to_upper(305))
+    print_int(text_len(text_to_upper(text"ß")))
+    return 0
+}

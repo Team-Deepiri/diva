@@ -1,0 +1,24 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// Regression: a `text` parameter in one function must not make later functions
+// treat low-numbered int locals/params as `text` (which lowered `<` to
+// text_cmp and produced a bogus comparison).
+func add_if_lt(t: text, k: int): int {
+    var i = 0
+    if i < k { i = i + 1 }
+    return i
+}
+
+func sum_to(t: text, k: int): int {
+    var i = 0
+    var s = 0
+    while i < k { s = s + i i = i + 1 }
+    return s
+}
+
+func main(): int {
+    print_int(add_if_lt(text"abc", 3))
+    print_int(sum_to(text"abc", 4))
+    return 0
+}

@@ -91,6 +91,11 @@ func dump_inst(inst: int, src: str, toks: int): int {
         str_builder_append(b, int_to_str(a))
         str_builder_append(b, "]")
     } else {
+    if op == ir_const_text() {
+        str_builder_append(b, "const.text text[")
+        str_builder_append(b, int_to_str(a))
+        str_builder_append(b, "]")
+    } else {
         dump_inst_opname(b, op, a, bv, src, toks)
         if (a < 0) == 0 {
             str_builder_append(b, "v")
@@ -100,6 +105,7 @@ func dump_inst(inst: int, src: str, toks: int): int {
             str_builder_append(b, ", v")
             str_builder_append(b, dump_vreg_str(bv))
         }
+    }
     }
     }
     print_str(str_builder_to_str(b))

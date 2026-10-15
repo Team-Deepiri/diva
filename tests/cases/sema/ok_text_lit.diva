@@ -1,0 +1,11 @@
+import "std/text.diva"
+
+func main(): int {
+    var t = text"hello"
+    var n = text_len(t)
+    var s = str_from_text(t)
+    if (n < 0) {
+        return 1
+    }
+    return 0
+}

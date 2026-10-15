@@ -1,0 +1,26 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #160 canonical normalization (NFD / NFC), including Hangul and singletons.
+func main(): int {
+    var composed = text"é"
+    var decomposed = text_unescape(text"e\\u{301}")
+    if text_nfd(composed) == decomposed { print_str("nfd_eq\n") }
+    if text_nfc(decomposed) == composed { print_str("nfc_eq\n") }
+    print_int(text_codepoint_count(text_nfd(composed)))
+    // Angstrom sign U+212B has singleton decomposition; NFC folds it to U+00C5.
+    var angstrom = utf8_encode_cp(8491)
+    var composed_ring = utf8_encode_cp(197)
+    if text_nfc(angstrom) == composed_ring { print_str("angstrom_nfc\n") }
+    // Hangul syllable AC00 <-> 1100 1161.
+    var hangul = utf8_encode_cp(44032)
+    var hnfd = text_nfd(hangul)
+    print_int(text_codepoint_count(hnfd))
+    if text_nfc(hnfd) == hangul { print_str("hangul_roundtrip\n") }
+    // Idempotence.
+    var once = text_nfd(text"héllo")
+    if text_nfd(once) == once { print_str("nfd_idem\n") }
+    var nfc = text_nfc(text"héllo")
+    if text_nfc(nfc) == nfc { print_str("nfc_idem\n") }
+    return 0
+}

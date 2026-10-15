@@ -120,6 +120,9 @@ func classify_keyword(src: str, start: int, length: int): int {
     if str_eq(w, "bool") == 1 {
         return tk_bool_kw()
     }
+    if str_eq(w, "text") == 1 {
+        return tk_ident()
+    }
     if str_eq(w, "self") == 1 {
         return tk_self()
     }
@@ -191,6 +194,39 @@ func lex_skip_comment(src: str, n: int, i: int): int {
         i = i + 1
         if c == 10 { return i }
     }
+    return i
+}
+
+// True when position i begins the `text"` literal prefix (t,e,x,t,'"').
+func lex_is_text_prefix(src: str, n: int, i: int): int {
+    if ((i + 4) < n) == 0 { return 0 }
+    if str_byte(src, i) != 116 { return 0 }
+    if str_byte(src, i + 1) != 101 { return 0 }
+    if str_byte(src, i + 2) != 120 { return 0 }
+    if str_byte(src, i + 3) != 116 { return 0 }
+    if str_byte(src, i + 4) != 34 { return 0 }
+    return 1
+}
+
+// Scan a `text"..."` literal at i (i points to 't' of `text`). Pushes tk_text_lit
+// with a span covering the prefix + quotes. Returns new i, or -1 if unterminated.
+func lex_scan_text_lit(src: str, stream: int, n: int, i: int): int {
+    var start = i
+    i = i + 5
+    var done = 0
+    while (i < n & done == 0) {
+        var c = str_byte(src, i)
+        if c == 34 {
+            done = 1
+        } else {
+            if c == 92 {
+                if (i + 1 < n) { i = i + 1 }
+            }
+        }
+        i = i + 1
+    }
+    if done == 0 { return 0 - 1 }
+    tok_stream_push(stream, tk_text_lit(), start, i - start)
     return i
 }
 
@@ -279,6 +315,12 @@ func lex_source(src: str): int {
             var ni = lex_scan_str(src, stream, n, i)
             if ni < 0 { int_vec_free(stream) return 0 }
             i = ni
+            h = 1
+        }
+        if h == 0 & b == 116 & lex_is_text_prefix(src, n, i) == 1 {
+            var nit = lex_scan_text_lit(src, stream, n, i)
+            if nit < 0 { int_vec_free(stream) return 0 }
+            i = nit
             h = 1
         }
         if h == 0 & lex_is_digit(b) == 1 { i = lex_scan_num(src, stream, n, i) h = 1 }

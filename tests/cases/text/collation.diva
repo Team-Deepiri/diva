@@ -1,0 +1,16 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #161 collation scaffolding: primary-strength three-way compare.
+func main(): int {
+    if text_collate(text"apple", text"banana") == 0 - 1 { print_str("lt\n") }
+    if text_collate(text"banana", text"apple") == 1 { print_str("gt\n") }
+    if text_collate(text"apple", text"apple") == 0 { print_str("eq\n") }
+    if text_collate(text"Apple", text"apple") == 0 { print_str("case_insensitive\n") }
+    if text_collate(text"café", text"cafe") == 0 { print_str("mark_insensitive\n") }
+    var key = text_collation_primary(text"B")
+    print_int(int_vec_len(key))
+    print_int(int_vec_get(key, 0))
+    int_vec_free(key)
+    return 0
+}

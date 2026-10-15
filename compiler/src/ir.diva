@@ -19,6 +19,7 @@ func ir_ty_int(): int  { return 1 }
 func ir_ty_bool(): int { return 2 }
 func ir_ty_str(): int  { return 3 }
 func ir_ty_ptr(): int  { return 4 }
+func ir_ty_text(): int { return 5 }
 
 // --- IR opcodes ---
 
@@ -59,6 +60,10 @@ func ir_global_load(): int { return 33 }
 func ir_global_store(): int { return 34 }
 func ir_array_load(): int  { return 35 }
 func ir_array_store(): int { return 36 }
+func ir_const_text(): int  { return 37 }
+func ir_text_cmp(): int    { return 38 }
+func ir_text_concat(): int { return 39 }
+func ir_text_slice(): int  { return 40 }
 
 func ir_op_name(op: int): str {
     if op == 0  { return "nop" }
@@ -98,6 +103,10 @@ func ir_op_name(op: int): str {
     if op == 34 { return "global.store" }
     if op == 35 { return "array.load" }
     if op == 36 { return "array.store" }
+    if op == 37 { return "const.text" }
+    if op == 38 { return "text.cmp" }
+    if op == 39 { return "text.concat" }
+    if op == 40 { return "text.slice" }
     return "???"
 }
 

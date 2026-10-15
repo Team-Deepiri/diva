@@ -1,0 +1,17 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #156/#162 grapheme cluster segmentation.
+func main(): int {
+    print_int(text_grapheme_count(text"abc"))
+    print_int(text_grapheme_count(text"日本語"))
+    print_int(text_grapheme_count(text"👨‍👩‍👧‍👦"))
+    print_int(text_grapheme_count(text"🇺🇸"))
+    var combining = text_unescape(text"e\\u{301}")
+    print_int(text_grapheme_count(combining))
+    var crlf = text_unescape(text"\\r\\n")
+    print_int(text_grapheme_count(crlf))
+    print_int(text_next_grapheme(text"abc", 0))
+    print_int(text_next_grapheme(combining, 0))
+    return 0
+}

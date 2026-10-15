@@ -319,6 +319,21 @@ assert_output_equals "${ROOT_DIR}/examples/stdlib_packages.diva" "35
 20
 5
 10"
+assert_output_equals "${ROOT_DIR}/examples/text_native.diva" "5
+hello
+5
+ world"
+assert_output_equals "${ROOT_DIR}/examples/text_ops.diva" "abcabd
+6
+lt
+le
+gt
+eq
+ne
+2
+slice_ok
+1234
+42"
 # Dynamic OOB index must abort (exit non-zero), not silently corrupt.
 oob_exe="${TEST_ROOT}/array_oob"
 if ! diva build "${ROOT_DIR}/tests/cases/fail/array_oob_runtime.diva" "${oob_exe}" >"${TEST_ROOT}/oob_build.out" 2>&1; then

@@ -1,0 +1,18 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #154 UTF-8 validation + decode, on valid inputs.
+func main(): int {
+    if utf8_validate(text"hello") { print_str("ascii_ok\n") }
+    if utf8_validate(text"café") { print_str("latin_ok\n") }
+    if utf8_validate(text"日本語") { print_str("cjk_ok\n") }
+    if utf8_validate(text"😀") { print_str("emoji_ok\n") }
+    if utf8_validate_range(text"café", 3, 2) { print_str("range_ok\n") }
+    if utf8_validate_range(text"café", 3, 3) == false { print_str("range_oob\n") }
+    print_int(utf8_decode_len(text"é", 0))
+    print_int(utf8_decode_cp(text"日", 0))
+    print_int(utf8_decode_cp(text"😀", 0))
+    if utf8_decode_cp(text"abc", 3) == 0 - 1 { print_str("oob_neg1\n") }
+    if text_utf8_validate(text"ok") { print_str("api_ok\n") }
+    return 0
+}

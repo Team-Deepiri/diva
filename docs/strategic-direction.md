@@ -319,6 +319,8 @@ under the `strategic-direction` milestone. Phase 3 and Phase 4 issues will be
 opened as Phase 2 work matures.
 
 See also:
+- [`docs/text-native-direction.md`](text-native-direction.md) — text-native
+  direction: `text` as a native value, Unicode, regex, and the LLM pipeline
 - [`docs/roadmap.md`](roadmap.md) — earlier compiler roadmap
 - [`docs/NEXT_STEPS.md`](NEXT_STEPS.md) — current implementation queue
 - [`docs/language-spec.md`](language-spec.md) — current implemented surface
