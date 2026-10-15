@@ -1,0 +1,785 @@
+// diva_text_lsp — a minimal, text-aware Language Server Protocol server in pure
+// Diva (#190). Native `text` value type only; no arrays/closures.
+//
+// Scope (see README.md in this directory):
+//   * JSON-RPC 2.0 framing over stdio: `Content-Length: N\r\n\r\n{...}`.
+//   * initialize / initialized / shutdown / exit.
+//   * textDocument/didOpen and textDocument/didChange (full sync), keyed by URI.
+//   * textDocument/hover  — "hover metrics" for the requested position:
+//       byte offset, codepoint index, display width, grapheme-cluster index and
+//       the grapheme cluster at that position.
+//   * textDocument/foldingRange — blank-line-separated blocks (text_lines
+//       semantics, implemented over byte offsets).
+//   * textDocument/documentSymbol — `func`/`var` declarations (optional).
+//   * textDocument/selectionRange  and the custom diva/graphemeSelection —
+//       ranges snapped to grapheme-cluster boundaries.
+//
+// JSON is NOT parsed with a real parser: a hand-rolled field extractor finds
+// `"key"` then decodes the JSON string value (including \n \t \r \" \\ \/ and
+// \uXXXX escapes). This is deliberate and documented — it is sufficient for the
+// flat, known request shapes an LSP client sends and keeps the server pure-Diva.
+//
+// Input note: the pure-ELF driver has no raw `read(2)` builtin, so we read the
+// whole stdin with `read_file("/dev/stdin")` (or argv[1] when supplied). That is
+// a single read; feed the session from a regular file (redirect) to avoid pipe
+// short reads. Framing is scanned over the raw `str` buffer (text_from_str caps
+// a text at ~4072 bytes); only each message body is converted to `text`.
+
+import "std/io.diva"
+import "std/host.diva"
+import "std/text.diva"
+import "std/json.diva"
+
+// text -> NUL-terminated `str` of EXACTLY text_len(t) bytes.
+//
+// `str_from_text` (pure driver) just returns the data pointer of the text; a
+// `text_slice` is a zero-copy view whose pointer lands mid-buffer, so feeding it
+// straight to a `str` consumer (print_str, str_builder_append, json_escape) makes
+// strlen run to the next NUL — past the slice. text_concat allocates a fresh
+// buffer and writes a terminating NUL, so go through it.
+func text_to_cstr(t: text): str {
+    return str_from_text(text_concat(t, text""))
+}
+
+// ============================================================================
+// In-memory document store, keyed by URI. Fixed four slots (no arrays in the
+// language): first free slot wins; a fifth document overwrites slot 0.
+// ============================================================================
+
+var g_uri0: text = text""
+var g_doc0: text = text""
+var g_uri1: text = text""
+var g_doc1: text = text""
+var g_uri2: text = text""
+var g_doc2: text = text""
+var g_uri3: text = text""
+var g_doc3: text = text""
+
+func doc_find(uri: text): int {
+    if (text_len(g_uri0) > 0) & (g_uri0 == uri) { return 0 }
+    if (text_len(g_uri1) > 0) & (g_uri1 == uri) { return 1 }
+    if (text_len(g_uri2) > 0) & (g_uri2 == uri) { return 2 }
+    if (text_len(g_uri3) > 0) & (g_uri3 == uri) { return 3 }
+    return 0 - 1
+}
+
+func store_put(uri: text, doc: text): int {
+    var s = doc_find(uri)
+    if s == 0 { g_doc0 = doc return 0 }
+    if s == 1 { g_doc1 = doc return 0 }
+    if s == 2 { g_doc2 = doc return 0 }
+    if s == 3 { g_doc3 = doc return 0 }
+    if text_len(g_uri0) == 0 { g_uri0 = uri g_doc0 = doc return 0 }
+    if text_len(g_uri1) == 0 { g_uri1 = uri g_doc1 = doc return 0 }
+    if text_len(g_uri2) == 0 { g_uri2 = uri g_doc2 = doc return 0 }
+    if text_len(g_uri3) == 0 { g_uri3 = uri g_doc3 = doc return 0 }
+    g_uri0 = uri
+    g_doc0 = doc
+    return 0
+}
+
+func store_get(uri: text): text {
+    var s = doc_find(uri)
+    if s == 0 { return g_doc0 }
+    if s == 1 { return g_doc1 }
+    if s == 2 { return g_doc2 }
+    if s == 3 { return g_doc3 }
+    return text""
+}
+
+// ============================================================================
+// Minimal JSON field extraction over a text message.
+// ============================================================================
+
+func skip_ws(t: text, i: int): int {
+    var n = text_len(t)
+    while i < n {
+        var b = text_byte(t, i)
+        if (b == 32) | (b == 9) | (b == 10) | (b == 13) { i = i + 1 }
+        else { return i }
+    }
+    return i
+}
+
+// Index of the opening quote of the first `"key"` that is a JSON object key
+// (followed by optional whitespace and ':'), or -1.
+func find_key(t: text, key: text): int {
+    var n = text_len(t)
+    var kn = text_len(key)
+    var i = 0
+    while i + kn + 2 <= n {
+        if text_byte(t, i) == 34 {
+            var ok = 1
+            var j = 0
+            while j < kn {
+                if text_byte(t, i + 1 + j) != text_byte(key, j) { ok = 0 j = kn }
+                j = j + 1
+            }
+            if (ok == 1) & (text_byte(t, i + 1 + kn) == 34) {
+                var after = skip_ws(t, i + kn + 2)
+                if (after < n) & (text_byte(t, after) == 58) { return i }
+            }
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// Byte index of the first byte of the value that follows `"key":` (after
+// whitespace), or -1 when the key is absent.
+func json_value_start(t: text, key: text): int {
+    var k = find_key(t, key)
+    if k < 0 { return 0 - 1 }
+    var i = skip_ws(t, k + text_len(key) + 2)
+    var n = text_len(t)
+    if i >= n { return 0 - 1 }
+    if text_byte(t, i) != 58 { return 0 - 1 }
+    i = skip_ws(t, i + 1)
+    return i
+}
+
+// Index of the unescaped closing quote of a string whose content starts at i.
+func scan_string_end(t: text, i: int): int {
+    var n = text_len(t)
+    while i < n {
+        var b = text_byte(t, i)
+        if b == 34 { return i }
+        if b == 92 { i = i + 2 } else { i = i + 1 }
+    }
+    return n
+}
+
+func hexval(b: int): int {
+    if (b >= 48) & (b <= 57) { return b - 48 }
+    if (b >= 65) & (b <= 70) { return b - 55 }
+    if (b >= 97) & (b <= 102) { return b - 87 }
+    return 0 - 1
+}
+
+func decode_hex4(t: text, i: int): int {
+    return hexval(text_byte(t, i)) * 4096 + hexval(text_byte(t, i + 1)) * 256 + hexval(text_byte(t, i + 2)) * 16 + hexval(text_byte(t, i + 3))
+}
+
+// Handle `\uXXXX` at hex start `i`; push the codepoint (combining a following
+// low surrogate) into `bytes`. Returns the next byte index.
+func decode_uescape(t: text, i: int, end: int, bytes: int): int {
+    if i + 3 >= end { return i }
+    var cp = decode_hex4(t, i)
+    var j = i + 4
+    if (cp >= 55296) & (cp <= 56319) {
+        if (j + 5 < end) & (text_byte(t, j) == 92) & (text_byte(t, j + 1) == 117) {
+            var lo = decode_hex4(t, j + 2)
+            if (lo >= 56320) & (lo <= 57343) {
+                cp = 65536 + (cp - 55296) * 1024 + (lo - 56320)
+                j = j + 6
+            }
+        }
+    }
+    utf8_encode_cp_into(cp, bytes)
+    return j
+}
+
+// Handle one backslash escape whose backslash is at `i`; push decoded bytes.
+func decode_escape(t: text, i: int, end: int, bytes: int): int {
+    if i + 1 >= end { return end }
+    var e = text_byte(t, i + 1)
+    if e == 34 { int_vec_push(bytes, 34) return i + 2 }
+    if e == 92 { int_vec_push(bytes, 92) return i + 2 }
+    if e == 47 { int_vec_push(bytes, 47) return i + 2 }
+    if e == 98 { int_vec_push(bytes, 8) return i + 2 }
+    if e == 102 { int_vec_push(bytes, 12) return i + 2 }
+    if e == 110 { int_vec_push(bytes, 10) return i + 2 }
+    if e == 114 { int_vec_push(bytes, 13) return i + 2 }
+    if e == 116 { int_vec_push(bytes, 9) return i + 2 }
+    if e == 117 { return decode_uescape(t, i + 2, end, bytes) }
+    int_vec_push(bytes, e)
+    return i + 2
+}
+
+// Decode the JSON string body [start, end) (without surrounding quotes) into a
+// text, expanding \n \t \r \b \f \" \\ \/ and \uXXXX (with surrogate pairs).
+func decode_json_string(t: text, start: int, end: int): text {
+    var bytes = int_vec_new()
+    var i = start
+    while i < end {
+        if text_byte(t, i) == 92 { i = decode_escape(t, i, end, bytes) }
+        else { int_vec_push(bytes, text_byte(t, i)) i = i + 1 }
+    }
+    var out = text_from_byte_vec(bytes)
+    int_vec_free(bytes)
+    return out
+}
+
+// Decoded JSON string value of `key`, or empty text when absent/not a string.
+func jf_str(t: text, key: text): text {
+    var vs = json_value_start(t, key)
+    if vs < 0 { return text"" }
+    if text_byte(t, vs) != 34 { return text"" }
+    var se = scan_string_end(t, vs + 1)
+    return decode_json_string(t, vs + 1, se)
+}
+
+// Raw token value of `key` (including quotes for strings), or empty text.
+func json_token(t: text, key: text): text {
+    var vs = json_value_start(t, key)
+    if vs < 0 { return text"" }
+    var n = text_len(t)
+    if text_byte(t, vs) == 34 {
+        var se = scan_string_end(t, vs + 1)
+        return text_slice(t, vs, se - vs + 1)
+    }
+    var i = vs
+    while i < n {
+        var b = text_byte(t, i)
+        if (b == 44) | (b == 125) | (b == 93) | (b == 32) | (b == 9) | (b == 10) | (b == 13) {
+            return text_slice(t, vs, i - vs)
+        }
+        i = i + 1
+    }
+    return text_slice(t, vs, n - vs)
+}
+
+// Integer value of `key`, or 0 when absent/not a number (trailing junk stops).
+func jf_int(t: text, key: text): int {
+    var vs = json_value_start(t, key)
+    if vs < 0 { return 0 }
+    var n = text_len(t)
+    var i = vs
+    var neg = 0
+    if (i < n) & (text_byte(t, i) == 45) { neg = 1 i = i + 1 }
+    var acc = 0
+    while i < n {
+        var b = text_byte(t, i)
+        if (b >= 48) & (b <= 57) { acc = acc * 10 + (b - 48) i = i + 1 }
+        else { i = n }
+    }
+    if neg == 1 { return 0 - acc }
+    return acc
+}
+
+// ============================================================================
+// Text geometry helpers (byte offsets, lines, grapheme clusters).
+// ============================================================================
+
+func line_start_offset(doc: text, line: int): int {
+    var n = text_len(doc)
+    if line <= 0 { return 0 }
+    var cur = 0
+    var i = 0
+    while i < n {
+        if text_byte(doc, i) == 10 {
+            cur = cur + 1
+            if cur == line { return i + 1 }
+        }
+        i = i + 1
+    }
+    return n
+}
+
+func line_end_offset(doc: text, line: int): int {
+    var n = text_len(doc)
+    var i = line_start_offset(doc, line)
+    while i < n {
+        if text_byte(doc, i) == 10 { return i }
+        i = i + 1
+    }
+    return n
+}
+
+// Byte offset for an LSP position (0-based line, character). `character` counts
+// codepoints within the line (BMP-accurate: one UTF-16 unit per codepoint).
+func offset_for_position(doc: text, line: int, character: int): int {
+    var n = text_len(doc)
+    var off = line_start_offset(doc, line)
+    var c = 0
+    while (c < character) & (off < n) {
+        if text_byte(doc, off) == 10 { c = character }
+        else {
+            var d = utf8_decode(doc, off)
+            if d < 0 { off = off + 1 } else { off = off + (d - (d / 8) * 8) }
+            c = c + 1
+        }
+    }
+    return off
+}
+
+func line_of_offset(doc: text, off: int): int {
+    var n = text_len(doc)
+    var i = 0
+    var line = 0
+    while i < off {
+        if i >= n { return line }
+        if text_byte(doc, i) == 10 { line = line + 1 }
+        i = i + 1
+    }
+    return line
+}
+
+// Codepoints between the start of `off`'s line and `off`.
+func char_of_offset(doc: text, off: int): int {
+    var ls = line_start_offset(doc, line_of_offset(doc, off))
+    var i = ls
+    var c = 0
+    while i < off {
+        var d = utf8_decode(doc, i)
+        if d < 0 { i = off } else { i = i + (d - (d / 8) * 8) c = c + 1 }
+    }
+    return c
+}
+
+// Byte offset of the first grapheme boundary at or before `off`.
+func grapheme_start_at(doc: text, off: int): int {
+    var n = text_len(doc)
+    if off >= n { return n }
+    var i = 0
+    while i < off {
+        var j = text_next_grapheme(doc, i)
+        if j > off { return i }
+        if j <= i { return i }
+        i = j
+    }
+    return i
+}
+
+// Byte offset of the grapheme boundary after the cluster containing `off`.
+func grapheme_end_at(doc: text, off: int): int {
+    var n = text_len(doc)
+    if off >= n { return n }
+    var cs = grapheme_start_at(doc, off)
+    var ce = text_next_grapheme(doc, cs)
+    if ce > n { return n }
+    return ce
+}
+
+// Number of grapheme clusters before byte `off`.
+func grapheme_index_at(doc: text, off: int): int {
+    var n = text_len(doc)
+    if off > n { off = n }
+    var i = 0
+    var c = 0
+    while i < off {
+        var j = text_next_grapheme(doc, i)
+        if j <= i { return c }
+        i = j
+        c = c + 1
+    }
+    return c
+}
+
+func line_count(doc: text): int {
+    var n = text_len(doc)
+    if n == 0 { return 1 }
+    var c = 1
+    var i = 0
+    while i < n {
+        if text_byte(doc, i) == 10 { c = c + 1 }
+        i = i + 1
+    }
+    return c
+}
+
+// A line is blank when it holds only spaces/tabs (and a stray CR).
+func is_line_blank(doc: text, line: int): int {
+    var n = text_len(doc)
+    var i = line_start_offset(doc, line)
+    while (i < n) & (text_byte(doc, i) != 10) {
+        var b = text_byte(doc, i)
+        if (b != 32) & (b != 9) & (b != 13) { return 0 }
+        i = i + 1
+    }
+    return 1
+}
+
+func starts_with_at(t: text, off: int, needle: text): bool {
+    var n = text_len(t)
+    var m = text_len(needle)
+    if off + m > n { return false }
+    var j = 0
+    while j < m {
+        if text_byte(t, off + j) != text_byte(needle, j) { return false }
+        j = j + 1
+    }
+    return true
+}
+
+func is_ident_byte(b: int): bool {
+    if (b >= 65) & (b <= 90) { return true }
+    if (b >= 97) & (b <= 122) { return true }
+    if (b >= 48) & (b <= 57) { return true }
+    if b == 95 { return true }
+    return false
+}
+
+func read_ident(t: text, off: int, le: int): text {
+    var i = off
+    while i < le {
+        if is_ident_byte(text_byte(t, i)) { i = i + 1 } else { i = le }
+    }
+    if i <= off { return text"" }
+    return text_slice(t, off, i - off)
+}
+
+func symbol_name(doc: text, ls: int, le: int): text {
+    var i = ls
+    while (i < le) & ((text_byte(doc, i) == 32) | (text_byte(doc, i) == 9)) { i = i + 1 }
+    if starts_with_at(doc, i, text"func ") { return read_ident(doc, i + 5, le) }
+    if starts_with_at(doc, i, text"var ") { return read_ident(doc, i + 4, le) }
+    return text""
+}
+
+func symbol_kind(doc: text, ls: int, le: int): int {
+    var i = ls
+    while (i < le) & ((text_byte(doc, i) == 32) | (text_byte(doc, i) == 9)) { i = i + 1 }
+    if starts_with_at(doc, i, text"func ") { return 12 }
+    if starts_with_at(doc, i, text"var ") { return 13 }
+    return 0
+}
+
+// ============================================================================
+// JSON-RPC framing / responses.
+// ============================================================================
+
+func write_frame(body: str): int {
+    print_str("Content-Length: ")
+    print_str(int_to_str(str_len(body)))
+    print_str("\r\n\r\n")
+    print_str(body)
+    return 0
+}
+
+func send_result(id: text, result: str): int {
+    var b = str_builder_new()
+    str_builder_append(b, "{\"jsonrpc\":\"2.0\",\"id\":")
+    if text_len(id) == 0 { str_builder_append(b, "null") }
+    else { str_builder_append(b, text_to_cstr(id)) }
+    str_builder_append(b, ",\"result\":")
+    str_builder_append(b, result)
+    str_builder_append(b, "}")
+    var body = str_builder_to_str(b)
+    str_builder_free(b)
+    write_frame(body)
+    return 0
+}
+
+// LSP Range JSON for byte offsets [start_off, end_off).
+func range_json(doc: text, start_off: int, end_off: int): str {
+    var b = str_builder_new()
+    str_builder_append(b, "{\"start\":{\"line\":")
+    str_builder_append(b, int_to_str(line_of_offset(doc, start_off)))
+    str_builder_append(b, ",\"character\":")
+    str_builder_append(b, int_to_str(char_of_offset(doc, start_off)))
+    str_builder_append(b, "},\"end\":{\"line\":")
+    str_builder_append(b, int_to_str(line_of_offset(doc, end_off)))
+    str_builder_append(b, ",\"character\":")
+    str_builder_append(b, int_to_str(char_of_offset(doc, end_off)))
+    str_builder_append(b, "}}")
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+// ============================================================================
+// Method handlers.
+// ============================================================================
+
+func caps_json(): str {
+    return "{\"capabilities\":{\"textDocumentSync\":1,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"foldingRangeProvider\":true,\"selectionRangeProvider\":true},\"serverInfo\":{\"name\":\"diva-text-lsp\",\"version\":\"0.1.0\"}}"
+}
+
+func handle_initialize(id: text): int {
+    return send_result(id, caps_json())
+}
+
+func handle_shutdown(id: text): int {
+    return send_result(id, "null")
+}
+
+func handle_did_open(body: text): int {
+    var uri = jf_str(body, text"uri")
+    var open_text = jf_str(body, text"text")
+    store_put(uri, open_text)
+    return 0
+}
+
+func handle_did_change(body: text): int {
+    var uri = jf_str(body, text"uri")
+    var new_text = jf_str(body, text"text")
+    store_put(uri, new_text)
+    return 0
+}
+
+func handle_hover(body: text, id: text): int {
+    var uri = jf_str(body, text"uri")
+    var doc = store_get(uri)
+    if text_len(doc) == 0 { return send_result(id, "null") }
+    var line = jf_int(body, text"line")
+    var character = jf_int(body, text"character")
+    var off = offset_for_position(doc, line, character)
+    var cs = grapheme_start_at(doc, off)
+    var ce = grapheme_end_at(doc, off)
+    var cluster = text""
+    if ce > cs { cluster = text_slice(doc, cs, ce - cs) }
+    var cp_index = text_codepoint_index_of_byte(doc, off)
+    var ls = line_start_offset(doc, line)
+    var col = text_slice(doc, ls, off - ls)
+    var disp = text_display_width(col)
+    var gidx = grapheme_index_at(doc, off)
+    var val = text"Position metrics\n"
+    val = val + text"byteOffset: " + text_from_int(off) + text"\n"
+    val = val + text"codepointIndex: " + text_from_int(cp_index) + text"\n"
+    val = val + text"displayWidth: " + text_from_int(disp) + text"\n"
+    val = val + text"graphemeIndex: " + text_from_int(gidx) + text"\n"
+    val = val + text"grapheme: " + cluster
+    var esc = json_escape(text_to_cstr(val))
+    var b = str_builder_new()
+    str_builder_append(b, "{\"contents\":{\"kind\":\"plaintext\",\"value\":\"")
+    str_builder_append(b, esc)
+    str_builder_append(b, "\"},\"range\":")
+    str_builder_append(b, range_json(doc, cs, ce))
+    str_builder_append(b, "}")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return send_result(id, result)
+}
+
+func append_fold_range(b: int, s: int, e: int): int {
+    if e <= s { return 0 }
+    str_builder_append(b, "{\"startLine\":")
+    str_builder_append(b, int_to_str(s))
+    str_builder_append(b, ",\"endLine\":")
+    str_builder_append(b, int_to_str(e))
+    str_builder_append(b, "}")
+    return 0
+}
+
+func handle_folding(body: text, id: text): int {
+    var uri = jf_str(body, text"uri")
+    var doc = store_get(uri)
+    if text_len(doc) == 0 { return send_result(id, "null") }
+    var total = line_count(doc)
+    var b = str_builder_new()
+    str_builder_append(b, "[")
+    var line = 0
+    var block_start = 0 - 1
+    var first = 1
+    while line < total {
+        if is_line_blank(doc, line) == 0 {
+            if block_start < 0 { block_start = line }
+        } else {
+            if block_start >= 0 {
+                if (line - 1) > block_start {
+                    if first == 0 { str_builder_append(b, ",") }
+                    append_fold_range(b, block_start, line - 1)
+                    first = 0
+                }
+                block_start = 0 - 1
+            }
+        }
+        line = line + 1
+    }
+    if block_start >= 0 {
+        if (total - 1) > block_start {
+            if first == 0 { str_builder_append(b, ",") }
+            append_fold_range(b, block_start, total - 1)
+            first = 0
+        }
+    }
+    str_builder_append(b, "]")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return send_result(id, result)
+}
+
+func append_symbol(b: int, uri: text, name: text, kind: int, doc: text, line: int): int {
+    var ls = line_start_offset(doc, line)
+    var le = line_end_offset(doc, line)
+    str_builder_append(b, "{\"name\":\"")
+    str_builder_append(b, json_escape(text_to_cstr(name)))
+    str_builder_append(b, "\",\"kind\":")
+    str_builder_append(b, int_to_str(kind))
+    str_builder_append(b, ",\"location\":{\"uri\":\"")
+    str_builder_append(b, json_escape(text_to_cstr(uri)))
+    str_builder_append(b, "\",\"range\":")
+    str_builder_append(b, range_json(doc, ls, le))
+    str_builder_append(b, "}}")
+    return 0
+}
+
+func handle_symbols(body: text, id: text): int {
+    var uri = jf_str(body, text"uri")
+    var doc = store_get(uri)
+    if text_len(doc) == 0 { return send_result(id, "null") }
+    var total = line_count(doc)
+    var b = str_builder_new()
+    str_builder_append(b, "[")
+    var line = 0
+    var first = 1
+    while line < total {
+        var ls = line_start_offset(doc, line)
+        var le = line_end_offset(doc, line)
+        var nm = symbol_name(doc, ls, le)
+        if text_len(nm) > 0 {
+            if first == 0 { str_builder_append(b, ",") }
+            append_symbol(b, uri, nm, symbol_kind(doc, ls, le), doc, line)
+            first = 0
+        }
+        line = line + 1
+    }
+    str_builder_append(b, "]")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return send_result(id, result)
+}
+
+func handle_selection(body: text, id: text): int {
+    var uri = jf_str(body, text"uri")
+    var doc = store_get(uri)
+    if text_len(doc) == 0 { return send_result(id, "null") }
+    var line = jf_int(body, text"line")
+    var character = jf_int(body, text"character")
+    var off = offset_for_position(doc, line, character)
+    var cs = grapheme_start_at(doc, off)
+    var ce = grapheme_end_at(doc, off)
+    var b = str_builder_new()
+    str_builder_append(b, "[{\"range\":")
+    str_builder_append(b, range_json(doc, cs, ce))
+    str_builder_append(b, "}]")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return send_result(id, result)
+}
+
+func handle_grapheme_selection(body: text, id: text): int {
+    var uri = jf_str(body, text"uri")
+    var doc = store_get(uri)
+    if text_len(doc) == 0 { return send_result(id, "null") }
+    var line = jf_int(body, text"line")
+    var character = jf_int(body, text"character")
+    var off = offset_for_position(doc, line, character)
+    var cs = grapheme_start_at(doc, off)
+    var ce = grapheme_end_at(doc, off)
+    var cluster = text""
+    if ce > cs { cluster = text_slice(doc, cs, ce - cs) }
+    var b = str_builder_new()
+    str_builder_append(b, "{\"range\":")
+    str_builder_append(b, range_json(doc, cs, ce))
+    str_builder_append(b, ",\"byteOffsetStart\":")
+    str_builder_append(b, int_to_str(cs))
+    str_builder_append(b, ",\"byteOffsetEnd\":")
+    str_builder_append(b, int_to_str(ce))
+    str_builder_append(b, ",\"grapheme\":\"")
+    str_builder_append(b, json_escape(text_to_cstr(cluster)))
+    str_builder_append(b, "\"}")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return send_result(id, result)
+}
+
+// ============================================================================
+// Dispatch and framing loop.
+// ============================================================================
+
+func handle(body: text): int {
+    var method = jf_str(body, text"method")
+    if text_len(method) == 0 { return 0 }
+    var id = json_token(body, text"id")
+    if method == text"initialize" { return handle_initialize(id) }
+    if method == text"initialized" { return 0 }
+    if method == text"shutdown" { return handle_shutdown(id) }
+    if method == text"exit" { exit(0) return 0 }
+    if method == text"textDocument/didOpen" { return handle_did_open(body) }
+    if method == text"textDocument/didChange" { return handle_did_change(body) }
+    if method == text"textDocument/hover" { return handle_hover(body, id) }
+    if method == text"textDocument/foldingRange" { return handle_folding(body, id) }
+    if method == text"textDocument/documentSymbol" { return handle_symbols(body, id) }
+    if method == text"textDocument/selectionRange" { return handle_selection(body, id) }
+    if method == text"diva/graphemeSelection" { return handle_grapheme_selection(body, id) }
+    if text_len(id) > 0 { return send_result(id, "null") }
+    return 0
+}
+
+// --- str-based scanning ------------------------------------------------------
+//
+// Framing is done over the raw input `str` (the 1 MB read_file buffer), NOT over
+// a `text`: text_from_str caps a text at ~4072 bytes, so converting the whole
+// session up front would corrupt any input larger than one page. Only each
+// message body is converted to `text`, and only for the length of that body.
+
+func sstarts(h: str, off: int, needle: str): int {
+    var m = str_len(needle)
+    var j = 0
+    while j < m {
+        if str_byte(h, off + j) != str_byte(needle, j) { return 0 }
+        j = j + 1
+    }
+    return 1
+}
+
+func sfind(h: str, from: int, needle: str): int {
+    var n = str_len(h)
+    var m = str_len(needle)
+    var i = from
+    while i + m <= n {
+        if sstarts(h, i, needle) == 1 { return i }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func sskip_ws(h: str, i: int): int {
+    var n = str_len(h)
+    while i < n {
+        var b = str_byte(h, i)
+        if (b == 32) | (b == 9) | (b == 13) | (b == 10) { i = i + 1 } else { return i }
+    }
+    return i
+}
+
+func process_frames(inp: str): int {
+    var n = str_len(inp)
+    var pos = 0
+    while pos < n {
+        var clpos = sfind(inp, pos, "Content-Length:")
+        if clpos < 0 { pos = n } else {
+            var j = sskip_ws(inp, clpos + 15)
+            var cl = 0
+            var going = 1
+            while (j < n) & (going == 1) {
+                var b = str_byte(inp, j)
+                if (b >= 48) & (b <= 57) { cl = cl * 10 + (b - 48) j = j + 1 }
+                else { going = 0 }
+            }
+            var hdr = sfind(inp, j, "\r\n\r\n")
+            var bstart = 0
+            if hdr >= 0 { bstart = hdr + 4 }
+            else {
+                var hdr2 = sfind(inp, j, "\n\n")
+                if hdr2 >= 0 { bstart = hdr2 + 2 } else { bstart = n }
+            }
+            if bstart >= n { pos = n } else {
+                var blen = cl
+                if bstart + cl > n { blen = n - bstart }
+                if blen <= 0 {
+                    pos = bstart + 1
+                } else {
+                    var body = str_slice(inp, bstart, blen)
+                    handle(text_from_str(body))
+                    pos = bstart + cl
+                }
+            }
+        }
+    }
+    return 0
+}
+
+func load_input(): str {
+    if host_argc() > 1 { return read_file(host_argv(1)) }
+    return read_file("/dev/stdin")
+}
+
+func main(): int {
+    var raw = load_input()
+    if str_len(raw) == 0 { return 0 }
+    process_frames(raw)
+    return 0
+}
