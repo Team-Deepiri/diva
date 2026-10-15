@@ -1,0 +1,15 @@
+import "std/text.diva"
+import "std/io.diva"
+
+// #169 line-oriented editing.
+func main(): int {
+    var t = text"a\nb\nc\n"
+    if text_line_insert(t, 1, text"X") == text"a\nX\nb\nc\n" { print_str("ins_ok\n") }
+    if text_line_delete(text"a\nX\nb\nc\n", 2) == text"a\nX\nc\n" { print_str("del_ok\n") }
+    if text_line_insert(text"a\nb", 2, text"c") == text"a\nb\nc" { print_str("ins_end_ok\n") }
+    if text_line_delete(text"a\nb\nc\n", 1) == text"a\nc\n" { print_str("del_mid_ok\n") }
+    if text_line_insert(text"", 0, text"hello") == text"hello" { print_str("ins_empty_ok\n") }
+    if text_len(text_line_delete(text"only", 0)) == 0 { print_str("del_only_ok\n") }
+    if text_line_delete(t, 9) == t { print_str("del_oob_ok\n") }
+    return 0
+}

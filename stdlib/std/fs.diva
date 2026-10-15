@@ -4,8 +4,12 @@ import "std/vec.diva"
 import "std/str.diva"
 import "std/path.diva"
 
-func read_text(path: str): str {
+func fs_read_text(path: str): str {
     return read_file(path)
+}
+
+func write_text_str(path: str, data: str): int {
+    return write_text_file(path, data)
 }
 
 func file_len(path: str): int {
