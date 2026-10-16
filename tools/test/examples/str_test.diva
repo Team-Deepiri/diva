@@ -1,0 +1,43 @@
+// str_test — example Diva test file for tools/test/diva_test.diva (#137).
+//
+// Exercises the std/str.diva helpers so the runner has a real passing test to
+// report on. assert_* abort on failure; test_summary() != 0 on failure.
+
+import "std/io.diva"
+import "std/testing.diva"
+import "std/str.diva"
+
+func main(): int {
+    test_begin("length and equality")
+    assert_eq_int(str_len("diva"), 4, "str_len(\"diva\")")
+    assert_eq_int(str_len(""), 0, "str_len(\"\")")
+    assert_eq_str("diva", "diva", "equal strings compare equal")
+    assert_ne_str("diva", "Diva", "case matters")
+    test_ok()
+
+    test_begin("prefix, suffix, contains")
+    assert_true(str_starts_with("diva-test", "diva"), "starts with diva")
+    assert_false(str_starts_with("diva-test", "test"), "does not start with test")
+    assert_true(str_ends_with("diva-test", "-test"), "ends with -test")
+    assert_true(str_contains("hello world", "lo wo"), "contains substring")
+    assert_false(str_contains("hello", "xyz"), "does not contain xyz")
+    test_ok()
+
+    test_begin("index_of")
+    assert_eq_int(str_index_of("hello world", "world"), 6, "index of world")
+    assert_eq_int(str_index_of("hello", "z"), 0 - 1, "missing needle is -1")
+    test_ok()
+
+    test_begin("concat and repeat")
+    assert_eq_str(str_concat("di", "va"), "diva", "concat")
+    assert_eq_str(str_repeat("ab", 3), "ababab", "repeat")
+    assert_eq_str(str_repeat("x", 0), "", "repeat zero times")
+    test_ok()
+
+    test_begin("trim")
+    assert_eq_str(str_trim("  padded  "), "padded", "trim spaces")
+    assert_eq_str(str_trim("\t diva \n"), "diva", "trim tabs and newlines")
+    test_ok()
+
+    return test_summary()
+}
