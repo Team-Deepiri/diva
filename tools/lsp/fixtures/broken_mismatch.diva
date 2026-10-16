@@ -1,0 +1,5 @@
+// broken_mismatch — a close bracket that does not match its opener.
+func f(): int {
+    var x = (1]
+    return x
+}

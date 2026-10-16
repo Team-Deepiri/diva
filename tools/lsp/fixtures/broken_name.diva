@@ -1,0 +1,8 @@
+// broken_name — every declaration keyword here lacks a name.
+func {
+    print_str("nope\n")
+}
+class {
+}
+struct ()
+trait ()
