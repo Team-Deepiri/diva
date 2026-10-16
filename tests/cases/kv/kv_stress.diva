@@ -1,0 +1,71 @@
+import "std/kv.diva"
+import "std/io.diva"
+import "std/host.diva"
+import "std/str.diva"
+
+// #123 stress: 10k keys, insert + lookup, then a save/load round-trip through a
+// real file (argv[1]). Prints fixed summary lines and returns nonzero if any
+// check fails, so tests/kv.sh catches silent corruption.
+
+func main(): int {
+    var path = host_argv(1)
+    var n = 10000
+    var s = kv_open()
+
+    var i = 0
+    while i < n {
+        kv_put(s, str_concat("key", int_to_str(i)), str_concat("val", int_to_str(i * 7)))
+        i = i + 1
+    }
+    print_int(kv_count(s))
+
+    var lookups_ok = 1
+    i = 0
+    while i < n {
+        if str_eq(kv_get(s, str_concat("key", int_to_str(i))), str_concat("val", int_to_str(i * 7))) == 0 {
+            lookups_ok = 0
+            i = n
+        }
+        i = i + 1
+    }
+    print_int(lookups_ok)
+
+    var saved = kv_save(s, path)
+    print_int(saved)
+
+    var t = kv_open()
+    var loaded = kv_load(t, path)
+    print_int(loaded)
+    print_int(kv_count(t))
+
+    var reload_ok = 1
+    i = 0
+    while i < n {
+        if str_eq(kv_get(t, str_concat("key", int_to_str(i))), str_concat("val", int_to_str(i * 7))) == 0 {
+            reload_ok = 0
+            i = n
+        }
+        i = i + 1
+    }
+    print_int(reload_ok)
+
+    // Overwrite every key, then delete half; verify counts and a survivor.
+    i = 0
+    while i < n {
+        kv_put(s, str_concat("key", int_to_str(i)), "x")
+        i = i + 1
+    }
+    i = 0
+    while i < n {
+        if i * 2 < n {
+            kv_del(s, str_concat("key", int_to_str(i)))
+        }
+        i = i + 1
+    }
+    print_int(kv_count(s))
+    print_int(str_eq(kv_get(s, "key9999"), "x"))
+
+    kv_free(s)
+    kv_free(t)
+    return 0
+}

@@ -12,7 +12,7 @@ consumers: **`docs/stdlib-packages.md`** (Issue #28).
 | io | `std/io.diva`, `std/fmt.diva` |
 | str | `std/str.diva`, `std/vec.diva` |
 | math | `std/math.diva`, `std/random.diva` |
-| collections | `std/collections.diva` (IntBuf), `std/stack.diva`, `std/queue.diva` |
+| collections | `std/collections.diva` (IntBuf), `std/stack.diva`, `std/queue.diva`, `std/map.diva`, `std/table.diva`, `std/kv.diva` (str→str key/value store) |
 | iter | `std/iter.diva`, `std/range.diva` |
 | os | `std/os.diva`, `std/fs.diva`, `std/path.diva` |
 

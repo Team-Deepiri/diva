@@ -1,0 +1,111 @@
+import "std/kv.diva"
+import "std/io.diva"
+import "std/host.diva"
+import "std/str.diva"
+
+// #123 key/value store: put/get/overwrite/del/missing/count/keys/iteration and
+// an escaped save+load round-trip. argv[1] is the scratch file path supplied by
+// tests/kv.sh. Every assertion bumps a counter; the program prints deterministic
+// lines and returns the failure count (0 = pass).
+
+var kv_basic_fail = 0
+
+func chk(cond: int, name: str): int {
+    if cond == 0 {
+        stderr("FAIL ")
+        stderr(name)
+        stderr("\n")
+        kv_basic_fail = kv_basic_fail + 1
+    }
+    return 0
+}
+
+// `==` on str is pointer identity; compare byte contents with str_eq.
+func eqs(a: str, b: str): int {
+    return str_eq(a, b)
+}
+
+func main(): int {
+    var path = host_argv(1)
+    var s = kv_open()
+
+    print_int(kv_count(s))
+
+    chk(kv_put(s, "a", "1") == 0, "put_a_new")
+    chk(kv_put(s, "b", "2") == 0, "put_b_new")
+    chk(eqs(kv_get(s, "a"), "1") == 1, "get_a")
+    chk(eqs(kv_get(s, "b"), "2") == 1, "get_b")
+    chk(kv_put(s, "a", "9") == 1, "overwrite_a")
+    chk(kv_count(s) == 2, "count_2")
+    chk(eqs(kv_get(s, "a"), "9") == 1, "get_a_overwritten")
+    chk(kv_has(s, "a") == 1, "has_a")
+    chk(kv_has(s, "z") == 0, "has_z_false")
+
+    chk(eqs(kv_get(s, "missing"), "") == 1, "get_missing_empty")
+    chk(kv_has(s, "missing") == 0, "has_missing_false")
+    chk(kv_del(s, "b") == 1, "del_b")
+    chk(kv_count(s) == 1, "count_1")
+    chk(kv_has(s, "b") == 0, "has_b_after_del")
+    chk(kv_del(s, "z") == 0, "del_missing_noop")
+    chk(kv_del(s, "b") == 0, "del_again_noop")
+    chk(eqs(kv_get_or(s, "a", "fallback"), "9") == 1, "get_or_hit")
+    chk(eqs(kv_get_or(s, "nope", "fallback"), "fallback") == 1, "get_or_miss")
+
+    // Iteration in insertion order (fresh table).
+    kv_clear(s)
+    chk(kv_count(s) == 0, "clear_count_0")
+    kv_put(s, "c", "3")
+    kv_put(s, "a", "1")
+    kv_put(s, "d", "4")
+    chk(kv_count(s) == 3, "iter_count_3")
+    print_str(kv_key_at(s, 0))
+    print_str("=")
+    print_str(kv_value_at(s, 0))
+    print_str("\n")
+    print_str(kv_key_at(s, 1))
+    print_str("=")
+    print_str(kv_value_at(s, 1))
+    print_str("\n")
+    print_str(kv_key_at(s, 2))
+    print_str("=")
+    print_str(kv_value_at(s, 2))
+    print_str("\n")
+    chk(eqs(kv_key_at(s, 3), "") == 1, "key_at_oob")
+    chk(eqs(kv_value_at(s, 99), "") == 1, "value_at_oob")
+
+    // Deleting a middle key must keep the remaining iteration compact/ordered.
+    chk(kv_del(s, "a") == 1, "del_middle")
+    chk(kv_count(s) == 2, "count_after_del_middle")
+    chk(eqs(kv_key_at(s, 0), "c") == 1, "iter_after_del_0")
+    chk(eqs(kv_key_at(s, 1), "d") == 1, "iter_after_del_1")
+
+    // Empty value vs missing key.
+    kv_clear(s)
+    kv_put(s, "e", "")
+    chk(kv_has(s, "e") == 1, "empty_value_has")
+    chk(eqs(kv_get(s, "e"), "") == 1, "empty_value_get")
+
+    // Escaping + persistence round-trip through a real file.
+    kv_clear(s)
+    kv_put(s, "tab\there", "v1\nend")
+    kv_put(s, "back\\slash", "q\\r")
+    kv_put(s, "", "emptykey")
+    kv_put(s, "k", "")
+    chk(kv_count(s) == 4, "esc_count_4")
+    chk(kv_save(s, path) == 0, "save_ok")
+    kv_clear(s)
+    chk(kv_count(s) == 0, "cleared_before_load")
+    chk(kv_load(s, path) == 0, "load_ok")
+    chk(kv_count(s) == 4, "reload_count_4")
+    chk(eqs(kv_get(s, "tab\there"), "v1\nend") == 1, "esc_tab_nl_rt")
+    chk(eqs(kv_get(s, "back\\slash"), "q\\r") == 1, "esc_backslash_rt")
+    chk(kv_has(s, "") == 1, "esc_emptykey_has")
+    chk(eqs(kv_get(s, ""), "emptykey") == 1, "esc_emptykey_rt")
+    chk(kv_has(s, "k") == 1, "esc_emptyval_has")
+    chk(eqs(kv_get(s, "k"), "") == 1, "esc_emptyval_rt")
+
+    kv_free(s)
+    print_str("failed=")
+    print_int(kv_basic_fail)
+    return kv_basic_fail
+}
