@@ -1,0 +1,34 @@
+// path_test — example Diva test file for tools/test/diva_test.diva (#137).
+//
+// Small, pure path-manipulation tests (no filesystem access) so this file is
+// deterministic on every machine.
+
+import "std/io.diva"
+import "std/testing.diva"
+import "std/path.diva"
+
+func main(): int {
+    test_begin("basename and dirname")
+    assert_eq_str(path_basename("/a/b/c.txt"), "c.txt", "basename of /a/b/c.txt")
+    assert_eq_str(path_basename("c.txt"), "c.txt", "basename without slash")
+    assert_eq_str(path_dirname("/a/b/c.txt"), "/a/b", "dirname of /a/b/c.txt")
+    assert_eq_str(path_dirname("c.txt"), ".", "dirname without slash")
+    test_ok()
+
+    test_begin("extension and stem")
+    assert_eq_str(path_extension("main.diva"), ".diva", "extension of main.diva")
+    assert_eq_str(path_extension("noext"), "", "missing extension")
+    assert_eq_str(path_stem("main.diva"), "main", "stem of main.diva")
+    assert_eq_str(path_stem("a/b/c.tar.gz"), "c.tar", "stem keeps earlier dots")
+    test_ok()
+
+    test_begin("join and has_extension")
+    assert_eq_str(path_join("a", "b"), "a/b", "join adds separator")
+    assert_eq_str(path_join("a/", "b"), "a/b", "join avoids double separator")
+    assert_eq_str(path_join("", "b"), "b", "join with empty prefix")
+    assert_true(path_has_extension("x.diva", ".diva"), "has .diva")
+    assert_false(path_has_extension("x.diva", ".txt"), "does not have .txt")
+    test_ok()
+
+    return test_summary()
+}
