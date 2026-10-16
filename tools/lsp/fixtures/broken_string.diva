@@ -1,0 +1,2 @@
+// broken_string — unterminated string literal (EOF inside the string).
+var s = "oops

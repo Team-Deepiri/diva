@@ -1,0 +1,6 @@
+// broken_stray — a stray closing brace with no matching open brace.
+func f(): void {
+    print_str("ok\n")
+}
+
+}
