@@ -1,0 +1,610 @@
+// diva_fmt — canonical source formatter for Diva (.diva) files (Issue #109).
+//
+// Pure Diva, standalone (no compiler imports): it re-tokenizes the source with a
+// lightweight scanner over `read_file()` output and re-emits every token in order
+// with normalized whitespace. Only whitespace/indentation changes — token text,
+// token order, strings and comments are copied byte-for-byte, so semantics are
+// preserved. Brace/statement structure is derived from the token sequence alone
+// (never from the original line layout), which makes formatting idempotent.
+//
+// Usage:
+//   diva_fmt [path]
+//   diva_fmt            # reads /dev/stdin
+//   diva_fmt -          # reads /dev/stdin
+// Formatted source is written to stdout with `print_str` (raw, no extra newline).
+
+import "std/io.diva"
+import "std/host.diva"
+import "std/mem.diva"
+import "std/vec.diva"
+
+// Token kinds. Anything that is not a comment or punctuation (identifiers,
+// keywords, numbers, string and text literals) is an atom.
+const K_EOF = 0
+const K_ATOM = 1
+const K_COMMENT = 2
+const K_PUNCT = 3
+
+// Brace stack entries.
+const BR_LIT = 0
+const BR_BLOCK = 1
+
+// Emitter state (module globals; the language has no closures).
+var g_out: int = 0
+var g_stack: int = 0
+
+var g_depth: int = 0
+var g_pending: int = 0
+var g_line_has: int = 0
+var g_started: int = 0
+var g_prev_unary: int = 0
+var g_prev_block_open: int = 0
+var g_prev_block_close: int = 0
+var g_last_nl: int = 0
+
+// --- byte classifiers -------------------------------------------------------
+
+func is_space(b: int): int {
+    if b == 32 { return 1 }
+    if b == 9 { return 1 }
+    if b == 10 { return 1 }
+    if b == 13 { return 1 }
+    return 0
+}
+
+func is_digit(b: int): int {
+    if (b < 48) == 0 {
+        if (b > 57) == 0 { return 1 }
+    }
+    return 0
+}
+
+func is_ident_start(b: int): int {
+    if (b < 65) == 0 {
+        if (b > 90) == 0 { return 1 }
+    }
+    if (b < 97) == 0 {
+        if (b > 122) == 0 { return 1 }
+    }
+    if b == 95 { return 1 }
+    return 0
+}
+
+func is_ident_cont(b: int): int {
+    if is_ident_start(b) == 1 { return 1 }
+    return is_digit(b)
+}
+
+// --- scanners ---------------------------------------------------------------
+
+// Comment body runs to (but not including) the terminating newline, so the
+// newline is seen as inter-token whitespace and preserved as a line break.
+func scan_comment(src: str, n: int, i: int): int {
+    var j = i
+    var done = 0
+    while (j < n) & (done == 0) {
+        var c = str_byte(src, j)
+        if c == 10 {
+            done = 1
+        } else {
+            j = j + 1
+        }
+    }
+    return j
+}
+
+func scan_str(src: str, n: int, i: int): int {
+    var j = i + 1
+    var done = 0
+    while (j < n) & (done == 0) {
+        var c = str_byte(src, j)
+        if c == 34 {
+            done = 1
+        } else {
+            if c == 92 {
+                if (j + 1) < n { j = j + 1 }
+            }
+        }
+        j = j + 1
+    }
+    return j
+}
+
+func scan_text(src: str, n: int, i: int): int {
+    var j = i + 5
+    var done = 0
+    while (j < n) & (done == 0) {
+        var c = str_byte(src, j)
+        if c == 34 {
+            done = 1
+        } else {
+            if c == 92 {
+                if (j + 1) < n { j = j + 1 }
+            }
+        }
+        j = j + 1
+    }
+    return j
+}
+
+func scan_num(src: str, n: int, i: int): int {
+    var j = i
+    while (j < n) & (is_digit(str_byte(src, j)) == 1) { j = j + 1 }
+    return j
+}
+
+func scan_ident(src: str, n: int, i: int): int {
+    var j = i
+    while (j < n) & (is_ident_cont(str_byte(src, j)) == 1) { j = j + 1 }
+    return j
+}
+
+func text_prefix(src: str, n: int, i: int): int {
+    if (i + 4) < n {
+        if str_byte(src, i) == 116 {
+            if str_byte(src, i + 1) == 101 {
+                if str_byte(src, i + 2) == 120 {
+                    if str_byte(src, i + 3) == 116 {
+                        if str_byte(src, i + 4) == 34 {
+                            return 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return 0
+}
+
+func try2(src: str, i: int, n: int, a: int, b: int): int {
+    if (i + 1) < n {
+        if str_byte(src, i) == a {
+            if str_byte(src, i + 1) == b { return 1 }
+        }
+    }
+    return 0
+}
+
+func two_op(src: str, n: int, i: int): int {
+    if try2(src, i, n, 61, 61) == 1 { return 1 }
+    if try2(src, i, n, 33, 61) == 1 { return 1 }
+    if try2(src, i, n, 60, 61) == 1 { return 1 }
+    if try2(src, i, n, 62, 61) == 1 { return 1 }
+    if try2(src, i, n, 61, 62) == 1 { return 1 }
+    if try2(src, i, n, 46, 46) == 1 { return 1 }
+    if try2(src, i, n, 58, 58) == 1 { return 1 }
+    if try2(src, i, n, 60, 60) == 1 { return 1 }
+    if try2(src, i, n, 62, 62) == 1 { return 1 }
+    if try2(src, i, n, 38, 38) == 1 { return 1 }
+    if try2(src, i, n, 124, 124) == 1 { return 1 }
+    return 0
+}
+
+// Classify the byte at i (known non-space). Returns end*4 + kind, where the
+// token spans [i, end). Comments run to end of line (excluding the newline).
+func classify_at(src: str, n: int, i: int): int {
+    var b = str_byte(src, i)
+    if b == 47 {
+        if (i + 1) < n {
+            if str_byte(src, i + 1) == 47 {
+                var ec = scan_comment(src, n, i)
+                return ec * 4 + K_COMMENT
+            }
+        }
+    }
+    if b == 34 {
+        var es = scan_str(src, n, i)
+        return es * 4 + K_ATOM
+    }
+    if b == 116 {
+        if text_prefix(src, n, i) == 1 {
+            var et = scan_text(src, n, i)
+            return et * 4 + K_ATOM
+        }
+    }
+    if is_digit(b) == 1 {
+        var en = scan_num(src, n, i)
+        return en * 4 + K_ATOM
+    }
+    if is_ident_start(b) == 1 {
+        var ei = scan_ident(src, n, i)
+        return ei * 4 + K_ATOM
+    }
+    if two_op(src, n, i) == 1 {
+        return (i + 2) * 4 + K_PUNCT
+    }
+    return (i + 1) * 4 + K_PUNCT
+}
+
+// Tokenize into an int_buf of [kind, start, len, newlines_before] quads.
+func tokenize(src: str): int {
+    var n = str_len(src)
+    var h = int_buf_new()
+    var i = 0
+    var nl = 0
+    while i < n {
+        var b = str_byte(src, i)
+        if is_space(b) == 1 {
+            if b == 10 { nl = nl + 1 }
+            i = i + 1
+        } else {
+            var packed = classify_at(src, n, i)
+            var kind = packed - (packed / 4) * 4
+            var e = packed / 4
+            int_buf_push(h, kind)
+            int_buf_push(h, i)
+            int_buf_push(h, e - i)
+            int_buf_push(h, nl)
+            nl = 0
+            i = e
+        }
+    }
+    int_buf_push(h, K_EOF)
+    int_buf_push(h, n)
+    int_buf_push(h, 0)
+    int_buf_push(h, nl)
+    return h
+}
+
+// --- token accessors --------------------------------------------------------
+
+func tok_count(h: int): int {
+    return int_buf_len(h) / 4
+}
+
+func tok_kind(h: int, i: int): int {
+    return int_buf_get(h, i * 4)
+}
+
+func tok_nl(h: int, i: int): int {
+    return int_buf_get(h, i * 4 + 3)
+}
+
+func tok_text(src: str, h: int, i: int): str {
+    var st = int_buf_get(h, i * 4 + 1)
+    var ln = int_buf_get(h, i * 4 + 2)
+    return str_slice(src, st, ln)
+}
+
+// --- keyword sets -----------------------------------------------------------
+
+func is_header_kw(t: str): int {
+    if str_eq(t, "if") == 1 { return 1 }
+    if str_eq(t, "while") == 1 { return 1 }
+    if str_eq(t, "else") == 1 { return 1 }
+    if str_eq(t, "func") == 1 { return 1 }
+    if str_eq(t, "class") == 1 { return 1 }
+    if str_eq(t, "struct") == 1 { return 1 }
+    if str_eq(t, "trait") == 1 { return 1 }
+    if str_eq(t, "impl") == 1 { return 1 }
+    if str_eq(t, "flux") == 1 { return 1 }
+    return 0
+}
+
+func is_keyword(t: str): int {
+    if str_eq(t, "func") == 1 { return 1 }
+    if str_eq(t, "extern") == 1 { return 1 }
+    if str_eq(t, "var") == 1 { return 1 }
+    if str_eq(t, "let") == 1 { return 1 }
+    if str_eq(t, "const") == 1 { return 1 }
+    if str_eq(t, "if") == 1 { return 1 }
+    if str_eq(t, "else") == 1 { return 1 }
+    if str_eq(t, "while") == 1 { return 1 }
+    if str_eq(t, "return") == 1 { return 1 }
+    if str_eq(t, "import") == 1 { return 1 }
+    if str_eq(t, "package") == 1 { return 1 }
+    if str_eq(t, "class") == 1 { return 1 }
+    if str_eq(t, "struct") == 1 { return 1 }
+    if str_eq(t, "trait") == 1 { return 1 }
+    if str_eq(t, "impl") == 1 { return 1 }
+    if str_eq(t, "flux") == 1 { return 1 }
+    if str_eq(t, "in") == 1 { return 1 }
+    if str_eq(t, "for") == 1 { return 1 }
+    if str_eq(t, "true") == 1 { return 1 }
+    if str_eq(t, "false") == 1 { return 1 }
+    if str_eq(t, "void") == 1 { return 1 }
+    if str_eq(t, "int") == 1 { return 1 }
+    if str_eq(t, "str") == 1 { return 1 }
+    if str_eq(t, "bool") == 1 { return 1 }
+    if str_eq(t, "text") == 1 { return 1 }
+    if str_eq(t, "self") == 1 { return 1 }
+    return 0
+}
+
+func is_decl_kw(t: str): int {
+    if str_eq(t, "func") == 1 { return 1 }
+    if str_eq(t, "class") == 1 { return 1 }
+    if str_eq(t, "struct") == 1 { return 1 }
+    if str_eq(t, "trait") == 1 { return 1 }
+    if str_eq(t, "impl") == 1 { return 1 }
+    return 0
+}
+
+func is_bracket_kw(t: str): int {
+    if str_eq(t, "if") == 1 { return 1 }
+    if str_eq(t, "while") == 1 { return 1 }
+    if str_eq(t, "return") == 1 { return 1 }
+    if str_eq(t, "else") == 1 { return 1 }
+    if str_eq(t, "in") == 1 { return 1 }
+    return 0
+}
+
+// Classify an opening brace from the token sequence alone. Block braces belong to
+// a header (if/while/else/func/class/struct/trait/impl/flux) since the previous
+// statement boundary; everything else (struct/obj literals) is a literal brace.
+// Using only tokens keeps this stable across reformatting.
+func brace_is_block(h: int, src: str, i: int): int {
+    if i <= 0 { return 1 }
+    var pi = i - 1
+    var pt = tok_text(src, h, pi)
+    if str_eq(pt, ")") == 1 { return 1 }
+    if str_eq(pt, "else") == 1 { return 1 }
+    var s = pi
+    var stop = 0
+    while (s > 0) & (stop == 0) {
+        var b = tok_text(src, h, s - 1)
+        if str_eq(b, "{") == 1 { stop = 1 }
+        if str_eq(b, "}") == 1 { stop = 1 }
+        if str_eq(b, ";") == 1 { stop = 1 }
+        if stop == 0 { s = s - 1 }
+    }
+    var k = s
+    var found = 0
+    while (k <= pi) & (found == 0) {
+        if is_header_kw(tok_text(src, h, k)) == 1 { found = 1 }
+        k = k + 1
+    }
+    if found == 1 { return 1 }
+    return 0
+}
+
+// --- spacing ----------------------------------------------------------------
+
+func is_expr_start(h: int, src: str, pi: int): int {
+    var pt = tok_text(src, h, pi)
+    if str_eq(pt, ")") == 1 { return 0 }
+    if str_eq(pt, "]") == 1 { return 0 }
+    if str_eq(pt, "}") == 1 { return 0 }
+    if tok_kind(h, pi) == K_ATOM {
+        if is_keyword(pt) == 1 { return 1 }
+        return 0
+    }
+    return 1
+}
+
+func is_unary_tok(h: int, src: str, pi: int, ci: int): int {
+    var ct = tok_text(src, h, ci)
+    if str_eq(ct, "!") == 1 { return 1 }
+    if str_eq(ct, "-") == 1 {
+        if pi < 0 { return 1 }
+        return is_expr_start(h, src, pi)
+    }
+    return 0
+}
+
+func need_space(h: int, src: str, pi: int, ci: int): int {
+    var pt = tok_text(src, h, pi)
+    var ct = tok_text(src, h, ci)
+    if str_eq(ct, ",") == 1 { return 0 }
+    if str_eq(ct, ";") == 1 { return 0 }
+    if str_eq(ct, ")") == 1 { return 0 }
+    if str_eq(ct, "]") == 1 { return 0 }
+    if str_eq(ct, ".") == 1 { return 0 }
+    if str_eq(ct, ":") == 1 { return 0 }
+    if str_eq(ct, "..") == 1 { return 0 }
+    if str_eq(pt, "(") == 1 { return 0 }
+    if str_eq(pt, "[") == 1 { return 0 }
+    if str_eq(pt, ".") == 1 { return 0 }
+    if str_eq(pt, "..") == 1 { return 0 }
+    if str_eq(pt, "!") == 1 { return 0 }
+    if str_eq(ct, "[") == 1 {
+        if str_eq(pt, ")") == 1 { return 0 }
+        if str_eq(pt, "]") == 1 { return 0 }
+        if tok_kind(h, pi) == K_ATOM {
+            if is_bracket_kw(pt) == 1 { return 1 }
+            return 0
+        }
+        return 1
+    }
+    if str_eq(ct, "(") == 1 {
+        if str_eq(pt, ")") == 1 { return 0 }
+        if str_eq(pt, "]") == 1 { return 0 }
+        if tok_kind(h, pi) == K_ATOM {
+            if is_keyword(pt) == 1 { return 1 }
+            return 0
+        }
+        return 1
+    }
+    return 1
+}
+
+// --- output helpers ---------------------------------------------------------
+
+func o_put(s: str): void {
+    str_builder_append(g_out, s)
+    var ln = str_len(s)
+    if ln > 0 {
+        if str_byte(s, ln - 1) == 10 {
+            g_last_nl = 1
+        } else {
+            g_last_nl = 0
+        }
+    }
+}
+
+func o_newline(): void {
+    o_put("\n")
+    g_pending = 1
+    g_line_has = 0
+}
+
+func o_indent(): void {
+    if g_pending == 1 {
+        var k = 0
+        var n = g_depth * 4
+        while k < n {
+            o_put(" ")
+            k = k + 1
+        }
+        g_pending = 0
+    }
+}
+
+// --- brace-type stack -------------------------------------------------------
+
+func st_push(v: int): void {
+    int_buf_push(g_stack, v)
+}
+
+func st_top(): int {
+    var n = int_buf_len(g_stack)
+    if n <= 0 { return BR_LIT }
+    return int_buf_get(g_stack, n - 1)
+}
+
+// Physically shrink the int_buf (slot 1 is its length) so pushes reuse the slot.
+func st_pop(): void {
+    var n = int_buf_len(g_stack)
+    if n > 0 { mem_set(g_stack, 1, n - 1) }
+}
+
+// --- emit -------------------------------------------------------------------
+
+func emit_one(src: str, h: int, i: int, kind: int): void {
+    var ct = tok_text(src, h, i)
+    var is_open = 0
+    var is_close = 0
+    if str_eq(ct, "{") == 1 { is_open = 1 }
+    if str_eq(ct, "}") == 1 { is_close = 1 }
+    var block_close = 0
+    if is_close == 1 {
+        if st_top() == BR_BLOCK { block_close = 1 }
+        st_pop()
+    }
+    var brk = 0
+    var blank = 0
+    var nl = tok_nl(h, i)
+    if g_started == 1 {
+        if nl >= 1 { brk = 1 }
+        if nl >= 2 { blank = 1 }
+    }
+    var pi = i - 1
+    if pi >= 0 {
+        if tok_kind(h, pi) != K_COMMENT {
+            if g_prev_block_open == 1 {
+                brk = 1
+                blank = 0
+            }
+            if g_prev_block_close == 1 {
+                if str_eq(ct, "else") == 1 {
+                    brk = 0
+                } else {
+                    brk = 1
+                }
+            }
+            if str_eq(tok_text(src, h, pi), ";") == 1 { brk = 1 }
+        }
+    }
+    if block_close == 1 {
+        brk = 1
+        blank = 0
+    }
+    // Exactly one blank line before a top-level declaration (collapsing runs is
+    // handled by the nl>=2 cap); do not disturb a leading doc comment.
+    if (g_depth == 0) & (brk == 1) & (blank == 0) & (g_started == 1) & (pi >= 0) {
+        if (is_decl_kw(ct) == 1) & (tok_kind(h, pi) != K_COMMENT) {
+            blank = 1
+        }
+    }
+    if brk == 1 {
+        o_newline()
+        if blank == 1 { o_newline() }
+    }
+    if block_close == 1 { g_depth = g_depth - 1 }
+    o_indent()
+    if g_line_has == 1 {
+        var sp = 0
+        if pi >= 0 {
+            if kind == K_COMMENT {
+                sp = 1
+            } else {
+                if g_prev_unary == 1 {
+                    sp = 0
+                } else {
+                    sp = need_space(h, src, pi, i)
+                }
+            }
+        }
+        if sp == 1 { o_put(" ") }
+    }
+    o_put(ct)
+    g_line_has = 1
+    g_started = 1
+    g_prev_block_open = 0
+    g_prev_block_close = 0
+    if is_open == 1 {
+        var bt = BR_LIT
+        if brace_is_block(h, src, i) == 1 {
+            bt = BR_BLOCK
+            g_depth = g_depth + 1
+            g_prev_block_open = 1
+        }
+        st_push(bt)
+    }
+    if is_close == 1 {
+        if block_close == 1 { g_prev_block_close = 1 }
+    }
+    if kind == K_PUNCT {
+        g_prev_unary = is_unary_tok(h, src, pi, i)
+    } else {
+        g_prev_unary = 0
+    }
+}
+
+func emit_all(src: str, h: int): str {
+    g_out = str_builder_new()
+    g_stack = int_buf_new()
+    g_depth = 0
+    g_pending = 0
+    g_line_has = 0
+    g_started = 0
+    g_prev_unary = 0
+    g_prev_block_open = 0
+    g_prev_block_close = 0
+    g_last_nl = 0
+    var count = tok_count(h)
+    var i = 0
+    while i < count {
+        if tok_kind(h, i) != K_EOF {
+            emit_one(src, h, i, tok_kind(h, i))
+        }
+        i = i + 1
+    }
+    if g_line_has == 1 {
+        if g_last_nl == 0 { o_newline() }
+    }
+    var out = str_builder_to_str(g_out)
+    str_builder_free(g_out)
+    int_buf_free(g_stack)
+    return out
+}
+
+// --- entry point ------------------------------------------------------------
+
+func load_input(): str {
+    if host_argc() > 1 {
+        var p = host_argv(1)
+        if str_eq(p, "-") == 1 { return read_file("/dev/stdin") }
+        return read_file(p)
+    }
+    return read_file("/dev/stdin")
+}
+
+func main(): int {
+    var src = load_input()
+    var h = tokenize(src)
+    var out = emit_all(src, h)
+    print_str(out)
+    int_buf_free(h)
+    return 0
+}
