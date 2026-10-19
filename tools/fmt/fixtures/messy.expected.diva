@@ -1,0 +1,30 @@
+// messy fixture for `diva fmt` (#109): ragged indentation, tabs, inline
+// blocks, trailing whitespace, blank-line runs and no single trailing newline.
+// `diva fmt` must be idempotent and must not change semantics.
+
+extern func print_int(x: int): void
+extern func print_str(s: str): void
+
+struct Pair {
+    a: int
+    b: int
+}
+
+func max(a: int, b: int): int {
+    if a >= b {
+        return a
+    } else {
+        return b
+    }
+}
+
+func main(): int {
+    var p = Pair { a: 3, b: 7 }
+    var total: int = 0
+    while total < 10 {
+        total = total + 1
+    }
+    print_int(max(p.a, p.b))
+    print_str("done\n")
+    return 0
+}
