@@ -1,0 +1,1249 @@
+// diva_lang_lsp — a language-aware Language Server Protocol server in pure
+// Diva (#104). Sibling to diva_text_lsp (#190): instead of text metrics, this
+// server understands the Diva language itself — it lexes the document on the
+// fly (strings, `//` line comments, identifiers, brackets, top-level decls)
+// and serves:
+//
+//   * textDocument/publishDiagnostics — unbalanced brackets, unterminated
+//       strings, and `func`/`class`/`struct`/`trait` declarations without a
+//       name (published after every didOpen / didChange).
+//   * textDocument/documentSymbol    — top-level func/class/struct/trait and
+//       import declarations with full declaration ranges.
+//   * textDocument/hover             — keyword and stdlib-module docs from
+//       built-in `name|blurb` tables.
+//   * textDocument/completion        — keywords, stdlib modules, import paths
+//       and names declared in the open document.
+//
+// Documents are kept as `str` end to end (not `text`): the pure driver's
+// `text_from_str` copies into one fixed 4096-byte page with no bounds check,
+// which would corrupt (or crash on) documents above ~4 KB. The session input
+// uses `read_file` (~16 MB buffer) and framing is scanned over the raw `str`.
+//
+// Documented deviations (see README.md): columns are codepoints (exact for
+// ASCII/BMP text; astral codepoints count as 1 vs UTF-16's 2); JSON is
+// extracted with a hand-rolled field scanner, not a parser; the bracket stack
+// suppresses further bracket noise after a mismatch; declaration-name
+// detection is a line-start heuristic validated against the repo corpus.
+
+import "std/io.diva"
+import "std/host.diva"
+import "std/text.diva"
+import "std/json.diva"
+import "std/mem.diva"
+import "std/vec.diva"
+import "std/byte_table.diva"
+
+// ============================================================================
+// In-memory document store, keyed by URI (`str`). Fixed four slots (no arrays
+// in the language): first free slot wins; a fifth document overwrites slot 0.
+// ============================================================================
+
+var g_uri0: str = ""
+var g_doc0: str = ""
+var g_uri1: str = ""
+var g_doc1: str = ""
+var g_uri2: str = ""
+var g_doc2: str = ""
+var g_uri3: str = ""
+var g_doc3: str = ""
+
+// Cached byte -> text table (set in main) for rare escape-decode paths.
+var g_bt: text = text""
+
+func doc_find(uri: str): int {
+    if (str_len(g_uri0) > 0) & (str_eq(g_uri0, uri) == 1) { return 0 }
+    if (str_len(g_uri1) > 0) & (str_eq(g_uri1, uri) == 1) { return 1 }
+    if (str_len(g_uri2) > 0) & (str_eq(g_uri2, uri) == 1) { return 2 }
+    if (str_len(g_uri3) > 0) & (str_eq(g_uri3, uri) == 1) { return 3 }
+    return 0 - 1
+}
+
+func store_put(uri: str, doc: str): int {
+    var s = doc_find(uri)
+    if s == 0 { g_doc0 = doc return 0 }
+    if s == 1 { g_doc1 = doc return 0 }
+    if s == 2 { g_doc2 = doc return 0 }
+    if s == 3 { g_doc3 = doc return 0 }
+    if str_len(g_uri0) == 0 { g_uri0 = uri g_doc0 = doc return 0 }
+    if str_len(g_uri1) == 0 { g_uri1 = uri g_doc1 = doc return 0 }
+    if str_len(g_uri2) == 0 { g_uri2 = uri g_doc2 = doc return 0 }
+    if str_len(g_uri3) == 0 { g_uri3 = uri g_doc3 = doc return 0 }
+    g_uri0 = uri
+    g_doc0 = doc
+    return 0
+}
+
+func store_get(uri: str): str {
+    var s = doc_find(uri)
+    if s == 0 { return g_doc0 }
+    if s == 1 { return g_doc1 }
+    if s == 2 { return g_doc2 }
+    if s == 3 { return g_doc3 }
+    return ""
+}
+
+// ============================================================================
+// str primitives: whitespace skipping, prefix tests, string scanning.
+// ============================================================================
+
+func sskip_ws(h: str, i: int): int {
+    var n = str_len(h)
+    while i < n {
+        var b = str_byte(h, i)
+        if (b == 32) | (b == 9) | (b == 13) | (b == 10) { i = i + 1 } else { return i }
+    }
+    return i
+}
+
+func sstarts(h: str, off: int, needle: str): int {
+    var n = str_len(h)
+    var m = str_len(needle)
+    if off + m > n { return 0 }
+    var j = 0
+    while j < m {
+        if str_byte(h, off + j) != str_byte(needle, j) { return 0 }
+        j = j + 1
+    }
+    return 1
+}
+
+func sfind(h: str, from: int, needle: str): int {
+    var n = str_len(h)
+    var m = str_len(needle)
+    var i = from
+    while i + m <= n {
+        if sstarts(h, i, needle) == 1 { return i }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// Index of the unescaped closing quote of a JSON string whose content starts
+// at i (escapes skipped; returns n when unterminated).
+func sscan_string_end(h: str, i: int): int {
+    var n = str_len(h)
+    while i < n {
+        var b = str_byte(h, i)
+        if b == 34 { return i }
+        if b == 92 { i = i + 2 } else { i = i + 1 }
+    }
+    return n
+}
+
+// ============================================================================
+// Minimal JSON field extraction over a `str` message body.
+// ============================================================================
+
+func shexval(b: int): int {
+    if (b >= 48) & (b <= 57) { return b - 48 }
+    if (b >= 65) & (b <= 70) { return b - 55 }
+    if (b >= 97) & (b <= 102) { return b - 87 }
+    return 0 - 1
+}
+
+func sdecode_hex4(h: str, i: int): int {
+    return shexval(str_byte(h, i)) * 4096 + shexval(str_byte(h, i + 1)) * 256 + shexval(str_byte(h, i + 2)) * 16 + shexval(str_byte(h, i + 3))
+}
+
+// Handle `\uXXXX` at hex start `i`; push UTF-8 bytes (surrogate-paired) into
+// the int_vec `out`. Returns the next byte index.
+func sdecode_uescape(h: str, i: int, end: int, out: int): int {
+    if i + 3 >= end { return i }
+    var cp = sdecode_hex4(h, i)
+    var j = i + 4
+    if (cp >= 55296) & (cp <= 56319) {
+        if (j + 5 < end) & (str_byte(h, j) == 92) & (str_byte(h, j + 1) == 117) {
+            var lo = sdecode_hex4(h, j + 2)
+            if (lo >= 56320) & (lo <= 57343) {
+                cp = 65536 + (cp - 55296) * 1024 + (lo - 56320)
+                j = j + 6
+            }
+        }
+    }
+    utf8_encode_cp_into(cp, out)
+    return j
+}
+
+// Handle one backslash escape whose backslash is at `i`; push decoded bytes.
+func sdecode_escape(h: str, i: int, end: int, out: int): int {
+    if i + 1 >= end { return end }
+    var e = str_byte(h, i + 1)
+    if e == 34 { int_vec_push(out, 34) return i + 2 }
+    if e == 92 { int_vec_push(out, 92) return i + 2 }
+    if e == 47 { int_vec_push(out, 47) return i + 2 }
+    if e == 98 { int_vec_push(out, 8) return i + 2 }
+    if e == 102 { int_vec_push(out, 12) return i + 2 }
+    if e == 110 { int_vec_push(out, 10) return i + 2 }
+    if e == 114 { int_vec_push(out, 13) return i + 2 }
+    if e == 116 { int_vec_push(out, 9) return i + 2 }
+    if e == 117 { return sdecode_uescape(h, i + 2, end, out) }
+    int_vec_push(out, e)
+    return i + 2
+}
+
+// Decode the JSON string body [start, end) (without surrounding quotes) into
+// a `str`, expanding \n \t \r \b \f \" \\ \/ and \uXXXX (with surrogate
+// pairs; non-ASCII codepoints are UTF-8 encoded).
+func sdecode_json_string(h: str, start: int, end: int): str {
+    var out = int_vec_new()
+    var i = start
+    while i < end {
+        if str_byte(h, i) == 92 { i = sdecode_escape(h, i, end, out) }
+        else { int_vec_push(out, str_byte(h, i)) i = i + 1 }
+    }
+    var t = text_from_byte_vec(out)
+    int_vec_free(out)
+    return str_from_text(text_concat(t, text""))
+}
+
+// Index of the opening quote of the first `"key"` that is a JSON object key
+// (followed by optional whitespace and ':'), or -1.
+func sfind_key(h: str, key: str): int {
+    var n = str_len(h)
+    var kn = str_len(key)
+    var i = 0
+    while i + kn + 2 <= n {
+        if str_byte(h, i) == 34 {
+            var ok = 1
+            var j = 0
+            while j < kn {
+                if str_byte(h, i + 1 + j) != str_byte(key, j) { ok = 0 j = kn }
+                j = j + 1
+            }
+            if (ok == 1) & (str_byte(h, i + 1 + kn) == 34) {
+                var after = sskip_ws(h, i + kn + 2)
+                if (after < n) & (str_byte(h, after) == 58) { return i }
+            }
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// Byte index of the first byte of the value that follows `"key":` (after
+// whitespace), or -1 when the key is absent.
+func sjson_value_start(h: str, key: str): int {
+    var k = sfind_key(h, key)
+    if k < 0 { return 0 - 1 }
+    var i = sskip_ws(h, k + str_len(key) + 2)
+    var n = str_len(h)
+    if i >= n { return 0 - 1 }
+    if str_byte(h, i) != 58 { return 0 - 1 }
+    return sskip_ws(h, i + 1)
+}
+
+// Decoded JSON string value of `key`, or empty str when absent/not a string.
+func sjf_str(h: str, key: str): str {
+    var vs = sjson_value_start(h, key)
+    if vs < 0 { return "" }
+    if str_byte(h, vs) != 34 { return "" }
+    var se = sscan_string_end(h, vs + 1)
+    return sdecode_json_string(h, vs + 1, se)
+}
+
+// Raw token value of `key` (including quotes for strings), or empty str.
+func sjson_token(h: str, key: str): str {
+    var vs = sjson_value_start(h, key)
+    if vs < 0 { return "" }
+    var n = str_len(h)
+    if str_byte(h, vs) == 34 {
+        var se = sscan_string_end(h, vs + 1)
+        return str_slice(h, vs, se - vs + 1)
+    }
+    var i = vs
+    while i < n {
+        var b = str_byte(h, i)
+        if (b == 44) | (b == 125) | (b == 93) | (b == 32) | (b == 9) | (b == 10) | (b == 13) {
+            return str_slice(h, vs, i - vs)
+        }
+        i = i + 1
+    }
+    return str_slice(h, vs, n - vs)
+}
+
+// Integer value of `key`, or 0 when absent/not a number (trailing junk stops).
+func sjf_int(h: str, key: str): int {
+    var vs = sjson_value_start(h, key)
+    if vs < 0 { return 0 }
+    var n = str_len(h)
+    var i = vs
+    var neg = 0
+    if (i < n) & (str_byte(h, i) == 45) { neg = 1 i = i + 1 }
+    var acc = 0
+    while i < n {
+        var b = str_byte(h, i)
+        if (b >= 48) & (b <= 57) { acc = acc * 10 + (b - 48) i = i + 1 }
+        else { i = n }
+    }
+    if neg == 1 { return 0 - acc }
+    return acc
+}
+
+// ============================================================================
+// str geometry: lines, LSP positions (codepoint columns), ranges.
+// ============================================================================
+
+// UTF-8 sequence length for a leading byte (1 for ASCII, continuation and
+// invalid bytes; docs are assumed to be well-formed UTF-8).
+func su8len(b: int): int {
+    if b < 128 { return 1 }
+    if b < 224 { return 2 }
+    if b < 240 { return 3 }
+    if b < 248 { return 4 }
+    return 1
+}
+
+func sline_start(doc: str, line: int): int {
+    var n = str_len(doc)
+    if line <= 0 { return 0 }
+    var cur = 0
+    var i = 0
+    while i < n {
+        if str_byte(doc, i) == 10 {
+            cur = cur + 1
+            if cur == line { return i + 1 }
+        }
+        i = i + 1
+    }
+    return n
+}
+
+func sline_end(doc: str, line: int): int {
+    var n = str_len(doc)
+    var i = sline_start(doc, line)
+    while i < n {
+        if str_byte(doc, i) == 10 { return i }
+        i = i + 1
+    }
+    return n
+}
+
+func sline_of_offset(doc: str, off: int): int {
+    var n = str_len(doc)
+    if off > n { off = n }
+    var i = 0
+    var line = 0
+    while i < off {
+        if str_byte(doc, i) == 10 { line = line + 1 }
+        i = i + 1
+    }
+    return line
+}
+
+// Codepoints between the start of `off`'s line and `off`.
+func schar_of_offset(doc: str, off: int): int {
+    var n = str_len(doc)
+    if off > n { off = n }
+    var ls = sline_start(doc, sline_of_offset(doc, off))
+    var i = ls
+    var c = 0
+    while i < off {
+        i = i + su8len(str_byte(doc, i))
+        c = c + 1
+    }
+    return c
+}
+
+// Byte offset for an LSP position (0-based line, character-in-codepoints).
+func soffset_for_position(doc: str, line: int, character: int): int {
+    var n = str_len(doc)
+    var off = sline_start(doc, line)
+    var c = 0
+    while (c < character) & (off < n) {
+        if str_byte(doc, off) == 10 { c = character } else {
+            off = off + su8len(str_byte(doc, off))
+            c = c + 1
+        }
+    }
+    return off
+}
+
+// LSP Range JSON for byte offsets [s, e).
+func srange_json(doc: str, s: int, e: int): str {
+    var b = str_builder_new()
+    str_builder_append(b, "{\"start\":{\"line\":")
+    str_builder_append(b, int_to_str(sline_of_offset(doc, s)))
+    str_builder_append(b, ",\"character\":")
+    str_builder_append(b, int_to_str(schar_of_offset(doc, s)))
+    str_builder_append(b, "},\"end\":{\"line\":")
+    str_builder_append(b, int_to_str(sline_of_offset(doc, e)))
+    str_builder_append(b, ",\"character\":")
+    str_builder_append(b, int_to_str(schar_of_offset(doc, e)))
+    str_builder_append(b, "}}")
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+// ============================================================================
+// Identifiers, words, comments.
+// ============================================================================
+
+func is_word_byte(b: int): int {
+    if (b >= 65) & (b <= 90) { return 1 }
+    if (b >= 97) & (b <= 122) { return 1 }
+    if (b >= 48) & (b <= 57) { return 1 }
+    if b == 95 { return 1 }
+    return 0
+}
+
+// Word identifier starting at off ("" when there is none).
+func read_word(doc: str, off: int): str {
+    var n = str_len(doc)
+    var i = off
+    while (i < n) & (is_word_byte(str_byte(doc, i)) == 1) { i = i + 1 }
+    if i <= off { return "" }
+    return str_slice(doc, off, i - off)
+}
+
+// Skip spaces/tabs/CR, newlines and `//` line comments; returns the first
+// byte index that is real code (or n at EOF).
+func sskip_blanks_comments(doc: str, i: int): int {
+    var n = str_len(doc)
+    var going = 1
+    while (i < n) & (going == 1) {
+        var b = str_byte(doc, i)
+        if (b == 32) | (b == 9) | (b == 13) | (b == 10) { i = i + 1 }
+        else {
+            if (b == 47) & (i + 1 < n) & (str_byte(doc, i + 1) == 47) {
+                while (i < n) & (str_byte(doc, i) != 10) { i = i + 1 }
+            } else { going = 0 }
+        }
+    }
+    return i
+}
+
+// Skip spaces/tabs on the current line only.
+func sskip_line_ws(doc: str, i: int): int {
+    var n = str_len(doc)
+    while i < n {
+        var b = str_byte(doc, i)
+        if (b == 32) | (b == 9) { i = i + 1 } else { return i }
+    }
+    return i
+}
+
+// Word containing or ending at off ("" when there is none). The backward
+// scan covers the cursor-after-word case (a word ending exactly at off).
+func word_at(doc: str, off: int): str {
+    var n = str_len(doc)
+    if off > n { off = n }
+    var ws = off
+    var going = 1
+    while (ws > 0) & (going == 1) {
+        if is_word_byte(str_byte(doc, ws - 1)) == 1 { ws = ws - 1 } else { going = 0 }
+    }
+    var we = off
+    going = 1
+    while (we < n) & (going == 1) {
+        if is_word_byte(str_byte(doc, we)) == 1 { we = we + 1 } else { going = 0 }
+    }
+    if we > ws { return str_slice(doc, ws, we - ws) }
+    return ""
+}
+
+// One-character `str` for a byte 1..255 via the cached byte table.
+func byte_cstr(b: int): str {
+    if (b < 1) | (b > 255) { return "" }
+    return str_from_text(text_concat(text_slice(g_bt, b - 1, 1), text""))
+}
+
+// ============================================================================
+// Built-in documentation tables. Rows are `name|blurb` at column 0; a blurb
+// is one ASCII line with no `|`, `"` or newline. Lookups are exact-name.
+// ============================================================================
+
+var KEYWORD_DOCS: str = "func|Declare a function\nextern|Declare an external (host) function\nvar|Mutable variable binding\nlet|Immutable binding\nconst|Constant declaration\nif|Conditional branch\nelse|Alternative branch of an if\nwhile|Loop while the condition holds\nreturn|Return from the current function\nimport|Import a stdlib module\npackage|Package declaration for a directory\nclass|Define a class\nstruct|Define a struct\ntrait|Define a trait\nimpl|Implement a trait for a type\nflux|Flux declaration (streaming pipeline)\nin|Membership or iteration keyword\ntrue|Boolean true literal\nfalse|Boolean false literal\nvoid|Void type (no value)\nint|Integer type (64-bit signed)\nstr|Byte string type (NUL-terminated)\nbool|Boolean type (true or false)\nself|Receiver / self reference in methods\ntext|Unicode text type\n"
+
+var MODULE_DOCS: str = "algo|Algorithms: search and utility helpers\nargs|Command-line argument parsing\nassert|Test assertion helpers\nbase64|Base64 encode and decode\nbitwise|Bit manipulation helpers\nbyte_table|Byte-to-text bridge table (UTF-8 helpers)\nchar|Character classification helpers\ncollections|Collection helpers (sets and groups)\ncolor|ANSI color helpers for the terminal\nconv|Type conversion helpers\ncore|Core language support helpers\ncsv|CSV reading and writing\nembed|Embed data helpers\nfmt|Formatting helpers\nfs|Filesystem helpers: read, write, list\nhash|Hashing helpers\nhex|Hex encode and decode\nhost|Host externs: argv, files, env, process\nio|Console IO: print_str, print_int, input_str and friends\niter|Iteration helpers\njson|JSON encoding and decoding helpers\nlog|Logging helpers\nlogic|Logic helpers\nmap|Map / dict (assoc, group, count)\nmath|Math helpers: min, max, abs, clamp\nmatrix|Matrix helpers\nmem|Heap memory: mem_alloc and int_buf growable buffers\nnlp|Text tokenization helpers\nos|OS interaction helpers\npath|Path joining and manipulation\npattern|Pattern helpers\nprocess|Subprocess helpers\nqueue|FIFO queue helpers\nrag|Retrieval-augmented generation helpers\nrandom|Random number helpers\nrange|Range helpers\nregex|Regular expression matching\nsort|Sorting helpers\nstack|Stack helpers\nstr|String helpers: concat, trim, find\nsyscall_linux|Linux syscall wrappers\ntable|Frequency table helpers\ntesting|Test harness helpers\ntext|Unicode text processing\ntoken|Token helpers\nucd|Unicode character database helpers\nvec|Growable int vectors and string builders\n"
+
+// Blurb of `name` in a `name|blurb\n` table, or "" when absent.
+func table_blurb(tbl: str, name: str): str {
+    var n = str_len(tbl)
+    var nl = str_len(name)
+    var p = 0
+    while p < n {
+        if p + nl >= n { return "" }
+        var ok = 1
+        var j = 0
+        while j < nl {
+            if str_byte(tbl, p + j) != str_byte(name, j) { ok = 0 j = nl }
+            j = j + 1
+        }
+        if (ok == 1) & (str_byte(tbl, p + nl) == 124) {
+            var s = p + nl + 1
+            var e = s
+            while (e < n) & (str_byte(tbl, e) != 10) { e = e + 1 }
+            return str_slice(tbl, s, e - s)
+        }
+        while (p < n) & (str_byte(tbl, p) != 10) { p = p + 1 }
+        p = p + 1
+    }
+    return ""
+}
+
+// Name of the table row starting at p ("" at end of table).
+func table_row_name(tbl: str, p: int): str {
+    var n = str_len(tbl)
+    if p >= n { return "" }
+    var i = p
+    while (i < n) & (str_byte(tbl, i) != 124) { i = i + 1 }
+    if i >= n { return "" }
+    return str_slice(tbl, p, i - p)
+}
+
+// Index just past the row's newline for the row starting at p (n at end).
+func table_row_end(tbl: str, p: int): int {
+    var n = str_len(tbl)
+    var i = p
+    while (i < n) & (str_byte(tbl, i) != 10) { i = i + 1 }
+    if i < n { return i + 1 }
+    return n
+}
+
+// Hover markdown: "**`name`** - blurb".
+func keyword_doc(name: str): str {
+    var blurb = table_blurb(KEYWORD_DOCS, name)
+    if str_len(blurb) == 0 { return "" }
+    var b = str_builder_new()
+    str_builder_append(b, "**`")
+    str_builder_append(b, name)
+    str_builder_append(b, "`** - ")
+    str_builder_append(b, blurb)
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+// Hover markdown: "**`io`** (`std/io.diva`) - blurb".
+func module_doc(name: str): str {
+    var blurb = table_blurb(MODULE_DOCS, name)
+    if str_len(blurb) == 0 { return "" }
+    var b = str_builder_new()
+    str_builder_append(b, "**`")
+    str_builder_append(b, name)
+    str_builder_append(b, "`** (`std/")
+    str_builder_append(b, name)
+    str_builder_append(b, ".diva`) - ")
+    str_builder_append(b, blurb)
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+// Bare module name for an import path like "std/io.diva" ("" unless the path
+// lives under std/ and ends in .diva).
+func module_name_from_path(path: str): str {
+    if sstarts(path, 0, "std/") == 0 { return "" }
+    var n = str_len(path)
+    if n < 9 { return "" }
+    if sstarts(path, n - 5, ".diva") == 0 { return "" }
+    return str_slice(path, 4, n - 9)
+}
+
+// ============================================================================
+// Diagnostics: bracket balance, unterminated strings, nameless declarations.
+//
+// One lexer pass: code / `//` line comment / string (Diva string literals may
+// span lines; `text"..."` shares the string state). The bracket stack is two
+// parallel int_bufs (open offset, kind: 0={`, 1=[, 2=(); `trust` drops to 0
+// after a mismatched close or an allocation failure, which suppresses the
+// remaining bracket noise for that document. At most 50 diagnostics.
+// ============================================================================
+
+// Pop the top of a mem-backed int_buf (std/mem.diva); -1 when empty.
+func ib_pop(h: int): int {
+    var l = int_buf_len(h)
+    if l == 0 { return 0 - 1 }
+    var v = int_buf_get(h, l - 1)
+    mem_set(h, 1, l - 1)
+    return v
+}
+
+func bracket_char(kind: int): str {
+    if kind == 0 { return "{" }
+    if kind == 1 { return "[" }
+    return "("
+}
+
+func msg_decl_name(word: str): str {
+    var b = str_builder_new()
+    str_builder_append(b, "expected a name after `")
+    str_builder_append(b, word)
+    str_builder_append(b, "`")
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+func msg_unclosed(kind: int): str {
+    var b = str_builder_new()
+    str_builder_append(b, "unclosed `")
+    str_builder_append(b, bracket_char(kind))
+    str_builder_append(b, "`")
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+func msg_stray(c: int): str {
+    var b = str_builder_new()
+    str_builder_append(b, "stray `")
+    str_builder_append(b, byte_cstr(c))
+    str_builder_append(b, "` with no matching open bracket")
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+func msg_mismatch(want_kind: int, got: int): str {
+    var b = str_builder_new()
+    str_builder_append(b, "mismatched closing bracket: expected `")
+    str_builder_append(b, bracket_char(want_kind))
+    str_builder_append(b, "`, found `")
+    str_builder_append(b, byte_cstr(got))
+    str_builder_append(b, "`")
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+// Append one diagnostic object; returns the new count.
+func emit_diag(b: int, doc: str, s: int, e: int, msg: str, count: int): int {
+    if count >= 50 { return count }
+    str_builder_append(b, "{\"range\":")
+    str_builder_append(b, srange_json(doc, s, e))
+    str_builder_append(b, ",\"message\":\"")
+    str_builder_append(b, json_escape(msg))
+    str_builder_append(b, "\"}")
+    return count + 1
+}
+
+// Is `word` a declaration keyword (one that must be followed by a name)?
+func is_decl_kw(word: str): int {
+    if str_eq(word, "func") == 1 { return 1 }
+    if str_eq(word, "class") == 1 { return 1 }
+    if str_eq(word, "struct") == 1 { return 1 }
+    if str_eq(word, "trait") == 1 { return 1 }
+    return 0
+}
+
+// Diagnostics JSON array for a document.
+func scan_diagnostics(doc: str): str {
+    var n = str_len(doc)
+    var b = str_builder_new()
+    str_builder_append(b, "[")
+    var offs = int_buf_new()
+    var kinds = int_buf_new()
+    var count = 0
+    var first = 1
+    var trust = 1
+    var in_str = 0
+    var str_start = 0
+    var at_ls = 1
+    var ext_line = 0
+    var i = 0
+    var going = 1
+    while (i < n) & (going == 1) {
+        var c = str_byte(doc, i)
+        if in_str == 1 {
+            if c == 92 {
+                if i + 1 < n { i = i + 2 } else { i = n }
+            } else {
+                if c == 34 { in_str = 0 }
+                i = i + 1
+            }
+        } else {
+            if c == 34 {
+                in_str = 1
+                str_start = i
+                at_ls = 0
+                i = i + 1
+            } else {
+                if (c == 47) & (i + 1 < n) & (str_byte(doc, i + 1) == 47) {
+                    while (i < n) & (str_byte(doc, i) != 10) { i = i + 1 }
+                } else {
+                    if (c == 32) | (c == 9) | (c == 13) {
+                        i = i + 1
+                    } else {
+                        if c == 10 {
+                            at_ls = 1
+                            ext_line = 0
+                            i = i + 1
+                        } else {
+                            if (c == 123) | (c == 91) | (c == 40) {
+                                if trust == 1 {
+                                    var kind = 0
+                                    if c == 91 { kind = 1 }
+                                    if c == 40 { kind = 2 }
+                                    var p1 = int_buf_push(offs, i)
+                                    var p2 = int_buf_push(kinds, kind)
+                                    if (p1 != 0) | (p2 != 0) { trust = 0 }
+                                }
+                                at_ls = 0
+                                i = i + 1
+                            } else {
+                                if (c == 125) | (c == 93) | (c == 41) {
+                                    if trust == 1 {
+                                        var want = 0
+                                        if c == 93 { want = 1 }
+                                        if c == 41 { want = 2 }
+                                        var l = int_buf_len(offs)
+                                        if l == 0 {
+                                            if count < 50 {
+                                                if first == 0 { str_builder_append(b, ",") }
+                                                count = emit_diag(b, doc, i, i + 1, msg_stray(c), count)
+                                                first = 0
+                                            }
+                                        } else {
+                                            var gotk = int_buf_get(kinds, l - 1)
+                                            if gotk != want {
+                                                if count < 50 {
+                                                    if first == 0 { str_builder_append(b, ",") }
+                                                    count = emit_diag(b, doc, i, i + 1, msg_mismatch(gotk, c), count)
+                                                    first = 0
+                                                }
+                                                trust = 0
+                                            }
+                                            ib_pop(offs)
+                                            ib_pop(kinds)
+                                        }
+                                    }
+                                    at_ls = 0
+                                    i = i + 1
+                                } else {
+                                    if is_word_byte(c) == 1 {
+                                        var j = i
+                                        while (j < n) & (is_word_byte(str_byte(doc, j)) == 1) { j = j + 1 }
+                                        var word = str_slice(doc, i, j - i)
+                                        var lsb = at_ls
+                                        if (ext_line == 1) & (str_eq(word, "func") == 1) { lsb = 1 }
+                                        if (str_eq(word, "extern") == 1) & (at_ls == 1) { ext_line = 1 }
+                                        if (lsb == 1) & (is_decl_kw(word) == 1) {
+                                            var p = sskip_blanks_comments(doc, j)
+                                            if (p >= n) | (is_word_byte(str_byte(doc, p)) == 0) {
+                                                if count < 50 {
+                                                    if first == 0 { str_builder_append(b, ",") }
+                                                    count = emit_diag(b, doc, i, j, msg_decl_name(word), count)
+                                                    first = 0
+                                                }
+                                            }
+                                        }
+                                        at_ls = 0
+                                        i = j
+                                    } else {
+                                        at_ls = 0
+                                        i = i + 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if in_str == 1 {
+        if count < 50 {
+            if first == 0 { str_builder_append(b, ",") }
+            count = emit_diag(b, doc, str_start, str_start + 1, "unterminated string", count)
+            first = 0
+        }
+    }
+    if trust == 1 {
+        var li = 0
+        var ln = int_buf_len(offs)
+        while (li < ln) & (count < 50) {
+            if first == 0 { str_builder_append(b, ",") }
+            count = emit_diag(b, doc, int_buf_get(offs, li), int_buf_get(offs, li) + 1, msg_unclosed(int_buf_get(kinds, li)), count)
+            first = 0
+            li = li + 1
+        }
+    }
+    str_builder_append(b, "]")
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    int_buf_free(offs)
+    int_buf_free(kinds)
+    return out
+}
+
+// ============================================================================
+// documentSymbol: top-level func/class/struct/trait/import declarations.
+// ============================================================================
+
+// End byte offset of a declaration that starts at keyword offset `start`
+// (`func`/`class`/`struct`/`trait`). A brace body ends just past its
+// matching `}`; a bodyless declaration (extern func / trait method) ends at
+// the first newline whose next code byte is not `{` (or at EOF). Validated
+// against the repo corpus: no real declaration needs more lookahead.
+func decl_end(doc: str, start: int): int {
+    var n = str_len(doc)
+    var i = start
+    var depth = 0
+    var saw = 0
+    var going = 1
+    while (i < n) & (going == 1) {
+        var c = str_byte(doc, i)
+        if c == 34 {
+            var e = sscan_string_end(doc, i + 1)
+            i = e + 1
+        } else {
+            if (c == 47) & (i + 1 < n) & (str_byte(doc, i + 1) == 47) {
+                while (i < n) & (str_byte(doc, i) != 10) { i = i + 1 }
+            } else {
+                if c == 123 {
+                    depth = depth + 1
+                    saw = 1
+                    i = i + 1
+                } else {
+                    if c == 125 {
+                        if depth > 0 {
+                            depth = depth - 1
+                            i = i + 1
+                            if depth == 0 { going = 0 }
+                        } else { i = i + 1 }
+                    } else {
+                        if c == 10 {
+                            if (saw == 0) & (depth == 0) {
+                                var p = sskip_blanks_comments(doc, i + 1)
+                                if p >= n { going = 0 }
+                                else {
+                                    if str_byte(doc, p) != 123 { going = 0 }
+                                    i = i + 1
+                                }
+                            } else { i = i + 1 }
+                        } else { i = i + 1 }
+                    }
+                }
+            }
+        }
+    }
+    return i
+}
+
+// Note: kept to five parameters on purpose — the current native codegen has a
+// pass1/pass2 size-mismatch bug with functions of seven or more parameters
+// (six is safe), so the range is precomputed by the caller.
+func append_symbol(b: int, uri: str, name: str, kind: int, range_str: str): int {
+    str_builder_append(b, "{\"name\":\"")
+    str_builder_append(b, json_escape(name))
+    str_builder_append(b, "\",\"kind\":")
+    str_builder_append(b, int_to_str(kind))
+    str_builder_append(b, ",\"location\":{\"uri\":\"")
+    str_builder_append(b, json_escape(uri))
+    str_builder_append(b, "\",\"range\":")
+    str_builder_append(b, range_str)
+    str_builder_append(b, "}}")
+    return 0
+}
+
+// documentSymbol JSON array for a document. Only top-level declarations
+// (brace depth 0) are listed; the scan jumps past each declaration body, so
+// nested methods never appear.
+func scan_symbols(doc: str, uri: str): str {
+    var n = str_len(doc)
+    var b = str_builder_new()
+    str_builder_append(b, "[")
+    var first = 1
+    var depth = 0
+    var i = 0
+    var going = 1
+    while (i < n) & (going == 1) {
+        var c = str_byte(doc, i)
+        if c == 34 {
+            var e = sscan_string_end(doc, i + 1)
+            i = e + 1
+        } else {
+            if (c == 47) & (i + 1 < n) & (str_byte(doc, i + 1) == 47) {
+                while (i < n) & (str_byte(doc, i) != 10) { i = i + 1 }
+            } else {
+                if c == 123 {
+                    depth = depth + 1
+                    i = i + 1
+                } else {
+                    if c == 125 {
+                        if depth > 0 { depth = depth - 1 }
+                        i = i + 1
+                    } else {
+                        if (depth == 0) & (is_word_byte(c) == 1) {
+                            var j = i
+                            while (j < n) & (is_word_byte(str_byte(doc, j)) == 1) { j = j + 1 }
+                            var w = str_slice(doc, i, j - i)
+                            var handled = 0
+                            if is_decl_kw(w) == 1 {
+                                var name = read_word(doc, sskip_line_ws(doc, j))
+                                if str_len(name) > 0 {
+                                    var e2 = decl_end(doc, i)
+                                    var kind = 12
+                                    if str_eq(w, "class") == 1 { kind = 5 }
+                                    if str_eq(w, "struct") == 1 { kind = 23 }
+                                    if str_eq(w, "trait") == 1 { kind = 11 }
+                                    if first == 0 { str_builder_append(b, ",") }
+                                    append_symbol(b, uri, name, kind, srange_json(doc, i, e2))
+                                    first = 0
+                                    i = e2
+                                    handled = 1
+                                }
+                            } else {
+                                if str_eq(w, "import") == 1 {
+                                    var p2 = sskip_line_ws(doc, j)
+                                    if (p2 < n) & (str_byte(doc, p2) == 34) {
+                                        var qe = sscan_string_end(doc, p2 + 1)
+                                        if qe > n { qe = n }
+                                        var name2 = str_slice(doc, p2 + 1, qe - (p2 + 1))
+                                        var e3 = qe + 1
+                                        if e3 > n { e3 = n }
+                                        if first == 0 { str_builder_append(b, ",") }
+                                        append_symbol(b, uri, name2, 2, srange_json(doc, i, e3))
+                                        first = 0
+                                        i = e3
+                                        handled = 1
+                                    }
+                                }
+                            }
+                            if handled == 0 { i = j }
+                        } else {
+                            i = i + 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+    str_builder_append(b, "]")
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+// ============================================================================
+// completion: keywords, stdlib modules, import paths, declared names.
+// ============================================================================
+
+func append_completion(b: int, label: str, kind: int, detail: str): int {
+    str_builder_append(b, "{\"label\":\"")
+    str_builder_append(b, json_escape(label))
+    str_builder_append(b, "\",\"kind\":")
+    str_builder_append(b, int_to_str(kind))
+    str_builder_append(b, ",\"detail\":\"")
+    str_builder_append(b, json_escape(detail))
+    str_builder_append(b, "\"}")
+    return 0
+}
+
+// Completion response JSON for a document. Best-effort: the per-line document
+// scan does not track strings (a line-shaped string interior may contribute
+// a spurious item), which is fine for advisory completions.
+func scan_completions(doc: str): str {
+    var n = str_len(doc)
+    var b = str_builder_new()
+    str_builder_append(b, "{\"isIncomplete\":false,\"items\":[")
+    var first = 1
+    var p = 0
+    var kn = str_len(KEYWORD_DOCS)
+    while p < kn {
+        var name = table_row_name(KEYWORD_DOCS, p)
+        if first == 0 { str_builder_append(b, ",") }
+        append_completion(b, name, 14, "keyword")
+        first = 0
+        p = table_row_end(KEYWORD_DOCS, p)
+    }
+    p = 0
+    var mn = str_len(MODULE_DOCS)
+    while p < mn {
+        var name2 = table_row_name(MODULE_DOCS, p)
+        if first == 0 { str_builder_append(b, ",") }
+        append_completion(b, name2, 9, "module")
+        first = 0
+        p = table_row_end(MODULE_DOCS, p)
+    }
+    var line = 0
+    var ls = 0
+    while ls < n {
+        var i2 = sskip_line_ws(doc, ls)
+        if (i2 < n) & (is_word_byte(str_byte(doc, i2)) == 1) {
+            var j2 = i2
+            while (j2 < n) & (is_word_byte(str_byte(doc, j2)) == 1) { j2 = j2 + 1 }
+            var w2 = str_slice(doc, i2, j2 - i2)
+            var kind2 = 0
+            var detail2 = ""
+            if str_eq(w2, "func") == 1 { kind2 = 3 detail2 = "function" }
+            if str_eq(w2, "class") == 1 { kind2 = 7 detail2 = "class" }
+            if str_eq(w2, "struct") == 1 { kind2 = 22 detail2 = "struct" }
+            if str_eq(w2, "trait") == 1 { kind2 = 8 detail2 = "trait" }
+            if str_eq(w2, "var") == 1 { kind2 = 6 detail2 = "variable" }
+            if str_eq(w2, "let") == 1 { kind2 = 6 detail2 = "variable" }
+            if str_eq(w2, "const") == 1 { kind2 = 21 detail2 = "constant" }
+            if str_eq(w2, "extern") == 1 {
+                var w3 = read_word(doc, sskip_line_ws(doc, j2))
+                if str_eq(w3, "func") == 1 {
+                    kind2 = 3
+                    detail2 = "function"
+                    j2 = sskip_line_ws(doc, j2) + 4
+                }
+            }
+            if str_eq(w2, "import") == 1 {
+                var p4 = sskip_line_ws(doc, j2)
+                if (p4 < n) & (str_byte(doc, p4) == 34) {
+                    var qe2 = sscan_string_end(doc, p4 + 1)
+                    var ipath = str_slice(doc, p4 + 1, qe2 - (p4 + 1))
+                    if first == 0 { str_builder_append(b, ",") }
+                    append_completion(b, ipath, 9, "module")
+                    first = 0
+                }
+            } else {
+                if kind2 != 0 {
+                    var nm3 = read_word(doc, sskip_line_ws(doc, j2))
+                    if str_len(nm3) > 0 {
+                        if first == 0 { str_builder_append(b, ",") }
+                        append_completion(b, nm3, kind2, detail2)
+                        first = 0
+                    }
+                }
+            }
+        }
+        line = line + 1
+        ls = sline_start(doc, line)
+    }
+    str_builder_append(b, "]}")
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+// ============================================================================
+// hover: keyword / stdlib-module documentation.
+// ============================================================================
+
+func hover_markdown(value: str): str {
+    var b = str_builder_new()
+    str_builder_append(b, "{\"contents\":{\"kind\":\"markdown\",\"value\":\"")
+    str_builder_append(b, json_escape(value))
+    str_builder_append(b, "\"}}")
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+// Hover result JSON ("null" when there is nothing to show): the word at the
+// position against the keyword and module tables, else the import path when
+// the position sits inside an import string.
+func hover_result(doc: str, off: int): str {
+    var w = word_at(doc, off)
+    if str_len(w) > 0 {
+        var kd = keyword_doc(w)
+        if str_len(kd) > 0 { return hover_markdown(kd) }
+        var md = module_doc(w)
+        if str_len(md) > 0 { return hover_markdown(md) }
+    }
+    var line = sline_of_offset(doc, off)
+    var ls = sline_start(doc, line)
+    var le = sline_end(doc, line)
+    var i = sskip_line_ws(doc, ls)
+    if (i < le) & (is_word_byte(str_byte(doc, i)) == 1) {
+        var w2 = read_word(doc, i)
+        if str_eq(w2, "import") == 1 {
+            var p = sskip_line_ws(doc, i + 6)
+            if (p < le) & (str_byte(doc, p) == 34) {
+                var qe = sscan_string_end(doc, p + 1)
+                if (off > p) & (off <= qe) {
+                    var path = str_slice(doc, p + 1, qe - (p + 1))
+                    var mname = module_name_from_path(path)
+                    if str_len(mname) > 0 {
+                        var blurb = table_blurb(MODULE_DOCS, mname)
+                        if str_len(blurb) > 0 {
+                            var b2 = str_builder_new()
+                            str_builder_append(b2, "**`")
+                            str_builder_append(b2, path)
+                            str_builder_append(b2, "`** - ")
+                            str_builder_append(b2, blurb)
+                            var md2 = str_builder_to_str(b2)
+                            str_builder_free(b2)
+                            return hover_markdown(md2)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return "null"
+}
+
+// ============================================================================
+// JSON-RPC framing / responses.
+// ============================================================================
+
+func write_frame(body: str): int {
+    print_str("Content-Length: ")
+    print_str(int_to_str(str_len(body)))
+    print_str("\r\n\r\n")
+    print_str(body)
+    return 0
+}
+
+func send_result(id: str, result: str): int {
+    var b = str_builder_new()
+    str_builder_append(b, "{\"jsonrpc\":\"2.0\",\"id\":")
+    if str_len(id) == 0 { str_builder_append(b, "null") }
+    else { str_builder_append(b, id) }
+    str_builder_append(b, ",\"result\":")
+    str_builder_append(b, result)
+    str_builder_append(b, "}")
+    var body = str_builder_to_str(b)
+    str_builder_free(b)
+    write_frame(body)
+    return 0
+}
+
+func send_notification(method: str, params: str): int {
+    var b = str_builder_new()
+    str_builder_append(b, "{\"jsonrpc\":\"2.0\",\"method\":\"")
+    str_builder_append(b, method)
+    str_builder_append(b, "\",\"params\":")
+    str_builder_append(b, params)
+    str_builder_append(b, "}")
+    var body = str_builder_to_str(b)
+    str_builder_free(b)
+    write_frame(body)
+    return 0
+}
+
+func caps_json(): str {
+    return "{\"capabilities\":{\"textDocumentSync\":1,\"hoverProvider\":true,\"documentSymbolProvider\":true,\"completionProvider\":{}},\"serverInfo\":{\"name\":\"diva-lang-lsp\",\"version\":\"0.1.0\"}}"
+}
+
+// Publish fresh diagnostics for a stored document (didOpen / didChange).
+func publish_diagnostics(uri: str): int {
+    var b = str_builder_new()
+    str_builder_append(b, "{\"uri\":\"")
+    str_builder_append(b, json_escape(uri))
+    str_builder_append(b, "\",\"diagnostics\":")
+    str_builder_append(b, scan_diagnostics(store_get(uri)))
+    str_builder_append(b, "}")
+    var params = str_builder_to_str(b)
+    str_builder_free(b)
+    send_notification("textDocument/publishDiagnostics", params)
+    return 0
+}
+
+// ============================================================================
+// Method handlers.
+// ============================================================================
+
+func handle_initialize(id: str): int {
+    return send_result(id, caps_json())
+}
+
+func handle_shutdown(id: str): int {
+    return send_result(id, "null")
+}
+
+func handle_did_open(body: str): int {
+    var uri = sjf_str(body, "uri")
+    store_put(uri, sjf_str(body, "text"))
+    publish_diagnostics(uri)
+    return 0
+}
+
+func handle_did_change(body: str): int {
+    var uri = sjf_str(body, "uri")
+    store_put(uri, sjf_str(body, "text"))
+    publish_diagnostics(uri)
+    return 0
+}
+
+func handle_did_close(body: str): int {
+    var uri = sjf_str(body, "uri")
+    store_put(uri, "")
+    return 0
+}
+
+func handle_hover(body: str, id: str): int {
+    var uri = sjf_str(body, "uri")
+    var doc = store_get(uri)
+    if str_len(doc) == 0 { return send_result(id, "null") }
+    var off = soffset_for_position(doc, sjf_int(body, "line"), sjf_int(body, "character"))
+    return send_result(id, hover_result(doc, off))
+}
+
+func handle_symbols(body: str, id: str): int {
+    var uri = sjf_str(body, "uri")
+    var doc = store_get(uri)
+    if str_len(doc) == 0 { return send_result(id, "[]") }
+    return send_result(id, scan_symbols(doc, uri))
+}
+
+func handle_completion(body: str, id: str): int {
+    var uri = sjf_str(body, "uri")
+    var doc = store_get(uri)
+    return send_result(id, scan_completions(doc))
+}
+
+func handle(body: str): int {
+    var method = sjf_str(body, "method")
+    if str_len(method) == 0 { return 0 }
+    var id = sjson_token(body, "id")
+    if str_eq(method, "initialize") == 1 { return handle_initialize(id) }
+    if str_eq(method, "initialized") == 1 { return 0 }
+    if str_eq(method, "shutdown") == 1 { return handle_shutdown(id) }
+    if str_eq(method, "exit") == 1 { exit(0) return 0 }
+    if str_eq(method, "textDocument/didOpen") == 1 { return handle_did_open(body) }
+    if str_eq(method, "textDocument/didChange") == 1 { return handle_did_change(body) }
+    if str_eq(method, "textDocument/didClose") == 1 { return handle_did_close(body) }
+    if str_eq(method, "textDocument/hover") == 1 { return handle_hover(body, id) }
+    if str_eq(method, "textDocument/documentSymbol") == 1 { return handle_symbols(body, id) }
+    if str_eq(method, "textDocument/completion") == 1 { return handle_completion(body, id) }
+    if str_len(id) > 0 { return send_result(id, "null") }
+    return 0
+}
+
+func process_frames(inp: str): int {
+    var n = str_len(inp)
+    var pos = 0
+    while pos < n {
+        var clpos = sfind(inp, pos, "Content-Length:")
+        if clpos < 0 { pos = n } else {
+            var j = sskip_ws(inp, clpos + 15)
+            var cl = 0
+            var going = 1
+            while (j < n) & (going == 1) {
+                var b = str_byte(inp, j)
+                if (b >= 48) & (b <= 57) { cl = cl * 10 + (b - 48) j = j + 1 }
+                else { going = 0 }
+            }
+            var hdr = sfind(inp, j, "\r\n\r\n")
+            var bstart = 0
+            if hdr >= 0 { bstart = hdr + 4 }
+            else {
+                var hdr2 = sfind(inp, j, "\n\n")
+                if hdr2 >= 0 { bstart = hdr2 + 2 } else { bstart = n }
+            }
+            if bstart >= n { pos = n } else {
+                var blen = cl
+                if bstart + cl > n { blen = n - bstart }
+                if blen <= 0 {
+                    pos = bstart + 1
+                } else {
+                    var body = str_slice(inp, bstart, blen)
+                    handle(body)
+                    pos = bstart + cl
+                }
+            }
+        }
+    }
+    return 0
+}
+
+func load_input(): str {
+    if host_argc() > 1 { return read_file(host_argv(1)) }
+    return read_file("/dev/stdin")
+}
+
+func main(): int {
+    g_bt = utf8_byte_table()
+    var raw = load_input()
+    if str_len(raw) == 0 { return 0 }
+    process_frames(raw)
+    return 0
+}

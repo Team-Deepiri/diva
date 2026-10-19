@@ -1,0 +1,3 @@
+// broken_unclosed — a brace opened and never closed.
+func f(): void {
+    print_str("x\n")
