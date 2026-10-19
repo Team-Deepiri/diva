@@ -1,0 +1,453 @@
+// diva_test — Diva's built-in test runner (#137).
+//
+// Usage: diva-test [flags] <path>...
+//
+// Discovery: for every directory argument, find(1) collects regular files whose
+// basename matches `*_test.diva` OR `test_*.diva` (`.git` pruned, sorted and
+// de-duplicated). A path passed directly as a file argument is always run, even
+// when its name matches neither pattern. Diva has no readdir builtin, so
+// discovery goes through host_system + a list file (see discover_dir).
+//
+// Per file: `<driver> build <file> <tmp-exe>`, then run `<tmp-exe>`. A run exit
+// code of 0 is OK; anything else is FAIL. The child's stdout+stderr is captured
+// and printed under a `--- <file>` header.
+//
+// Exit codes: 0 = every test file passed, 1 = at least one failed, 2 = usage
+// error (unknown flag / missing path). Summary line: `<N> passed, <M> failed,
+// <K> files`.
+//
+// How child exit codes are obtained (the important part): host_system(cmd)
+// returns the raw wait(2) status of the /bin/sh it spawns — verified:
+// `host_system("exit 3")` -> 768, `host_system("false")` -> 256 and
+// `host_system("sh -c 'kill -ABRT $$'")` -> 34304, i.e. `status >> 8` for a
+// normal exit. For a compound command it returns the status of the LAST command
+// in the chain (the trailing echo), so the return value is never interpreted
+// here. Every child runs as:
+//
+//     ulimit -c 0 2>/dev/null; { <cmd> ; } > <workdir>/x.out 2>&1; echo $? > <workdir>/x.rc
+//
+// and the integer in the sentinel `x.rc` file is read back with read_file() and
+// parsed. `echo $?` yields the shell's own exit status for <cmd> — uniformly,
+// including 128+signal for a signal death — and the group redirect captures the
+// child's stdout+stderr (host_system has no output-capture mode; child output
+// would otherwise stream straight through the runner's stdout) as well as the
+// shell's `Aborted (core dumped)` job message.
+
+import "std/io.diva"
+import "std/host.diva"
+import "std/str.diva"
+import "std/vec.diva"
+import "std/path.diva"
+
+var g_driver = "build/diva-compiler-pure-elf"
+var g_filter = ""
+var g_list_only = 0
+var g_verbose = 0
+var g_workdir = ""
+var g_passed = 0
+var g_failed = 0
+var g_files = 0
+var g_line_cursor = 0
+
+func usage(): int {
+    stdout("usage: diva-test [flags] <path>...\n")
+    stdout("\n")
+    stdout("  <path>            test file or directory to search recursively\n")
+    stdout("  --driver <path>   Diva compiler driver (default: build/diva-compiler-pure-elf)\n")
+    stdout("  --filter <substr> only run test files whose path contains <substr>\n")
+    stdout("  --list            list discovered test files; do not build or run\n")
+    stdout("  --verbose         print driver commands and build output (to stderr)\n")
+    stdout("  --help            print this message\n")
+    return 0
+}
+
+func sh_quote(p: str): str {
+    var sb = str_builder_new()
+    if sb == 0 {
+        return "\"\""
+    }
+    str_builder_append(sb, "\"")
+    str_builder_append(sb, p)
+    str_builder_append(sb, "\"")
+    var quoted = str_builder_to_str(sb)
+    str_builder_free(sb)
+    return quoted
+}
+
+func file_text(p: str): str {
+    if file_size(p) < 0 {
+        return ""
+    }
+    return read_file(p)
+}
+
+func parse_int(s: str): int {
+    var t = str_trim(s)
+    var n = str_len(t)
+    if n == 0 {
+        return 0 - 1
+    }
+    var value = 0
+    var i = 0
+    while i < n {
+        var c = str_byte(t, i)
+        if c < 48 {
+            return 0 - 1
+        }
+        if c > 57 {
+            return 0 - 1
+        }
+        value = value * 10 + (c - 48)
+        i = i + 1
+    }
+    return value
+}
+
+func print_file(p: str): int {
+    var content = file_text(p)
+    if str_len(content) == 0 {
+        return 0
+    }
+    stdout(content)
+    if str_byte(content, str_len(content) - 1) != 10 {
+        stdout("\n")
+    }
+    return 0
+}
+
+func print_file_err(p: str): int {
+    var content = file_text(p)
+    if str_len(content) == 0 {
+        return 0
+    }
+    stderr(content)
+    if str_byte(content, str_len(content) - 1) != 10 {
+        stderr("\n")
+    }
+    return 0
+}
+
+func lines_reset(): int {
+    g_line_cursor = 0
+    return 0
+}
+
+func lines_has_more(text_buf: str): int {
+    if g_line_cursor < str_len(text_buf) {
+        return 1
+    }
+    return 0
+}
+
+func lines_next(text_buf: str): str {
+    var n = str_len(text_buf)
+    if g_line_cursor >= n {
+        return ""
+    }
+    var start = g_line_cursor
+    while g_line_cursor < n {
+        if str_byte(text_buf, g_line_cursor) == 10 {
+            var line = str_slice(text_buf, start, g_line_cursor - start)
+            g_line_cursor = g_line_cursor + 1
+            return line
+        }
+        g_line_cursor = g_line_cursor + 1
+    }
+    return str_slice(text_buf, start, g_line_cursor - start)
+}
+
+func setup_workdir(): int {
+    var tmp = host_getenv("TMPDIR")
+    if str_len(tmp) == 0 {
+        tmp = "/tmp"
+    }
+    var pointer = path_join(tmp, "diva-test-workdir")
+    var sb = str_builder_new()
+    str_builder_append(sb, "d=")
+    str_builder_append(sb, sh_quote(path_join(tmp, "diva-test.$$.d")))
+    str_builder_append(sb, "; rm -rf \"$d\"; mkdir -p \"$d\" && printf %s \"$d\" > ")
+    str_builder_append(sb, sh_quote(pointer))
+    var cmd = str_builder_to_str(sb)
+    str_builder_free(sb)
+    host_system(cmd)
+    var wd = str_trim(file_text(pointer))
+    if str_len(wd) == 0 {
+        stderr("diva-test: failed to create a work directory under ")
+        stderr(tmp)
+        stderr("\n")
+        exit(2)
+    }
+    g_workdir = wd
+    return 0
+}
+
+func cleanup_workdir(): int {
+    if str_len(g_workdir) == 0 {
+        return 0
+    }
+    host_system(str_concat("rm -rf ", sh_quote(g_workdir)))
+    return 0
+}
+
+func path_kind(p: str): str {
+    var kind_path = path_join(g_workdir, "kind.txt")
+    var sb = str_builder_new()
+    str_builder_append(sb, "if [ ! -e ")
+    str_builder_append(sb, sh_quote(p))
+    str_builder_append(sb, " ]; then echo missing; elif [ -d ")
+    str_builder_append(sb, sh_quote(p))
+    str_builder_append(sb, " ]; then echo dir; else echo file; fi > ")
+    str_builder_append(sb, sh_quote(kind_path))
+    var cmd = str_builder_to_str(sb)
+    str_builder_free(sb)
+    host_system(cmd)
+    return str_trim(file_text(kind_path))
+}
+
+func matches_filter(p: str): int {
+    if str_len(g_filter) == 0 {
+        return 1
+    }
+    if str_contains(p, g_filter) == 1 {
+        return 1
+    }
+    return 0
+}
+
+func run_one(test_path: str): int {
+    g_files = g_files + 1
+    var exe = path_join(g_workdir, "test_exe")
+    var build_out = path_join(g_workdir, "build.out")
+    var build_rc = path_join(g_workdir, "build.rc")
+    var run_out = path_join(g_workdir, "run.out")
+    var run_rc = path_join(g_workdir, "run.rc")
+
+    stdout("--- ")
+    stdout(test_path)
+    stdout("\n")
+
+    var sb = str_builder_new()
+    str_builder_append(sb, "ulimit -c 0 2>/dev/null; { ")
+    str_builder_append(sb, g_driver)
+    str_builder_append(sb, " build ")
+    str_builder_append(sb, sh_quote(test_path))
+    str_builder_append(sb, " ")
+    str_builder_append(sb, sh_quote(exe))
+    str_builder_append(sb, " ; } > ")
+    str_builder_append(sb, sh_quote(build_out))
+    str_builder_append(sb, " 2>&1; echo $? > ")
+    str_builder_append(sb, sh_quote(build_rc))
+    var build_cmd = str_builder_to_str(sb)
+    str_builder_free(sb)
+
+    if g_verbose == 1 {
+        stderr("[diva-test] ")
+        stderr(build_cmd)
+        stderr("\n")
+    }
+    host_system(build_cmd)
+    var build_status = parse_int(file_text(build_rc))
+    if build_status != 0 {
+        print_file_err(build_out)
+        g_failed = g_failed + 1
+        stdout("FAIL ")
+        stdout(test_path)
+        stdout(" (build exit ")
+        stdout(int_to_str(build_status))
+        stdout(")\n")
+        return 1
+    }
+    if g_verbose == 1 {
+        print_file_err(build_out)
+    }
+
+    var sb2 = str_builder_new()
+    str_builder_append(sb2, "ulimit -c 0 2>/dev/null; { ")
+    str_builder_append(sb2, sh_quote(exe))
+    str_builder_append(sb2, " ; } > ")
+    str_builder_append(sb2, sh_quote(run_out))
+    str_builder_append(sb2, " 2>&1; echo $? > ")
+    str_builder_append(sb2, sh_quote(run_rc))
+    var run_cmd = str_builder_to_str(sb2)
+    str_builder_free(sb2)
+
+    if g_verbose == 1 {
+        stderr("[diva-test] ")
+        stderr(run_cmd)
+        stderr("\n")
+    }
+    host_system(run_cmd)
+    var run_status = parse_int(file_text(run_rc))
+    print_file(run_out)
+    if run_status == 0 {
+        g_passed = g_passed + 1
+        stdout("OK ")
+        stdout(test_path)
+        stdout("\n")
+        return 0
+    }
+    g_failed = g_failed + 1
+    stdout("FAIL ")
+    stdout(test_path)
+    stdout(" (exit ")
+    stdout(int_to_str(run_status))
+    stdout(")\n")
+    return 1
+}
+
+func handle_file(p: str): int {
+    if matches_filter(p) == 0 {
+        return 0
+    }
+    if g_list_only == 1 {
+        stdout(p)
+        stdout("\n")
+        return 0
+    }
+    run_one(p)
+    return 0
+}
+
+func discover_dir(dir: str): int {
+    var list_path = path_join(g_workdir, "list.txt")
+    var sb = str_builder_new()
+    str_builder_append(sb, "{ find -H ")
+    str_builder_append(sb, sh_quote(dir))
+    str_builder_append(sb, " -name .git -prune -o -type f -name '*_test.diva' -print; find -H ")
+    str_builder_append(sb, sh_quote(dir))
+    str_builder_append(sb, " -name .git -prune -o -type f -name 'test_*.diva' -print; } 2>/dev/null | sort -u > ")
+    str_builder_append(sb, sh_quote(list_path))
+    var cmd = str_builder_to_str(sb)
+    str_builder_free(sb)
+    host_system(cmd)
+    var listing = file_text(list_path)
+    lines_reset()
+    while lines_has_more(listing) == 1 {
+        var p = lines_next(listing)
+        if str_len(p) > 0 {
+            handle_file(p)
+        }
+    }
+    return 0
+}
+
+func process_path(p: str): int {
+    var kind = path_kind(p)
+    if str_eq(kind, "missing") == 1 {
+        stderr("diva-test: no such path: ")
+        stderr(p)
+        stderr("\n")
+        cleanup_workdir()
+        exit(2)
+    }
+    if str_eq(kind, "dir") == 1 {
+        discover_dir(p)
+    } else {
+        handle_file(p)
+    }
+    return 0
+}
+
+func main(): int {
+    var argc = host_argc()
+    if argc < 2 {
+        usage()
+        return 2
+    }
+
+    var i = 1
+    var path_count = 0
+    while i < argc {
+        var a = host_argv(i)
+        if str_eq(a, "--list") == 1 {
+            g_list_only = 1
+        } else {
+            if str_eq(a, "--verbose") == 1 {
+                g_verbose = 1
+            } else {
+                if str_eq(a, "--help") == 1 {
+                    usage()
+                    return 0
+                } else {
+                    if str_eq(a, "--driver") == 1 {
+                        if i + 1 >= argc {
+                            stderr("diva-test: --driver needs a value\n")
+                            return 2
+                        }
+                        g_driver = host_argv(i + 1)
+                        i = i + 1
+                    } else {
+                        if str_eq(a, "--filter") == 1 {
+                            if i + 1 >= argc {
+                                stderr("diva-test: --filter needs a value\n")
+                                return 2
+                            }
+                            g_filter = host_argv(i + 1)
+                            i = i + 1
+                        } else {
+                            if str_starts_with(a, "--") == 1 {
+                                stderr("diva-test: unknown flag: ")
+                                stderr(a)
+                                stderr("\n")
+                                usage()
+                                return 2
+                            }
+                            path_count = path_count + 1
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    if path_count == 0 {
+        stderr("diva-test: no paths given\n")
+        usage()
+        return 2
+    }
+
+    setup_workdir()
+    if g_verbose == 1 {
+        stderr("[diva-test] driver=")
+        stderr(g_driver)
+        stderr(" workdir=")
+        stderr(g_workdir)
+        stderr("\n")
+    }
+
+    i = 1
+    while i < argc {
+        var a = host_argv(i)
+        if str_eq(a, "--driver") == 1 {
+            i = i + 2
+        } else {
+            if str_eq(a, "--filter") == 1 {
+                i = i + 2
+            } else {
+                if str_starts_with(a, "--") == 1 {
+                    i = i + 1
+                } else {
+                    process_path(a)
+                    i = i + 1
+                }
+            }
+        }
+    }
+
+    cleanup_workdir()
+    if g_list_only == 1 {
+        return 0
+    }
+
+    stdout(int_to_str(g_passed))
+    stdout(" passed, ")
+    stdout(int_to_str(g_failed))
+    stdout(" failed, ")
+    stdout(int_to_str(g_files))
+    stdout(" files\n")
+    if g_failed > 0 {
+        return 1
+    }
+    return 0
+}

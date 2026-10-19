@@ -1,0 +1,36 @@
+// math_test — example Diva test file for tools/test/diva_test.diva (#137).
+//
+// Uses std/testing.diva: assert_* abort on failure, test_summary() returns 0
+// when everything passed and 1 otherwise. The runner treats a zero exit as OK.
+
+import "std/io.diva"
+import "std/testing.diva"
+import "std/math.diva"
+
+func main(): int {
+    test_begin("abs")
+    assert_eq_int(abs(0 - 7), 7, "abs(-7) == 7")
+    assert_eq_int(abs(5), 5, "abs(5) == 5")
+    assert_eq_int(abs(0), 0, "abs(0) == 0")
+    test_ok()
+
+    test_begin("min and max")
+    assert_eq_int(min(3, 9), 3, "min(3, 9)")
+    assert_eq_int(max(3, 9), 9, "max(3, 9)")
+    assert_eq_int(min(0 - 4, 0 - 8), 0 - 8, "min of negatives")
+    test_ok()
+
+    test_begin("clamp")
+    assert_eq_int(clamp(15, 0, 10), 10, "clamp above high")
+    assert_eq_int(clamp(0 - 5, 0, 10), 0, "clamp below low")
+    assert_eq_int(clamp(7, 0, 10), 7, "clamp inside range")
+    test_ok()
+
+    test_begin("integer arithmetic")
+    assert_eq_int(2 * 3 + 4, 10, "multiplication before addition")
+    assert_eq_int(10 / 3, 3, "integer division truncates")
+    assert_eq_int(2 + 3 * 4, 14, "multiplication before addition (right)")
+    test_ok()
+
+    return test_summary()
+}
