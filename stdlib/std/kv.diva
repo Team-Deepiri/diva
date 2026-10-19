@@ -1,0 +1,555 @@
+// In-memory, optionally file-backed key/value store over `str` keys and `str`
+// values (Issue #123). Pure Diva, built on the existing hash/growable-buffer
+// primitives — no new syscalls.
+//
+// Memory model
+// ------------
+// A store is an `int` handle (an int_buf, see std/mem.diva) describing an
+// open-addressed, linear-probed hash table. A stored `str` is only a pointer in
+// this ABI, so key/value cells are raw 64-bit words in parallel int_bufs. Keys
+// and values are borrowed (never copied by kv_*), and memory is never reclaimed
+// by the store: a key/value must outlive its entry. That matches the rest of
+// the runtime, which has no GC.
+//
+// Handle layout (int_buf slots):
+//   0 KV_CAP   capacity (number of table slots, power-of-two-ish)
+//   1 KV_LEN   live entry count
+//   2 KV_KEYS  int_buf: per-slot key pointer (0 in empty slots)
+//   3 KV_VALS  int_buf: per-slot value pointer
+//   4 KV_FLAGS int_buf: 0 = empty, 1 = occupied, 2 = tombstone
+//   5 KV_ORDER int_buf: slot indices in insertion order (for deterministic
+//                       iteration); kept compact so int_buf_len == KV_LEN
+//   6 KV_TOMB  live tombstone count (triggers a same-size compaction)
+//
+// Concurrency
+// -----------
+// No synchronization. The runtime has no threads, so a store is single-threaded
+// only; sharing one handle between concurrent callers is not supported and
+// would race on the table buffers.
+//
+// File format (`kv_save` / `kv_load`)
+// -----------------------------------
+// Line-oriented text, one record per key/value pair:
+//
+//     <escaped-key>\t<escaped-value>\n
+//
+// Escaping is byte-exact and reversible: `\` -> `\\`, TAB -> `\t`,
+// LF -> `\n`, CR -> `\r`. Because TAB/NL/CR never appear literally inside an
+// escaped field, the first raw TAB on a line is unambiguously the separator and
+// the first raw LF terminates the record, so keys and values may contain any
+// byte (including TAB/newline/backslash/NUL-free binary text). A blank line is
+// ignored; a record with an empty key or value is `\t` (key) / `\t` (value).
+//
+// `kv_save` builds the whole file in memory, writes it to `<path>.tmp`, then
+// moves it into place with `mv -f` (via std/host.diva `host_system`) so readers
+// never observe a half-written file; if the move is unavailable it falls back
+// to a direct non-atomic write. Paths are single-quoted for the shell.
+import "std/mem.diva"
+import "std/vec.diva"
+import "std/hash.diva"
+import "std/str.diva"
+import "std/host.diva"
+import "std/io.diva"
+
+const KV_CAP = 0
+const KV_LEN = 1
+const KV_KEYS = 2
+const KV_VALS = 3
+const KV_FLAGS = 4
+const KV_ORDER = 5
+const KV_TOMB = 6
+const KV_INIT_CAP = 16
+
+// Initial store capacity: 16 slots, 0 entries.
+func kv_open(): int {
+    return kv_reset(kv_meta(), KV_INIT_CAP)
+}
+
+// Alias for kv_open (issue wording "open/init").
+func kv_init(): int {
+    return kv_open()
+}
+
+// Blank handle with the meta slots allocated (no table buffers yet).
+func kv_meta(): int {
+    var s = int_buf_new()
+    if s == 0 {
+        return 0
+    }
+    var i = 0
+    while i < 8 {
+        int_buf_push(s, 0)
+        i = i + 1
+    }
+    return s
+}
+
+// (Re)allocate the table buffers at `cap` capacity with no entries.
+func kv_reset(s: int, cap: int): int {
+    if s == 0 {
+        return 0
+    }
+    if int_buf_len(s) >= 7 {
+        kv_free_bufs(s)
+    }
+    var keys = int_buf_new()
+    var vals = int_buf_new()
+    var flags = int_buf_new()
+    var order = int_buf_new()
+    if (keys == 0) | (vals == 0) | (flags == 0) | (order == 0) {
+        return 0
+    }
+    var i = 0
+    while i < cap {
+        int_buf_push(keys, 0)
+        int_buf_push(vals, 0)
+        int_buf_push(flags, 0)
+        i = i + 1
+    }
+    kv_bset(s, KV_CAP, cap)
+    kv_bset(s, KV_LEN, 0)
+    kv_bset(s, KV_KEYS, keys)
+    kv_bset(s, KV_VALS, vals)
+    kv_bset(s, KV_FLAGS, flags)
+    kv_bset(s, KV_ORDER, order)
+    kv_bset(s, KV_TOMB, 0)
+    return s
+}
+
+func kv_free_bufs(s: int): int {
+    if int_buf_len(s) < 7 {
+        return 0
+    }
+    int_buf_free(int_buf_get(s, KV_KEYS))
+    int_buf_free(int_buf_get(s, KV_VALS))
+    int_buf_free(int_buf_get(s, KV_FLAGS))
+    int_buf_free(int_buf_get(s, KV_ORDER))
+    return 0
+}
+
+// Destroy the store; the handle must not be used again.
+func kv_free(s: int): int {
+    if s == 0 {
+        return 0
+    }
+    kv_free_bufs(s)
+    int_buf_free(s)
+    return 0
+}
+
+// Random-access write into an int_buf slot (int_buf exposes only push/get).
+func kv_bset(h: int, i: int, v: int): int {
+    mem_set(mem_get(h, 0), i, v)
+    return 0
+}
+
+// Pass a stored 64-bit word back through a `str` parameter. The ABI word is
+// identical for both types, but the checker only coerces at call sites.
+func kv_as_str(x: str): str {
+    return x
+}
+
+// ---- introspection ---------------------------------------------------------
+
+func kv_count(s: int): int {
+    if s == 0 {
+        return 0
+    }
+    return int_buf_get(s, KV_LEN)
+}
+
+func kv_capacity(s: int): int {
+    if s == 0 {
+        return 0
+    }
+    return int_buf_get(s, KV_CAP)
+}
+
+// ---- hashing / probing -----------------------------------------------------
+
+func kv_slot_for(s: int, key: str): int {
+    var cap = int_buf_get(s, KV_CAP)
+    var keys = int_buf_get(s, KV_KEYS)
+    var flags = int_buf_get(s, KV_FLAGS)
+    var h = fnv1a(key)
+    var idx = h - (h / cap) * cap
+    var first_tomb = 0 - 1
+    var checked = 0
+    while checked < cap {
+        var f = int_buf_get(flags, idx)
+        if f == 0 {
+            if first_tomb >= 0 {
+                return first_tomb
+            }
+            return idx
+        }
+        if f == 2 {
+            if first_tomb < 0 {
+                first_tomb = idx
+            }
+        }
+        if f == 1 {
+            if str_eq(int_buf_get(keys, idx), key) == 1 {
+                return idx
+            }
+        }
+        idx = idx + 1
+        if cap <= idx {
+            idx = 0
+        }
+        checked = checked + 1
+    }
+    if first_tomb >= 0 {
+        return first_tomb
+    }
+    return 0 - 1
+}
+
+// Write a new entry at the slot kv_slot_for returns. Assumes capacity headroom.
+func kv_insert_raw(s: int, key: str, value: str): int {
+    var idx = kv_slot_for(s, key)
+    if idx < 0 {
+        return 0 - 1
+    }
+    var keys = int_buf_get(s, KV_KEYS)
+    var vals = int_buf_get(s, KV_VALS)
+    var flags = int_buf_get(s, KV_FLAGS)
+    var order = int_buf_get(s, KV_ORDER)
+    var was = int_buf_get(flags, idx)
+    kv_bset(keys, idx, key)
+    kv_bset(vals, idx, value)
+    kv_bset(flags, idx, 1)
+    if was == 2 {
+        kv_bset(s, KV_TOMB, int_buf_get(s, KV_TOMB) - 1)
+    }
+    kv_bset(s, KV_LEN, int_buf_get(s, KV_LEN) + 1)
+    int_buf_push(order, idx)
+    return idx
+}
+
+// Rebuild the table at `newcap`, preserving insertion order.
+func kv_rehash(s: int, newcap: int): int {
+    var oldkeys = int_buf_get(s, KV_KEYS)
+    var oldvals = int_buf_get(s, KV_VALS)
+    var oldflags = int_buf_get(s, KV_FLAGS)
+    var oldorder = int_buf_get(s, KV_ORDER)
+    var nkeys = int_buf_new()
+    var nvals = int_buf_new()
+    var nflags = int_buf_new()
+    var norder = int_buf_new()
+    if (nkeys == 0) | (nvals == 0) | (nflags == 0) | (norder == 0) {
+        return 0 - 1
+    }
+    var i = 0
+    while i < newcap {
+        int_buf_push(nkeys, 0)
+        int_buf_push(nvals, 0)
+        int_buf_push(nflags, 0)
+        i = i + 1
+    }
+    kv_bset(s, KV_CAP, newcap)
+    kv_bset(s, KV_KEYS, nkeys)
+    kv_bset(s, KV_VALS, nvals)
+    kv_bset(s, KV_FLAGS, nflags)
+    kv_bset(s, KV_ORDER, norder)
+    kv_bset(s, KV_LEN, 0)
+    kv_bset(s, KV_TOMB, 0)
+    var n = int_buf_len(oldorder)
+    var j = 0
+    while j < n {
+        var slot = int_buf_get(oldorder, j)
+        if int_buf_get(oldflags, slot) == 1 {
+            kv_insert_raw(s, int_buf_get(oldkeys, slot), int_buf_get(oldvals, slot))
+        }
+        j = j + 1
+    }
+    int_buf_free(oldkeys)
+    int_buf_free(oldvals)
+    int_buf_free(oldflags)
+    int_buf_free(oldorder)
+    return 0
+}
+
+func kv_maybe_grow(s: int): int {
+    var cap = int_buf_get(s, KV_CAP)
+    var len = int_buf_get(s, KV_LEN)
+    var tomb = int_buf_get(s, KV_TOMB)
+    if (len + 1) * 4 >= cap * 3 {
+        return kv_rehash(s, cap * 2)
+    }
+    if tomb * 2 >= cap {
+        return kv_rehash(s, cap)
+    }
+    return 0
+}
+
+// ---- public API ------------------------------------------------------------
+
+// Insert or overwrite. Returns 1 if an existing key was replaced, else 0.
+func kv_put(s: int, key: str, value: str): int {
+    var idx = kv_slot_for(s, key)
+    if idx >= 0 {
+        if int_buf_get(int_buf_get(s, KV_FLAGS), idx) == 1 {
+            kv_bset(int_buf_get(s, KV_VALS), idx, value)
+            return 1
+        }
+    }
+    kv_maybe_grow(s)
+    kv_insert_raw(s, key, value)
+    return 0
+}
+
+// Value for `key`, or "" when absent. Use kv_has to tell "" from missing.
+func kv_get(s: int, key: str): str {
+    var idx = kv_slot_for(s, key)
+    if idx < 0 {
+        return ""
+    }
+    if int_buf_get(int_buf_get(s, KV_FLAGS), idx) != 1 {
+        return ""
+    }
+    return kv_as_str(int_buf_get(int_buf_get(s, KV_VALS), idx))
+}
+
+// Value for `key`, or `fallback` when absent.
+func kv_get_or(s: int, key: str, fallback: str): str {
+    if kv_has(s, key) == 1 {
+        return kv_get(s, key)
+    }
+    return fallback
+}
+
+// 1 if `key` is present, else 0.
+func kv_has(s: int, key: str): int {
+    var idx = kv_slot_for(s, key)
+    if idx < 0 {
+        return 0
+    }
+    var flags = int_buf_get(s, KV_FLAGS)
+    if int_buf_get(flags, idx) != 1 {
+        return 0
+    }
+    return 1
+}
+
+// Remove `key`. Returns 1 if it was present, 0 for a missing key (no-op).
+func kv_del(s: int, key: str): int {
+    var idx = kv_slot_for(s, key)
+    if idx < 0 {
+        return 0
+    }
+    var flags = int_buf_get(s, KV_FLAGS)
+    if int_buf_get(flags, idx) != 1 {
+        return 0
+    }
+    kv_bset(flags, idx, 2)
+    kv_bset(s, KV_LEN, int_buf_get(s, KV_LEN) - 1)
+    kv_bset(s, KV_TOMB, int_buf_get(s, KV_TOMB) + 1)
+    var order = int_buf_get(s, KV_ORDER)
+    var n = int_buf_len(order)
+    var at = n
+    var j = 0
+    while j < n {
+        if int_buf_get(order, j) == idx {
+            at = j
+            j = n
+        } else {
+            j = j + 1
+        }
+    }
+    if at < n {
+        var k = at
+        while k < n - 1 {
+            kv_bset(order, k, int_buf_get(order, k + 1))
+            k = k + 1
+        }
+        mem_set(order, 1, n - 1)
+    }
+    return 1
+}
+
+// Drop every entry, keeping the handle valid.
+func kv_clear(s: int): int {
+    if s == 0 {
+        return 0
+    }
+    return kv_reset(s, KV_INIT_CAP)
+}
+
+// ---- iteration (index based; no closures in the language) ------------------
+
+// i-th live key in insertion order, or "" for an out-of-range index.
+func kv_key_at(s: int, i: int): str {
+    if i < 0 {
+        return ""
+    }
+    var order = int_buf_get(s, KV_ORDER)
+    if i >= int_buf_len(order) {
+        return ""
+    }
+    var slot = int_buf_get(order, i)
+    return kv_as_str(int_buf_get(int_buf_get(s, KV_KEYS), slot))
+}
+
+// i-th live value in insertion order, or "" for an out-of-range index.
+func kv_value_at(s: int, i: int): str {
+    if i < 0 {
+        return ""
+    }
+    var order = int_buf_get(s, KV_ORDER)
+    if i >= int_buf_len(order) {
+        return ""
+    }
+    var slot = int_buf_get(order, i)
+    return kv_as_str(int_buf_get(int_buf_get(s, KV_VALS), slot))
+}
+
+// ---- file backing ----------------------------------------------------------
+
+func kv_escape(s: str): str {
+    var b = str_builder_new()
+    var n = str_len(s)
+    var i = 0
+    while i < n {
+        var c = str_byte(s, i)
+        if c == 92 {
+            str_builder_append(b, "\\\\")
+        } else if c == 9 {
+            str_builder_append(b, "\\t")
+        } else if c == 10 {
+            str_builder_append(b, "\\n")
+        } else if c == 13 {
+            str_builder_append(b, "\\r")
+        } else {
+            str_builder_append(b, str_slice(s, i, 1))
+        }
+        i = i + 1
+    }
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+func kv_unescape(s: str): str {
+    var b = str_builder_new()
+    var n = str_len(s)
+    var i = 0
+    while i < n {
+        var c = str_byte(s, i)
+        if c == 92 {
+            if i + 1 < n {
+                var d = str_byte(s, i + 1)
+                if d == 110 {
+                    str_builder_append(b, "\n")
+                } else if d == 116 {
+                    str_builder_append(b, "\t")
+                } else if d == 114 {
+                    str_builder_append(b, "\r")
+                } else if d == 92 {
+                    str_builder_append(b, "\\")
+                } else {
+                    str_builder_append(b, str_slice(s, i, 2))
+                }
+                i = i + 2
+            } else {
+                str_builder_append(b, "\\")
+                i = i + 1
+            }
+        } else {
+            str_builder_append(b, str_slice(s, i, 1))
+            i = i + 1
+        }
+    }
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+// Serialize the whole store, then move it into place. Returns 0 on success.
+func kv_save(s: int, path: str): int {
+    var b = str_builder_new()
+    var n = kv_count(s)
+    var i = 0
+    while i < n {
+        str_builder_append(b, kv_escape(kv_key_at(s, i)))
+        str_builder_append(b, "\t")
+        str_builder_append(b, kv_escape(kv_value_at(s, i)))
+        str_builder_append(b, "\n")
+        i = i + 1
+    }
+    var data = str_builder_to_str(b)
+    str_builder_free(b)
+
+    var tb = str_builder_new()
+    str_builder_append(tb, path)
+    str_builder_append(tb, ".tmp")
+    var tmp = str_builder_to_str(tb)
+    str_builder_free(tb)
+
+    var rc = write_text_file(tmp, data)
+    if rc != 0 {
+        return rc
+    }
+
+    var mb = str_builder_new()
+    str_builder_append(mb, "mv -f '")
+    str_builder_append(mb, tmp)
+    str_builder_append(mb, "' '")
+    str_builder_append(mb, path)
+    str_builder_append(mb, "'")
+    var cmd = str_builder_to_str(mb)
+    str_builder_free(mb)
+
+    if host_system(cmd) != 0 {
+        // No shell / mv: fall back to a direct write so the save still lands.
+        write_text_file(path, data)
+    }
+    return 0
+}
+
+func kv_load_line(s: int, line: str): int {
+    var n = str_len(line)
+    var sep = 0 - 1
+    var i = 0
+    while i < n {
+        if str_byte(line, i) == 9 {
+            sep = i
+            i = n
+        } else {
+            i = i + 1
+        }
+    }
+    if sep < 0 {
+        return 0
+    }
+    var key = kv_unescape(str_slice(line, 0, sep))
+    var value = kv_unescape(str_slice(line, sep + 1, n - sep - 1))
+    kv_put(s, key, value)
+    return 0
+}
+
+// Replace the store's contents with the file at `path`. Returns 0 on success,
+// -1 if the file does not exist.
+func kv_load(s: int, path: str): int {
+    if file_size(path) < 0 {
+        return 0 - 1
+    }
+    kv_clear(s)
+    var data = read_file(path)
+    var n = str_len(data)
+    var start = 0
+    var i = 0
+    while i < n {
+        if str_byte(data, i) == 10 {
+            if i > start {
+                kv_load_line(s, str_slice(data, start, i - start))
+            }
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start < n {
+        kv_load_line(s, str_slice(data, start, n - start))
+    }
+    return 0
+}
