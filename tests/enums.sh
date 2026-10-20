@@ -3,7 +3,10 @@
 #
 # `unit_enum` covers declaration, qualified construction, reassignment and
 # .tag reads/== on a payload-free enum; `payload_enum` covers tag+data slots,
-# payload assignment, unit-variant payload reset, and .data reads.
+# payload assignment, unit-variant payload reset, and .data reads. The
+# `fail_*` cases lock sema diagnostics (unknown enum/variant, wrong arity);
+# they run here because negative.list is driven by the pinned seed, which
+# predates enum support.
 #
 # Self-contained: with no DIVA_PURE_DRIVER set, builds a fresh driver from the
 # bootstrap seed (the shared build/diva-compiler-pure-elf symlink may not
@@ -91,6 +94,31 @@ check_case payload "${ROOT_DIR}/tests/cases/enums/payload_enum.diva" '0
 0
 7
 5'
+
+# check_fail <name> <src> <needle> — build must fail with needle in output
+check_fail() {
+  _name=$1
+  _src=$2
+  _needle=$3
+  total=$((total + 1))
+  if DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+     DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
+     timeout 60 "${DRIVER}" build "${_src}" "${WORK}/${_name}.exe" \
+     >"${WORK}/${_name}.log" 2>&1; then
+    fail "${_name} (expected build failure)"
+    return 0
+  fi
+  if ! grep -q "${_needle}" "${WORK}/${_name}.log"; then
+    fail "${_name} (missing needle '${_needle}')"
+    sed -n '1,20p' "${WORK}/${_name}.log" >&2
+    return 0
+  fi
+  echo "[enums] OK   ${_name} (fail)"
+}
+
+check_fail fail_unknown_enum "${ROOT_DIR}/tests/cases/enums/fail_unknown_enum.diva" "unknown enum 'Nope'"
+check_fail fail_unknown_variant "${ROOT_DIR}/tests/cases/enums/fail_unknown_variant.diva" "unknown variant 'Purple' in enum 'Color'"
+check_fail fail_wrong_arity "${ROOT_DIR}/tests/cases/enums/fail_wrong_arity.diva" "variant 'Some' expects 1 payload argument, got 2"
 
 echo "[enums] total=${total} failed=${failed}"
 [ "${failed}" -eq 0 ]

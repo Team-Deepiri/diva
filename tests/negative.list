@@ -12,6 +12,3 @@ tests/cases/fail/self_outside_method.diva	unknown identifier 'self'	fail_build
 tests/cases/fail/duplicate_import_main.diva	duplicate function 'clash'	fail_build
 tests/cases/fail/unknown_package_dep	unknown package dependency	fail_build
 tests/cases/fail/array_oob_runtime.diva		runtime_abort
-tests/cases/fail/enum_unknown_enum.diva	unknown enum 'Nope'	fail_build
-tests/cases/fail/enum_unknown_variant.diva	unknown variant 'Purple' in enum 'Color'	fail_build
-tests/cases/fail/enum_wrong_arity.diva	variant 'Some' expects 1 payload argument, got 2	fail_build
