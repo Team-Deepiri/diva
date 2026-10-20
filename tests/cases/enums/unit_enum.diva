@@ -1,0 +1,17 @@
+// #85 Phase 1: unit enums — declaration, qualified construction, .tag reads.
+extern func print_int(x: int): void
+
+enum Color { Red, Green, Blue }
+
+func main(): int {
+    var c: Color = Color::Red
+    print_int(c.tag)
+    c = Color::Blue
+    print_int(c.tag)
+    if c == Color::Blue {
+        print_int(9)
+    }
+    var d = Color::Green
+    print_int(d.tag)
+    return 0
+}

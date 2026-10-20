@@ -8,6 +8,7 @@ Current coverage:
 - `tests/run-watch-smoke.sh` — `diva watch` poll + rebuild cycle (Issue #60)
 - `tests/run-dwarf-smoke.sh` — `diva build -g` + `addr2line` (Issue #63)
 - `tests/run-strict-pure.sh` — strict pure-ELF example list
+- `tests/enums.sh` — enum tagged variants unit/payload cases (Issue #85); builds a driver from the seed unless `DIVA_PURE_DRIVER` is set
 
 ## Run
 

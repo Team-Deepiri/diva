@@ -38,6 +38,7 @@ func tk_for(): int       { return 32 }
 func tk_self(): int      { return 33 }
 func tk_const(): int     { return 34 }
 func tk_text_kw(): int   { return 35 }
+func tk_enum(): int      { return 36 }
 
 func tk_lparen(): int    { return 40 }
 func tk_rparen(): int    { return 41 }
@@ -346,6 +347,7 @@ func tk_name(kind: int): str {
     if kind == 30 { return "KW_BOOL" }
     if kind == 31 { return "KW_STRUCT" }
     if kind == 35 { return "KW_TEXT" }
+    if kind == 36 { return "KW_ENUM" }
     if kind == 40 { return "LPAREN" }
     if kind == 41 { return "RPAREN" }
     if kind == 42 { return "LBRACE" }
