@@ -1256,7 +1256,15 @@ func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
     if op_is2(op, ir_global_load(), ir_global_store()) == 1 { return 14 }
     if op_is2(op, ir_array_load(), ir_array_store()) == 1 { return 61 }
     if op == ir_alloca() { return 11 }
-    if op == ir_param() { return 7 }
+    if op == ir_param() {
+        if a >= 6 {
+            // Stack-passed params not supported; keep pass1/pass2 counts aligned
+            // by emitting 0 bytes in the pass2 param stub below (and the compiler
+            // will hit a clearer error elsewhere).
+            return 0
+        }
+        return 7
+    }
     if (op == ir_ret()) & ((fi == main_fi) == 1) { return 24 }
     if (op == ir_ret()) & ((fi == main_fi) == 0) { return 15 }
     if (op == ir_ret_void()) & ((fi == main_fi) == 1) { return 17 }
@@ -1356,6 +1364,10 @@ func cg_p2_param(out: int, a: int, res: int): int {
     if a == 3 { int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 141) emit_i32(out, stack_disp32(res)) }
     if a == 4 { int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 133) emit_i32(out, stack_disp32(res)) }
     if a == 5 { int_vec_push(out, 76) int_vec_push(out, 137) int_vec_push(out, 141) emit_i32(out, stack_disp32(res)) }
+    if a >= 6 {
+        stderr("codegen error: >=7 params are not supported on x86-64\n")
+        return 0
+    }
     return 0
 }
 
