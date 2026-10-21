@@ -4,9 +4,10 @@
 # `unit_enum` covers declaration, qualified construction, reassignment and
 # .tag reads/== on a payload-free enum; `payload_enum` covers tag+data slots,
 # payload assignment, unit-variant payload reset, and .data reads. The
-# `fail_*` cases lock sema diagnostics (unknown enum/variant, wrong arity);
-# they run here because negative.list is driven by the pinned seed, which
-# predates enum support.
+# `mixed` case covers bare and qualified construction side by side plus
+# enum-to-enum payload copies. The `fail_*` cases lock sema diagnostics
+# (unknown enum/variant, wrong arity); they run here because negative.list is
+# driven by the pinned seed, which predates enum support.
 #
 # Self-contained: with no DIVA_PURE_DRIVER set, builds a fresh driver from the
 # bootstrap seed (the shared build/diva-compiler-pure-elf symlink may not
@@ -94,6 +95,17 @@ check_case payload "${ROOT_DIR}/tests/cases/enums/payload_enum.diva" '0
 0
 7
 5'
+
+check_case mixed "${ROOT_DIR}/tests/cases/enums/mixed_enum.diva" '1
+5
+0
+0
+5
+1
+11
+1
+0
+3'
 
 # check_fail <name> <src> <needle> — build must fail with needle in output
 check_fail() {

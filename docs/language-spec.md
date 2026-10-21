@@ -146,21 +146,39 @@ var c: Color = Red
 var n: Option[int] = Some(0)
 ```
 
+Variants can also be constructed with their enum qualifier: `Enum::Variant`
+for a unit variant, `Enum::Variant(payload)` for a payload variant. The
+qualifier must name a declared enum, and the variant must belong to it.
+
+```diva
+var c: Color = Color::Blue
+var n: Option[int] = Option::Some(0)
+```
+
 Supported on enum values (Issue #93, Phase 1):
 
-- declaration and construction of unit and single-payload variants
+- declaration and construction of unit and single-payload variants, bare or
+  qualified (`Red`, `Color::Red`, `Some(0)`, `Option::Some(0)`)
 - assignment, reassignment, and enum-typed parameters/returns
 - equality against a variant, e.g. `o == None`, `c == Green`
 - the `.tag` field, which reads the variant's declaration index as an `int`
   (`Red = 0`, `Green = 1`, …)
+- the `.data` field, which reads the payload of a local enum binding (`0` for
+  unit-only enums)
 - generic parameter syntax `[T]` / `[T, E]`; parameters are parsed but not
   enforced in Phase 1
 
-Phase 1 limitations: payload values are **not carried at runtime** — an enum
-value lowers to its `int` tag — so `unwrap`/`unwrap_or` return the tag
-(`Some(0)` unwraps to `0`) and payloads are not type-checked when the variant's
-parameter is opaque. Pattern matching, `?`, `map`/`and_then`, and niche
-optimization are not implemented yet.
+Runtime model: an enum binding in a local scope occupies two slots when its
+enum declares a payload variant — the tag slot, then the payload slot — and a
+single slot otherwise. Storing a variant writes the tag, plus the payload
+when the variant has one; storing a unit variant resets the payload slot to
+`0`.
+
+Phase 1 limitations: outside a local binding an enum value is just its `int`
+tag, so payloads are **not carried across a function boundary** — a parameter
+or a return value carries the tag only, and the standard library's
+`option_unwrap` still returns `0`. Equality compares tags. Pattern matching,
+`?`, `map`/`and_then`, and niche optimization are not implemented yet.
 
 The standard library ships ready-made `Option[T]` and `Result[T, E]` enums with
 accessor helpers; see `stdlib/std/option.diva` and `stdlib/std/result.diva`.
@@ -316,10 +334,10 @@ func main(): int {
 - `func` and `extern func`
 - explicit generic functions with call-site type arguments like `identity[int](7)`
 - class declarations with methods
-- `enum` declarations with unit and single-payload variants, bare-name
-  construction, `==` against variants, and `.tag` reads (Issue #93 Phase 1);
-  see `stdlib/std/option.diva` / `stdlib/std/result.diva` and
-  `tests/optres.sh`
+- `enum` declarations with unit and single-payload variants, bare-name and
+  qualified (`Color::Red`) construction, `==` against variants, and `.tag` /
+  `.data` reads (Issue #93 Phase 1); see `stdlib/std/option.diva` /
+  `stdlib/std/result.diva`, `tests/enums.sh`, and `tests/optres.sh`
 - `trait` declarations and `impl Trait for Type` validation
 - **Native sema (Issue #53):** scoped symbol table (globals, funcs, locals); unknown identifiers rejected; call/generic-call arity; assign/return/binop type checks for `int`/`bool`/`str`; object-literal and method-call name lookup. Diagnostics use `path:line:col:` (Issue #54). See `tests/cases/sema/` and `tests/run-sema.sh`.
 - `var` bindings with optional `::` type annotations
@@ -349,5 +367,6 @@ func main(): int {
 - custom packed-value runtime as the default representation
 - NaN boxing
 - sub-byte addressing experiments
-- enum payloads carried at runtime (Phase 1 lowers enum values to their tag)
+- enum payloads carried across function boundaries (Phase 1 carries the payload
+  only in local enum bindings; elsewhere an enum value is its tag)
 - enum pattern matching, `?`, `map`/`and_then`, and niche optimization

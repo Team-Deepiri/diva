@@ -9,13 +9,17 @@ Current coverage:
 - `tests/run-dwarf-smoke.sh` — `diva build -g` + `addr2line` (Issue #63)
 - `tests/run-strict-pure.sh` — strict pure-ELF example list
 - `tests/optres.sh` — `Option`/`Result` + enum tagged variants (Issue #93)
+- `tests/enums.sh` — qualified enum variant construction `Enum::Variant` /
+  `Enum::Variant(payload)` (Issue #85)
 
-`tests/optres.sh` needs a driver built from the branch (the pinned seed predates
-the `enum` keyword). Build one, then point the harness at it:
+`tests/optres.sh` and `tests/enums.sh` need a driver built from the branch (the
+pinned seed predates the `enum` keyword). Build one, then point the harness at
+it:
 
 ```sh
 OUT_EXE=build/diva-compiler-pure-elf-optres bash scripts/build-compiler-pure-elf.sh
 DIVA_PURE_DRIVER=build/diva-compiler-pure-elf-optres sh tests/optres.sh
+DIVA_PURE_DRIVER=build/diva-compiler-pure-elf-optres sh tests/enums.sh
 ```
 
 Its enum negative fixtures live under `tests/cases/sema/` (`fail_enum_*.diva`)
