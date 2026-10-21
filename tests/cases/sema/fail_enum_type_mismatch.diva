@@ -1,0 +1,6 @@
+enum Color { Red, Green }
+
+func main(): int {
+    var c: Color = 0
+    return 0
+}

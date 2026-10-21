@@ -1,0 +1,82 @@
+// Result<T, E> — the canonical success/failure type (Issue #93, Phase 1).
+//
+// Defined in the language as an enum with tagged variants; this module adds
+// the accessor surface. See docs/language-spec.md for the Phase 1 runtime
+// model and its limitations.
+//
+// Runtime model (Phase 1)
+// -----------------------
+// A Result value is a single int tag: `Ok` is 0 and `Err` is 1. Payloads are
+// not carried at runtime yet, so `result_unwrap` returns 0 and the typed
+// unwrap helpers return "". `result_tag` reports the tag and the predicates
+// (`is_ok` / `is_err`) report the outcome.
+//
+// Usage:
+//   import "std/result.diva"
+//   var r: Result = Ok(0)         // or Err(0)
+//   if result_is_err(r) { return 0 }
+
+import "std/mem.diva"
+
+enum Result[T, E] { Ok(T), Err(E) }
+
+// Tag of a Result: 0 = Ok, 1 = Err.
+func result_tag(r: Result): int {
+    return r.tag
+}
+
+// 1 when `r` is Ok, else 0.
+func result_is_ok(r: Result): int {
+    if r == Ok(0) {
+        return 1
+    }
+    return 0
+}
+
+// 1 when `r` is Err, else 0.
+func result_is_err(r: Result): int {
+    if r == Err(0) {
+        return 1
+    }
+    return 0
+}
+
+// Ok payload, or abort-safe 0 for Err.
+func result_unwrap(r: Result): int {
+    if result_is_err(r) == 1 {
+        return 0
+    }
+    return 0
+}
+
+// Err payload, or abort-safe 0 for Ok.
+func result_unwrap_err(r: Result): int {
+    if result_is_err(r) == 1 {
+        return 0
+    }
+    return 0
+}
+
+// Ok payload, or `fallback` for Err.
+func result_unwrap_or(r: Result, fallback: int): int {
+    if result_is_err(r) == 1 {
+        return fallback
+    }
+    return 0
+}
+
+// Ok payload, or "" for Err.
+func result_unwrap_str(r: Result): str {
+    if result_is_err(r) == 1 {
+        return ""
+    }
+    return ""
+}
+
+// Err payload, or "" for Ok.
+func result_unwrap_err_str(r: Result): str {
+    if result_is_err(r) == 1 {
+        return ""
+    }
+    return ""
+}

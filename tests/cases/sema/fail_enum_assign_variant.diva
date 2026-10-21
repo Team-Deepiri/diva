@@ -1,0 +1,6 @@
+enum Color { Red, Green }
+
+func main(): int {
+    Red = 5
+    return 0
+}

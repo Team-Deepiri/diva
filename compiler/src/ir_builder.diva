@@ -225,6 +225,103 @@ func ib_tok_text(ctx: int, src: str, tok_idx: int): str {
     return tok_text(src, bctx_toks(ctx), tok_idx)
 }
 
+// --- Enum helpers (Issue #93) ---
+//
+// Phase 1 `Option`/`Result` values are lowered as int tags: unit variants map
+// to their declaration index (None/Ok = 0, Some/Err = 1), so `.tag`,
+// `is_none`/`is_some`, and `o == None` all work through plain int compares.
+// Payloads are not carried at runtime yet (see docs/language-spec.md).
+
+// Look up a variant by name across all enum decls in the merged AST.
+// Returns the nd_variant node, or -1 when the name is not an enum variant.
+func ib_enum_variant(ctx: int, src: str, name: str): int {
+    var root = mut_get(int_vec_get(ctx, 13))
+    if root == 0 { return 0 - 1 }
+    var kids = ast_child(root, 0)
+    var i = 0
+    while (i < int_vec_len(kids)) {
+        var decl = int_vec_get(kids, i)
+        if ast_kind(decl) == nd_enum() {
+            var variants = ast_child(decl, 1)
+            var vi = 0
+            while (vi < int_vec_len(variants)) {
+                var v = int_vec_get(variants, vi)
+                if str_eq(ib_tok_text(ctx, src, ast_child(v, 0)), name) == 1 {
+                    return v
+                }
+                vi = vi + 1
+            }
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// Raw token index of an identifier spelling, or -1.
+func ib_ident_token(ctx: int, src: str, name: str): int {
+    var toks = bctx_toks(ctx)
+    var i = 0
+    var n = tok_count(toks)
+    while (i < n) {
+        if tok_kind(toks, i) == tk_ident() {
+            if str_eq(tok_text(src, toks, i), name) == 1 {
+                return i
+            }
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// Enum name spelled by a `var x: Type` annotation, or "" when the type is not
+// a declared enum. Uses the merged AST so imported enums resolve too.
+func ib_enum_type_name(ctx: int, src: str, type_node: int): str {
+    if type_node < 0 { return "" }
+    if ast_kind(type_node) != nd_type_name() { return "" }
+    var tn = ib_tok_text(ctx, src, ast_child(type_node, 0))
+    if ib_enum_decl_for_type(ctx, src, tn) < 0 { return "" }
+    return tn
+}
+
+func ib_enum_decl_for_type(ctx: int, src: str, name: str): int {
+    var root = mut_get(int_vec_get(ctx, 13))
+    if root == 0 { return 0 - 1 }
+    var kids = ast_child(root, 0)
+    var i = 0
+    while (i < int_vec_len(kids)) {
+        var decl = int_vec_get(kids, i)
+        if ast_kind(decl) == nd_enum() {
+            if str_eq(ib_tok_text(ctx, src, ast_child(decl, 0)), name) == 1 {
+                return decl
+            }
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// Mint a synthetic token that spells `name` (enum constructors reuse the
+// callee spelling as a func-name token for the IR call instruction).
+func ib_name_token(ctx: int, name: str): int {
+    var pool = mod_name_pool(bctx_mod(ctx))
+    return name_pool_intern(pool, name)
+}
+
+// Lower an enum constructor `Some(9)` / `None`: Phase 1 materializes the tag
+// only, so this evaluates to the variant's declaration index (an int vreg).
+func ib_lower_variant_ctor(ctx: int, src: str, name: str): int {
+    var v = ib_enum_variant(ctx, src, name)
+    if v < 0 {
+        var rz = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), rz, 0, 0, 0))
+        return rz
+    }
+    var tag = ast_child(v, 2)
+    var rt = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), rt, tag, 0, 0))
+    return rt
+}
+
 // --- Local variable name -> slot mapping ---
 
 func ib_name_hash(name: str): int {
@@ -500,6 +597,11 @@ func lower_expr_ident(ctx: int, src: str, node: int): int {
             ib_emit(ctx, ir_inst(ir_global_load(), r, gi, 0, 0))
             return r
         }
+        // Bare enum variant: Phase 1 has no pattern syntax, so `None`, `Ok`
+        // and friends are resolved to their declaration tag.
+        if ib_enum_variant(ctx, src, ib_tok_text(ctx, src, tok_idx)) >= 0 {
+            return ib_lower_variant_ctor(ctx, src, ib_tok_text(ctx, src, tok_idx))
+        }
         var r = ib_fresh_vreg(ctx)
         ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
         return r
@@ -631,6 +733,16 @@ func lower_expr_call(ctx: int, src: str, node: int): int {
     var args_h = ast_child(node, 1)
     var argc = int_vec_len(args_h)
     var ckind = ast_kind(callee)
+    // Enum constructor `Some(x)` / unit `None()`: lower to the variant tag.
+    if ckind == nd_ident() {
+        var cnm = ib_tok_text(ctx, src, ast_child(callee, 0))
+        if ib_enum_variant(ctx, src, cnm) >= 0 {
+            if argc > 0 {
+                lower_expr(ctx, src, int_vec_get(args_h, 0))
+            }
+            return ib_lower_variant_ctor(ctx, src, cnm)
+        }
+    }
     var fname_idx = 0 - 1
     if ckind == nd_ident() { fname_idx = ast_child(callee, 0) }
     if ckind == nd_field() { fname_idx = ast_child(callee, 1) }
@@ -791,9 +903,25 @@ func lower_expr_field(ctx: int, src: str, node: int): int {
             }
         }
         if ((base < 0) == 0) & (stride == 0) & (alen == 1) {
-            var r = ib_fresh_vreg(ctx)
-            ib_emit(ctx, ir_inst(ir_load(), r, base, 0, 0))
-            return r
+            // `o.tag` reads the enum tag slot (Issue #93); `o.data` is not
+            // carried yet. Enum scalars lower to a single int slot.
+            var enm = ast_child(obj_node, 0)
+            var fty_name = ib_enum_type_name(ctx, src, enm)
+            if ib_enum_decl_for_type(ctx, src, fty_name) < 0 {
+                var r = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_load(), r, base, 0, 0))
+                return r
+            }
+            var gl = ib_find_global_index(ctx, src, enm)
+            var v = ib_enum_variant(ctx, src, ib_tok_text(ctx, src, enm))
+            if (gl < 0) & (v >= 0) {
+                var rq = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_const(), rq, ast_child(v, 2), 0, 0))
+                return rq
+            }
+            var re = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_load(), re, base, 0, 0))
+            return re
         }
     }
     var r2 = ib_fresh_vreg(ctx)

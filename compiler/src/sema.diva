@@ -249,6 +249,10 @@ func sctx_new(): int {
     int_vec_push(c, mut_new(0))
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())
+    int_vec_push(c, int_vec_new())
+    int_vec_push(c, int_vec_new())
+    int_vec_push(c, int_vec_new())
+    int_vec_push(c, int_vec_new())
     return c
 }
 
@@ -269,6 +273,23 @@ func sctx_set_names(c: int, v: int): int { return mut_set(int_vec_get(c, 0), v) 
 func sctx_set_marks(c: int, v: int): int { return mut_set(int_vec_get(c, 1), v) }
 func sctx_set_local_types(c: int, v: int): int { return mut_set(int_vec_get(c, 8), v) }
 func sctx_set_cur_ret_ty(c: int, v: int): int { return mut_set(int_vec_get(c, 9), v) }
+func sctx_enum_type_toks(c: int): int { return int_vec_get(c, 12) }
+func sctx_variant_toks(c: int): int { return int_vec_get(c, 13) }
+func sctx_variant_enum_ids(c: int): int { return int_vec_get(c, 14) }
+func sctx_variant_payloads(c: int): int { return int_vec_get(c, 15) }
+
+// Index of a registered variant name, or -1. Variants share one namespace.
+func sctx_variant_index(c: int, src: str, toks: int, want: str): int {
+    var vts = sctx_variant_toks(c)
+    var i = 0
+    while (i < int_vec_len(vts)) {
+        if str_eq(tok_text(src, toks, int_vec_get(vts, i)), want) == 1 {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
 
 func sctx_free(c: int): int {
     int_vec_free(sctx_names(c))
@@ -281,6 +302,10 @@ func sctx_free(c: int): int {
     int_vec_free(sctx_methods(c))
     int_vec_free(sctx_local_types(c))
     int_vec_free(sctx_global_types(c))
+    int_vec_free(sctx_enum_type_toks(c))
+    int_vec_free(sctx_variant_toks(c))
+    int_vec_free(sctx_variant_enum_ids(c))
+    int_vec_free(sctx_variant_payloads(c))
     int_vec_free(c)
     return 0
 }
@@ -346,10 +371,11 @@ func sctx_ty_name(ty: int): str {
     if ty == ir_ty_bool() { return "bool" }
     if ty == ir_ty_str() { return "str" }
     if ty == ir_ty_text() { return "text" }
+    if ty > ir_ty_text() { return "enum" }
     return "?"
 }
 
-func sema_type_from_node(type_node: int, src: str, toks: int): int {
+func sema_type_from_node(c: int, type_node: int, src: str, toks: int): int {
     if (type_node < 0) {
         return ir_ty_int()
     }
@@ -362,6 +388,14 @@ func sema_type_from_node(type_node: int, src: str, toks: int): int {
     if str_eq(tn, "str") == 1 { return ir_ty_str() }
     if str_eq(tn, "text") == 1 { return ir_ty_text() }
     if str_eq(tn, "void") == 1 { return ir_ty_void() }
+    var ei = 0
+    var en = int_vec_len(sctx_enum_type_toks(c))
+    while (ei < en) {
+        if str_eq(tok_text(src, toks, int_vec_get(sctx_enum_type_toks(c), ei)), tn) == 1 {
+            return ir_ty_text() + 1 + ei
+        }
+        ei = ei + 1
+    }
     return ir_ty_int()
 }
 
@@ -432,7 +466,12 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
     if kind == nd_text_slice() { return ir_ty_text() }
     if kind == nd_ident() {
         var itok = ast_child(node, 0)
-        return sctx_lookup_var_type(c, src, toks, tok_text(src, toks, itok))
+        var inm = tok_text(src, toks, itok)
+        var ivi = sctx_variant_index(c, src, toks, inm)
+        if ivi >= 0 {
+            return int_vec_get(sctx_variant_enum_ids(c), ivi)
+        }
+        return sctx_lookup_var_type(c, src, toks, inm)
     }
     if kind == nd_binop() {
         var op = ast_child(node, 0)
@@ -466,6 +505,14 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
         return ir_ty_int()
     }
     if kind == nd_generic_call() {
+        var gcallee = ast_child(node, 0)
+        if ast_kind(gcallee) == nd_ident() {
+            var gt = tok_text(src, toks, ast_child(gcallee, 0))
+            var gvi = sctx_variant_index(c, src, toks, gt)
+            if gvi >= 0 {
+                return int_vec_get(sctx_variant_enum_ids(c), gvi)
+            }
+        }
         return ir_ty_int()
     }
     if kind == nd_method_call() {
@@ -636,6 +683,15 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
     if kind == nd_ident() {
         var itok = ast_child(node, 0)
         var nm = tok_text(src, toks, itok)
+        var vi = sctx_variant_index(c, src, toks, nm)
+        if (vi >= 0) & (int_vec_get(sctx_variant_payloads(c), vi) != 0 - 1) {
+            diag_emit_loc(src, tok_start(toks, itok))
+            stderr("sema: variant '")
+            stderr(nm)
+            stderr("' must be called")
+            stderr(char_to_str(10))
+            return 1
+        }
         if sctx_name_known(c, src, toks, nm) == 0 {
             return sema_unknown_at(src, toks, itok)
         }
@@ -687,9 +743,53 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
     return 0
 }
 
+func sema_check_variant_ctor(c: int, src: str, toks: int, node: int, callee: int, args: int): int {
+    var ctok = ast_child(callee, 0)
+    var vi = sctx_variant_index(c, src, toks, tok_text(src, toks, ctok))
+    if vi < 0 {
+        return sema_unknown_at(src, toks, ctok)
+    }
+    var argc = int_vec_len(args)
+    var pty = int_vec_get(sctx_variant_payloads(c), vi)
+    if pty == 0 - 1 {
+        diag_emit_loc(src, tok_start(toks, ctok))
+        stderr("sema: unit variant '")
+        stderr(tok_text(src, toks, ctok))
+        stderr("' takes no payload")
+        stderr(char_to_str(10))
+        return 1
+    }
+    if argc != 1 {
+        diag_emit_loc(src, tok_start(toks, ctok))
+        stderr("sema: variant '")
+        stderr(tok_text(src, toks, ctok))
+        stderr("' expects 1 payload argument, got ")
+        stderr(int_to_str(argc))
+        stderr(char_to_str(10))
+        return 1
+    }
+    var ai = 0
+    while (ai < argc) {
+        if sema_check_expr(c, src, toks, int_vec_get(args, ai)) != 0 { return 1 }
+        ai = ai + 1
+    }
+    if pty >= 0 {
+        var got = sema_expr_type(c, src, toks, int_vec_get(args, 0))
+        if got != pty {
+            return sema_type_mismatch_at(src, toks, ctok, pty, got)
+        }
+    }
+    return 0
+}
+
 func sema_check_call(c: int, src: str, toks: int, node: int): int {
     var callee = ast_child(node, 0)
     var args = ast_child(node, 1)
+    if ast_kind(callee) == nd_ident() {
+        if sctx_variant_index(c, src, toks, tok_text(src, toks, ast_child(callee, 0))) >= 0 {
+            return sema_check_variant_ctor(c, src, toks, node, callee, args)
+        }
+    }
     var ai = 0
     while (ai < int_vec_len(args)) {
         if sema_check_expr(c, src, toks, int_vec_get(args, ai)) != 0 { return 1 }
@@ -801,7 +901,7 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
         var name_tok = ast_child(node, 0)
         var type_node = ast_child(node, 1)
         var init = ast_child(node, 2)
-        var vty = sema_type_from_node(type_node, src, toks)
+        var vty = sema_type_from_node(c, type_node, src, toks)
         if (init < 0) == 0 {
             if sema_check_expr(c, src, toks, init) != 0 { return 1 }
             if (type_node < 0) {
@@ -823,6 +923,14 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
         if ast_kind(target) == nd_ident() {
             var ttok = ast_child(target, 0)
             var nm = tok_text(src, toks, ttok)
+            if sctx_variant_index(c, src, toks, nm) >= 0 {
+                diag_emit_loc(src, tok_start(toks, ttok))
+                stderr("sema: cannot assign to enum variant '")
+                stderr(nm)
+                stderr("'")
+                stderr(char_to_str(10))
+                return 1
+            }
             if sctx_name_known(c, src, toks, nm) == 0 {
                 return sema_unknown_at(src, toks, ttok)
             }
@@ -913,12 +1021,12 @@ func sema_check_block_or_stmt(c: int, src: str, toks: int, node: int): int {
 func sema_check_func_node(c: int, src: str, toks: int, fn: int): int {
     sctx_scope_push(c)
     var ret_node = ast_child(fn, 2)
-    sctx_set_cur_ret_ty(c, sema_type_from_node(ret_node, src, toks))
+    sctx_set_cur_ret_ty(c, sema_type_from_node(c, ret_node, src, toks))
     var params = ast_child(fn, 1)
     var pi = 0
     while (pi < int_vec_len(params)) {
         var p = int_vec_get(params, pi)
-        var pty = sema_type_from_node(ast_child(p, 1), src, toks)
+        var pty = sema_type_from_node(c, ast_child(p, 1), src, toks)
         sctx_define_typed(c, ast_child(p, 0), pty)
         pi = pi + 1
     }
@@ -931,7 +1039,163 @@ func sema_check_func_node(c: int, src: str, toks: int, fn: int): int {
     return rc
 }
 
+// --- Enum declarations as nominal Option/Result-style types (Issue #93) ---
+//
+// Enum types get nominal ids (ir_ty_text() + 1 + index) so `var o: Option`
+// rejects `0` while `o == None` type-checks. Unit variants register as enum-
+// typed globals whose value is the variant tag; payload variants register as
+// one-argument functions returning the enum type.
+//
+// Payload check policy: primitive payload types (int/bool/str/text) are
+// checked against the constructor argument; anything else (type parameters
+// such as T/E, arrays, other named types) is opaque and unchecked.
+
+func sema_variant_payload_type(type_node: int, src: str, toks: int): int {
+    if type_node < 0 {
+        return 0 - 1
+    }
+    if ast_kind(type_node) != nd_type_name() {
+        return 0 - 2
+    }
+    var tn = tok_text(src, toks, ast_child(type_node, 0))
+    if str_eq(tn, "int") == 1 { return ir_ty_int() }
+    if str_eq(tn, "bool") == 1 { return ir_ty_bool() }
+    if str_eq(tn, "str") == 1 { return ir_ty_str() }
+    if str_eq(tn, "text") == 1 { return ir_ty_text() }
+    return 0 - 2
+}
+
+func sema_collect_enums(c: int, src: str, toks: int, file_node: int): int {
+    var children = ast_child(file_node, 0)
+    var n = int_vec_len(children)
+    var i = 0
+    while (i < n) {
+        var ch = int_vec_get(children, i)
+        if ast_kind(ch) == nd_enum() {
+            var name_tok = ast_child(ch, 0)
+            var nm = tok_text(src, toks, name_tok)
+            if sctx_tok_list_has(sctx_enum_type_toks(c), src, toks, nm) == 1 {
+                diag_emit_loc(src, tok_start(toks, name_tok))
+                stderr("sema: duplicate enum '")
+                stderr(nm)
+                stderr("'")
+                stderr(char_to_str(10))
+                return 1
+            }
+            var enum_id = ir_ty_text() + 1 + int_vec_len(sctx_enum_type_toks(c))
+            int_vec_push(sctx_enum_type_toks(c), name_tok)
+            var variants = ast_child(ch, 1)
+            var vseen = int_vec_new()
+            var vi = 0
+            var vn = int_vec_len(variants)
+            while (vi < vn) {
+                var v = int_vec_get(variants, vi)
+                var vtok = ast_child(v, 0)
+                var vnm = tok_text(src, toks, vtok)
+                if sctx_tok_list_has(vseen, src, toks, vnm) == 1 {
+                    int_vec_free(vseen)
+                    diag_emit_loc(src, tok_start(toks, vtok))
+                    stderr("sema: duplicate variant '")
+                    stderr(vnm)
+                    stderr("' in enum '")
+                    stderr(nm)
+                    stderr("'")
+                    stderr(char_to_str(10))
+                    return 1
+                }
+                int_vec_push(vseen, vtok)
+                var pty = 0 - 1
+                if ast_child(v, 1) >= 0 {
+                    pty = sema_variant_payload_type(ast_child(v, 1), src, toks)
+                }
+                // Variants join the global/function namespaces directly (no
+                // duplicate check against their own registration). A later
+                // namespace collision pass catches clashes with real decls.
+                if pty == 0 - 1 {
+                    int_vec_push(sctx_globals(c), vtok)
+                    int_vec_push(sctx_global_types(c), enum_id)
+                } else {
+                    int_vec_push(sctx_fn_names(c), vtok)
+                    int_vec_push(sctx_fn_arities(c), 1)
+                    int_vec_push(sctx_fn_ret_types(c), enum_id)
+                }
+                int_vec_push(sctx_variant_toks(c), vtok)
+                int_vec_push(sctx_variant_enum_ids(c), enum_id)
+                int_vec_push(sctx_variant_payloads(c), pty)
+                vi = vi + 1
+            }
+            int_vec_free(vseen)
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Variant names share the global namespace with functions: reject a function
+// declared with the same name as a payload variant (or any function that
+// shadows a unit variant), which pass ordering would otherwise let slip by.
+func sema_check_variant_collisions(c: int, src: str, toks: int, file_node: int): int {
+    var vts = sctx_variant_toks(c)
+    var children = ast_child(file_node, 0)
+    var fn_toks = int_vec_new()
+    var i = 0
+    while (i < int_vec_len(children)) {
+        var ch = int_vec_get(children, i)
+        var k = ast_kind(ch)
+        if k == nd_func() | k == nd_extern_func() {
+            int_vec_push(fn_toks, ast_child(ch, 0))
+        }
+        if k == nd_class() {
+            var mem = ast_child(ch, 1)
+            var mi = 0
+            while (mi < int_vec_len(mem)) {
+                if ast_kind(int_vec_get(mem, mi)) == nd_func() {
+                    int_vec_push(fn_toks, ast_child(int_vec_get(mem, mi), 0))
+                }
+                mi = mi + 1
+            }
+        }
+        if k == nd_impl() {
+            var mem2 = ast_child(ch, 2)
+            var mi2 = 0
+            while (mi2 < int_vec_len(mem2)) {
+                if ast_kind(int_vec_get(mem2, mi2)) == nd_func() {
+                    int_vec_push(fn_toks, ast_child(int_vec_get(mem2, mi2), 0))
+                }
+                mi2 = mi2 + 1
+            }
+        }
+        i = i + 1
+    }
+    var vni = 0
+    var vn = int_vec_len(vts)
+    while (vni < vn) {
+        var vnm = tok_text(src, toks, int_vec_get(vts, vni))
+        var fi = 0
+        while (fi < int_vec_len(fn_toks)) {
+            if str_eq(tok_text(src, toks, int_vec_get(fn_toks, fi)), vnm) == 1 {
+                int_vec_free(fn_toks)
+                diag_emit_loc(src, tok_start(toks, int_vec_get(vts, vni)))
+                stderr("sema: function '")
+                stderr(vnm)
+                stderr("' conflicts with enum variant")
+                stderr(char_to_str(10))
+                return 1
+            }
+            fi = fi + 1
+        }
+        vni = vni + 1
+    }
+    int_vec_free(fn_toks)
+    return 0
+}
+
 func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
+    // Pass 1: register every enum type and variant first so any later
+    // annotation or initializer can resolve them regardless of source order.
+    if sema_collect_enums(c, src, toks, file_node) != 0 {
+        return 1
+    }
     var children = ast_child(file_node, 0)
     var n = int_vec_len(children)
     var i = 0
@@ -939,20 +1203,20 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
         var ch = int_vec_get(children, i)
         var k = ast_kind(ch)
         if k == nd_func() {
-            var f_ret = sema_type_from_node(ast_child(ch, 2), src, toks)
+            var f_ret = sema_type_from_node(c, ast_child(ch, 2), src, toks)
             if sctx_add_fn(c, src, toks, ast_child(ch, 0), int_vec_len(ast_child(ch, 1)), f_ret) != 0 {
                 return 1
             }
         }
         if k == nd_extern_func() {
-            var e_ret = sema_type_from_node(ast_child(ch, 2), src, toks)
+            var e_ret = sema_type_from_node(c, ast_child(ch, 2), src, toks)
             if sctx_add_fn(c, src, toks, ast_child(ch, 0), int_vec_len(ast_child(ch, 1)), e_ret) != 0 {
                 return 1
             }
         }
         if k == nd_var_decl() {
             var g_type_node = ast_child(ch, 1)
-            var gty = sema_type_from_node(g_type_node, src, toks)
+            var gty = sema_type_from_node(c, g_type_node, src, toks)
             // Untyped globals: infer from initializer (same as local var decls).
             if (g_type_node < 0) {
                 var g_init = ast_child(ch, 2)
@@ -976,7 +1240,7 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
                     // Class methods lower with implicit self as first arg (+1 arity).
                     var arity = int_vec_len(ast_child(m, 1)) + 1
                     if (sctx_fn_arity(c, src, toks, tok_text(src, toks, mtok)) < 0) {
-                        var m_ret = sema_type_from_node(ast_child(m, 2), src, toks)
+                        var m_ret = sema_type_from_node(c, ast_child(m, 2), src, toks)
                         if sctx_add_fn(c, src, toks, mtok, arity, m_ret) != 0 {
                             return 1
                         }
@@ -997,7 +1261,7 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
                     // Impl methods lower as free funcs; register arity unless a free
                     // func with the same name already exists (receiver-first demos).
                     if (sctx_fn_arity(c, src, toks, mnm) < 0) {
-                        var im_ret = sema_type_from_node(ast_child(m, 2), src, toks)
+                        var im_ret = sema_type_from_node(c, ast_child(m, 2), src, toks)
                         if sctx_add_fn(c, src, toks, mtok, int_vec_len(ast_child(m, 1)), im_ret) != 0 {
                             return 1
                         }
@@ -1007,6 +1271,9 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
             }
         }
         i = i + 1
+    }
+    if sema_check_variant_collisions(c, src, toks, file_node) != 0 {
+        return 1
     }
     return 0
 }
