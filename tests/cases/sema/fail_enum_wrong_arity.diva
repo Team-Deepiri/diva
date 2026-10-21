@@ -1,0 +1,6 @@
+enum Maybe { Nothing, Just(int) }
+
+func main(): int {
+    var m: Maybe = Just(1, 2)
+    return m.tag
+}

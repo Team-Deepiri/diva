@@ -750,9 +750,29 @@ func parse_class_decl(ps: int, src: str): int {
     return ast_class_generic(name, type_params, members)
 }
 
+<<<<<<< ours
 func parse_enum_decl(ps: int, src: str): int {
     p_advance(ps)
     var name = p_expect(ps, src, tk_ident())
+=======
+// enum Name { Variant, Variant(payload_type), ... }
+// Optional type parameters (enum Option[T]) are parsed and ignored for now:
+// Phase 1 has no generic instantiation, so variants declare erased payloads.
+func parse_enum_decl(ps: int, src: str): int {
+    p_advance(ps)
+    var name = p_expect(ps, src, tk_ident())
+    if p_cur(ps) == tk_lbrack() {
+        p_advance(ps)
+        if p_cur(ps) != tk_rbrack() {
+            p_expect(ps, src, tk_ident())
+            while p_cur(ps) == tk_comma() {
+                p_advance(ps)
+                p_expect(ps, src, tk_ident())
+            }
+        }
+        p_expect(ps, src, tk_rbrack())
+    }
+>>>>>>> theirs
     p_expect(ps, src, tk_lbrace())
     var variants = int_vec_new()
     var tag = 0
@@ -770,6 +790,7 @@ func parse_enum_decl(ps: int, src: str): int {
             }
             int_vec_push(variants, ast_variant(vname, vtype, tag))
             tag = tag + 1
+<<<<<<< ours
             p_skip_semi(ps)
             p_match(ps, tk_comma())
         } else {
@@ -777,6 +798,18 @@ func parse_enum_decl(ps: int, src: str): int {
                 return ast_enum(name, variants)
             }
             p_advance(ps)
+=======
+        } else {
+            if ps_quiet(ps) == 0 {
+                p_diag(ps, src)
+                stderr("parse error: expected variant name in enum '")
+                stderr(p_text(ps, src, name))
+                stderr("'")
+                stderr("\n")
+            }
+            ps_set_err(ps)
+            return ast_enum(name, variants)
+>>>>>>> theirs
         }
     }
     p_expect(ps, src, tk_rbrace())

@@ -1,0 +1,66 @@
+// Option<T> — the canonical "may be absent" type (Issue #93, Phase 1).
+//
+// Defined in the language as an enum with tagged variants; this module adds
+// the accessor surface. See docs/language-spec.md for the Phase 1 runtime
+// model and its limitations.
+//
+// Runtime model (Phase 1)
+// -----------------------
+// An Option value is a single int tag: `None` is 0 and `Some` is 1. Payloads
+// are not carried at runtime yet, so `option_unwrap` returns 0 and the typed
+// `option_unwrap_str` returns "". `option_tag` reports the tag, and the
+// predicate helpers (`is_some` / `is_none`) report presence.
+//
+// Usage:
+//   import "std/option.diva"
+//   var o: Option = None          // or Some(0)
+//   if option_is_none(o) { return 0 }
+
+import "std/mem.diva"
+
+enum Option[T] { None, Some(T) }
+
+// Tag of an Option: 0 = None, 1 = Some.
+func option_tag(o: Option): int {
+    return o.tag
+}
+
+// 1 when `o` is Some, else 0.
+func option_is_some(o: Option): int {
+    if o == None {
+        return 0
+    }
+    return 1
+}
+
+// 1 when `o` is None, else 0.
+func option_is_none(o: Option): int {
+    if o == None {
+        return 1
+    }
+    return 0
+}
+
+// Payload of a Some, or abort-safe 0 for None.
+func option_unwrap(o: Option): int {
+    if o == None {
+        return 0
+    }
+    return 0
+}
+
+// Payload of a Some, or `fallback` for None.
+func option_unwrap_or(o: Option, fallback: int): int {
+    if o == None {
+        return fallback
+    }
+    return 0
+}
+
+// String payload of a Some, or "" for None.
+func option_unwrap_str(o: Option): str {
+    if o == None {
+        return ""
+    }
+    return ""
+}

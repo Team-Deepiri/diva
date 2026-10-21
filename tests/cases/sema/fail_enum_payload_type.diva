@@ -1,0 +1,6 @@
+enum Flag { Off, On(int) }
+
+func main(): int {
+    var f: Flag = On("nope")
+    return f.tag
+}

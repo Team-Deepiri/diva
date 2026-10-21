@@ -8,7 +8,19 @@ Current coverage:
 - `tests/run-watch-smoke.sh` — `diva watch` poll + rebuild cycle (Issue #60)
 - `tests/run-dwarf-smoke.sh` — `diva build -g` + `addr2line` (Issue #63)
 - `tests/run-strict-pure.sh` — strict pure-ELF example list
-- `tests/enums.sh` — enum tagged variants unit/payload cases (Issue #85); builds a driver from the seed unless `DIVA_PURE_DRIVER` is set
+- `tests/optres.sh` — `Option`/`Result` + enum tagged variants (Issue #93)
+
+`tests/optres.sh` needs a driver built from the branch (the pinned seed predates
+the `enum` keyword). Build one, then point the harness at it:
+
+```sh
+OUT_EXE=build/diva-compiler-pure-elf-optres bash scripts/build-compiler-pure-elf.sh
+DIVA_PURE_DRIVER=build/diva-compiler-pure-elf-optres sh tests/optres.sh
+```
+
+Its enum negative fixtures live under `tests/cases/sema/` (`fail_enum_*.diva`)
+but are gated here, not in `tests/sema.list`, because CI's `native-broad` gate
+runs the seed, which cannot parse `enum`.
 
 ## Run
 

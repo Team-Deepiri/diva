@@ -1,0 +1,7 @@
+enum Color { Red, Green }
+
+func main(): int {
+    var c: Color = Red
+    c = Green
+    return c.tag
+}

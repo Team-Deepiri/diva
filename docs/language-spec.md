@@ -52,6 +52,7 @@ func main(): int {
 - `func`
 - `extern`
 - `class`
+- `enum`
 - `var`
 - `if`
 - `else`
@@ -77,6 +78,7 @@ Other supported type forms:
 
 - arrays like `int[]`
 - user-defined class names like `Point`
+- user-defined enum names like `Color` (see [Enums](#enums))
 
 ## Declarations
 
@@ -123,6 +125,45 @@ Current implementation note:
 - class fields lower to struct-like fields
 - methods lower to functions with an explicit receiver
 - method calls use `obj.method(...)`
+
+### Enums
+
+An `enum` is a tagged union: a named type with an ordered set of variants.
+Unit variants carry no data; payload variants carry one value of a declared
+type. Variants are constructed by their bare name (`None`), or called with a
+single argument (`Some(x)`), in the surrounding scope — no `Type::Variant`
+qualifier is required.
+
+```diva
+enum Color { Red, Green, Blue }
+
+enum Option[T] {
+    None,
+    Some(T)
+}
+
+var c: Color = Red
+var n: Option[int] = Some(0)
+```
+
+Supported on enum values (Issue #93, Phase 1):
+
+- declaration and construction of unit and single-payload variants
+- assignment, reassignment, and enum-typed parameters/returns
+- equality against a variant, e.g. `o == None`, `c == Green`
+- the `.tag` field, which reads the variant's declaration index as an `int`
+  (`Red = 0`, `Green = 1`, …)
+- generic parameter syntax `[T]` / `[T, E]`; parameters are parsed but not
+  enforced in Phase 1
+
+Phase 1 limitations: payload values are **not carried at runtime** — an enum
+value lowers to its `int` tag — so `unwrap`/`unwrap_or` return the tag
+(`Some(0)` unwraps to `0`) and payloads are not type-checked when the variant's
+parameter is opaque. Pattern matching, `?`, `map`/`and_then`, and niche
+optimization are not implemented yet.
+
+The standard library ships ready-made `Option[T]` and `Result[T, E]` enums with
+accessor helpers; see `stdlib/std/option.diva` and `stdlib/std/result.diva`.
 
 ## Variables
 
@@ -275,6 +316,10 @@ func main(): int {
 - `func` and `extern func`
 - explicit generic functions with call-site type arguments like `identity[int](7)`
 - class declarations with methods
+- `enum` declarations with unit and single-payload variants, bare-name
+  construction, `==` against variants, and `.tag` reads (Issue #93 Phase 1);
+  see `stdlib/std/option.diva` / `stdlib/std/result.diva` and
+  `tests/optres.sh`
 - `trait` declarations and `impl Trait for Type` validation
 - **Native sema (Issue #53):** scoped symbol table (globals, funcs, locals); unknown identifiers rejected; call/generic-call arity; assign/return/binop type checks for `int`/`bool`/`str`; object-literal and method-call name lookup. Diagnostics use `path:line:col:` (Issue #54). See `tests/cases/sema/` and `tests/run-sema.sh`.
 - `var` bindings with optional `::` type annotations
@@ -304,3 +349,5 @@ func main(): int {
 - custom packed-value runtime as the default representation
 - NaN boxing
 - sub-byte addressing experiments
+- enum payloads carried at runtime (Phase 1 lowers enum values to their tag)
+- enum pattern matching, `?`, `map`/`and_then`, and niche optimization

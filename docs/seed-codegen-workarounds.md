@@ -62,6 +62,20 @@ The pinned seed / native subset parser rejects **`>=` and `<=` in `if` condition
 
 **Mitigation in Diva source:** always bind, then length, then branch, e.g. `var s = read_file(p); var n = str_len(s); if n == 0 { … }` (same idea for `merge_file_sources` / `merge_package_sources` / `read_source` results). The compiler **loader** and **driver** (`compiler/src/loader.diva`, `compiler/src/main.diva`) follow this pattern.
 
+## 8. Functions with 7 or more parameters (seed pass1/pass2 size split)
+
+**Symptom:** `verify-selfhost-consistency.sh` fails with
+`codegen internal error: pass1/pass2 code size mismatch p1=… p2=…` where
+`p1 - p2 == 7`, even though the same source self-hosts once a newer driver is
+used. The seed's pass1 counts `0` bytes for the 7th parameter (index `6`), but
+its pass2 prologue still emits the store for it, so every function with **seven
+or more parameters** shifts the whole module by 7 bytes per such parameter.
+
+**Mitigation in Diva source:** keep compiler functions at **six or fewer
+parameters** (the ABI register limit anyway). Split a wide helper into a small
+wrapper plus a context argument, or drop unused parameters. This bit
+`ib_ctor_call` (7 params) during Issue #93; it was removed as unused.
+
 ## Related
 
 - Strict pure CI list: `tests/strict-pure.list` (single-file examples that fit the native subset and pure extern set).

@@ -45,7 +45,10 @@ func nd_text_lit(): int    { return 36 }
 func nd_text_slice(): int  { return 37 }
 func nd_enum(): int        { return 38 }
 func nd_variant(): int     { return 39 }
+<<<<<<< ours
 func nd_enum_variant(): int { return 40 }
+=======
+>>>>>>> theirs
 
 // --- Binary operator sub-kinds (stored in binop payload) ---
 
@@ -440,6 +443,7 @@ func ast_variant(name_tok: int, type_node: int, tag: int): int {
     return n
 }
 
+<<<<<<< ours
 // Enum variant construction: [kind, enum_name_tok, variant_name_tok, args_handle]
 // args_handle is an int_vec of expression nodes (empty for unit variants).
 func ast_enum_variant(enum_tok: int, variant_tok: int, args: int): int {
@@ -451,6 +455,8 @@ func ast_enum_variant(enum_tok: int, variant_tok: int, args: int): int {
     return n
 }
 
+=======
+>>>>>>> theirs
 // Expr statement: [kind, expr_node]
 func ast_expr_stmt(expr: int): int {
     var n = int_vec_new()

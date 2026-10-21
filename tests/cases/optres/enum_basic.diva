@@ -1,0 +1,50 @@
+// #93 Phase 1: a user-declared enum demonstrating the tagged-variant
+// mechanism that Option/Result build on. Pins unit-variant ordering, `.tag`
+// reads, `==` against variants, reassignment, and enum-typed parameters.
+
+import "std/io.diva"
+
+enum Color { Red, Green, Blue }
+enum Shape { Point, Circle(int) }
+
+var enum_fail = 0
+
+func chk(cond: int, name: str): int {
+    if cond == 0 {
+        stderr("FAIL ")
+        stderr(name)
+        stderr("\n")
+        enum_fail = enum_fail + 1
+    }
+    return 0
+}
+
+func is_blue(c: Color): int {
+    if c == Blue {
+        return 1
+    }
+    return 0
+}
+
+func main(): int {
+    var c: Color = Red
+    chk(c.tag == 0, "red_tag_0")
+    chk(c == Red, "red_eq_red")
+    c = Green
+    chk(c.tag == 1, "green_tag_1")
+    c = Blue
+    chk(c.tag == 2, "blue_tag_2")
+    chk(is_blue(c) == 1, "is_blue_true")
+    chk(is_blue(Green) == 0, "is_blue_false")
+
+    var s: Shape = Point
+    chk(s.tag == 0, "point_tag_0")
+    s = Circle(0)
+    chk(s.tag == 1, "circle_tag_1")
+    chk(s == Circle(0), "circle_eq")
+
+    print_int(c.tag)
+    print_int(s.tag)
+    print_int(enum_fail)
+    return enum_fail
+}
