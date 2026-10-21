@@ -474,6 +474,79 @@ func ib_struct_field_index(ctx: int, src: str, typename_tok: int, field_tok: int
     return 0 - 1
 }
 
+// --- Enum lowering (Issue #85) ---
+// Enum values lower to consecutive slots like POD structs:
+//   slot base+0 = variant tag (int, 0-based declaration order)
+//   slot base+1 = payload (only when the enum declares any payload variant)
+// Unit enums are width-1 (tag only); payload enums are width-2.
+
+func ib_find_enum(ctx: int, src: str, name: str): int {
+    var root = mut_get(int_vec_get(ctx, 13))
+    if root == 0 {
+        return 0 - 1
+    }
+    var kids = ast_child(root, 0)
+    var n = int_vec_len(kids)
+    var i = 0
+    while (i < n) {
+        var decl = int_vec_get(kids, i)
+        if ast_kind(decl) == nd_enum() {
+            if str_eq(ib_tok_text(ctx, src, ast_child(decl, 0)), name) == 1 {
+                return decl
+            }
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func ib_enum_variant_count(decl: int): int {
+    return int_vec_len(ast_child(decl, 1))
+}
+
+func ib_enum_variant_at(decl: int, idx: int): int {
+    return int_vec_get(ast_child(decl, 1), idx)
+}
+
+func ib_enum_variant_has_payload(v: int): int {
+    if ast_child(v, 1) < 0 {
+        return 0
+    }
+    return 1
+}
+
+func ib_enum_variant_index(ctx: int, src: str, decl: int, vname: str): int {
+    if decl < 0 {
+        return 0 - 1
+    }
+    var n = ib_enum_variant_count(decl)
+    var i = 0
+    while (i < n) {
+        var v = ib_enum_variant_at(decl, i)
+        if str_eq(ib_tok_text(ctx, src, ast_child(v, 0)), vname) == 1 {
+            return ast_child(v, 2)
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func ib_enum_width(ctx: int, src: str, enum_name: str): int {
+    var decl = ib_find_enum(ctx, src, enum_name)
+    if decl < 0 {
+        return 1
+    }
+    var n = ib_enum_variant_count(decl)
+    var i = 0
+    while (i < n) {
+        if ib_enum_variant_has_payload(ib_enum_variant_at(decl, i)) == 1 {
+            return 2
+        }
+        i = i + 1
+    }
+    return 1
+}
+
 // --- Expression lowering ---
 
 // Find the module-level global index for an identifier token, or -1 if not a global.
@@ -790,6 +863,28 @@ func lower_expr_field(ctx: int, src: str, node: int): int {
                 return r3
             }
         }
+        // Enum locals: `.tag` reads the tag slot; `.data` reads the payload
+        // slot (0 for unit enums, which carry no payload slot).
+        if ((base < 0) == 0) & (stride == 0) & (sty != ib_struct_ty_none()) {
+            if (ib_find_enum(ctx, src, ib_tok_text(ctx, src, sty)) < 0) == 0 {
+                var efnm = ib_tok_text(ctx, src, field_tok)
+                if str_eq(efnm, "tag") == 1 {
+                    var rt = ib_fresh_vreg(ctx)
+                    ib_emit(ctx, ir_inst(ir_load(), rt, base, 0, 0))
+                    return rt
+                }
+                if str_eq(efnm, "data") == 1 {
+                    if ib_enum_width(ctx, src, ib_tok_text(ctx, src, sty)) > 1 {
+                        var rd = ib_fresh_vreg(ctx)
+                        ib_emit(ctx, ir_inst(ir_load(), rd, base + 1, 0, 0))
+                        return rd
+                    }
+                    var rz = ib_fresh_vreg(ctx)
+                    ib_emit(ctx, ir_inst(ir_const(), rz, 0, 0, 0))
+                    return rz
+                }
+            }
+        }
         if ((base < 0) == 0) & (stride == 0) & (alen == 1) {
             var r = ib_fresh_vreg(ctx)
             ib_emit(ctx, ir_inst(ir_load(), r, base, 0, 0))
@@ -936,6 +1031,19 @@ func lower_expr(ctx: int, src: str, node: int): int {
     if kind == nd_method_call() { return lower_expr_method_call(ctx, src, node) }
     if kind == nd_index() { return lower_expr_index(ctx, src, node) }
     if kind == nd_field() { return lower_expr_field(ctx, src, node) }
+
+    // Enum variant in expression position lowers to its tag (single vreg).
+    // Payload variants are fully materialized only via var decl / assignment.
+    if kind == nd_enum_variant() {
+        var ename = ib_tok_text(ctx, src, ast_child(node, 0))
+        var vname = ib_tok_text(ctx, src, ast_child(node, 1))
+        var edecl = ib_find_enum(ctx, src, ename)
+        var tag = ib_enum_variant_index(ctx, src, edecl, vname)
+        if tag < 0 { tag = 0 }
+        var rt = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), rt, tag, 0, 0))
+        return rt
+    }
 
     var r = ib_fresh_vreg(ctx)
     ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
@@ -1222,6 +1330,39 @@ func lower_stmt_var_array(ctx: int, src: str, name_tok: int, type_node: int, ini
     return 1
 }
 
+// Lower nd_var_decl for enum-variant init: tag (+ payload) into consecutive slots.
+func lower_stmt_var_enum(ctx: int, src: str, name_tok: int, init: int): int {
+    var enum_tok = ast_child(init, 0)
+    var ename = ib_tok_text(ctx, src, enum_tok)
+    var vname = ib_tok_text(ctx, src, ast_child(init, 1))
+    var args = ast_child(init, 2)
+    var edecl = ib_find_enum(ctx, src, ename)
+    if edecl < 0 { return 0 }
+    var tag = ib_enum_variant_index(ctx, src, edecl, vname)
+    if tag < 0 { return 0 }
+    var width = ib_enum_width(ctx, src, ename)
+    var base = ib_define_struct_local(ctx, name_tok, width, enum_tok)
+    var si = 0
+    while (si < width) {
+        ib_emit(ctx, ir_inst(ir_alloca(), base + si, 0, 0, 0))
+        si = si + 1
+    }
+    var tv = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), tv, tag, 0, 0))
+    ib_emit(ctx, ir_inst(ir_store(), base, tv, 0, 0))
+    if width > 1 {
+        var pv = 0 - 1
+        if int_vec_len(args) > 0 {
+            pv = lower_expr(ctx, src, int_vec_get(args, 0))
+        } else {
+            pv = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_const(), pv, 0, 0, 0))
+        }
+        ib_emit(ctx, ir_inst(ir_store(), base + 1, pv, 0, 0))
+    }
+    return 1
+}
+
 // Lower nd_var_decl for struct types.
 func lower_stmt_var_struct(ctx: int, src: str, name_tok: int, type_name_tok: int, init: int): int {
     var sw = ib_type_struct_width(ctx, src, type_name_tok)
@@ -1296,14 +1437,44 @@ func lower_stmt_if(ctx: int, src: str, node: int): int {
     return 0
 }
 
+// Assign an enum variant into an existing enum local's slots (base = tag slot).
+// Returns 1 when handled; 0 lets the caller fall back to tag-only lowering.
+func lower_assign_enum(ctx: int, src: str, base: int, value: int): int {
+    var ename = ib_tok_text(ctx, src, ast_child(value, 0))
+    var vname = ib_tok_text(ctx, src, ast_child(value, 1))
+    var args = ast_child(value, 2)
+    var edecl = ib_find_enum(ctx, src, ename)
+    if edecl < 0 { return 0 }
+    var tag = ib_enum_variant_index(ctx, src, edecl, vname)
+    if tag < 0 { return 0 }
+    var tv = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), tv, tag, 0, 0))
+    ib_emit(ctx, ir_inst(ir_store(), base, tv, 0, 0))
+    if ib_enum_width(ctx, src, ename) > 1 {
+        var pv = 0 - 1
+        if int_vec_len(args) > 0 {
+            pv = lower_expr(ctx, src, int_vec_get(args, 0))
+        } else {
+            pv = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_const(), pv, 0, 0, 0))
+        }
+        ib_emit(ctx, ir_inst(ir_store(), base + 1, pv, 0, 0))
+    }
+    return 1
+}
+
 func lower_stmt_assign(ctx: int, src: str, node: int): int {
     var target = ast_child(node, 0)
     var value = ast_child(node, 1)
     if ast_kind(target) == nd_ident() {
         var name_tok = ast_child(target, 0)
         var slot = ib_lookup_by_name_tok(ctx, src, name_tok)
-        var val = lower_expr(ctx, src, value)
         if (slot < 0) == 0 {
+            // Enum variant assign: `e = Opt::Some(7)` writes tag + payload slots.
+            if ast_kind(value) == nd_enum_variant() {
+                if lower_assign_enum(ctx, src, slot, value) == 1 { return 0 }
+            }
+            var val = lower_expr(ctx, src, value)
             ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
             if ib_expr_is_text(ctx, src, value) == 1 {
                 ib_mark_text(ctx, slot)
@@ -1311,7 +1482,8 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
         } else {
             var gi = ib_find_global_index(ctx, src, name_tok)
             if (gi < 0) == 0 {
-                ib_emit(ctx, ir_inst(ir_global_store(), gi, val, 0, 0))
+                var gval = lower_expr(ctx, src, value)
+                ib_emit(ctx, ir_inst(ir_global_store(), gi, gval, 0, 0))
             }
         }
         return 0
@@ -1435,6 +1607,13 @@ func lower_stmt(ctx: int, src: str, node: int): int {
             if ast_kind(init) == nd_obj_lit() {
                 var lit_ty = ast_child(init, 0)
                 if lower_stmt_var_struct(ctx, src, name_tok, lit_ty, init) == 1 { return 0 }
+            }
+        }
+
+        // Enum variant init: `var e = Color::Red` / `var e = Opt::Some(5)`.
+        if (init < 0) == 0 {
+            if ast_kind(init) == nd_enum_variant() {
+                if lower_stmt_var_enum(ctx, src, name_tok, init) == 1 { return 0 }
             }
         }
 
@@ -1679,6 +1858,13 @@ func lower_global(ctx: int, src: str, node: int): int {
     var gtype = ir_ty_int()
     var init_val = 0
     if (init < 0) == 0 {
+        if ast_kind(init) == nd_enum_variant() {
+            var gen = ib_tok_text(ctx, src, ast_child(init, 0))
+            var gvn = ib_tok_text(ctx, src, ast_child(init, 1))
+            var gtag = ib_enum_variant_index(ctx, src, ib_find_enum(ctx, src, gen), gvn)
+            if gtag >= 0 { init_val = gtag }
+        }
+        if ast_kind(init) != nd_enum_variant() {
         var ik = ast_kind(init)
         if ik == nd_int_lit() {
             init_val = ast_child(init, 0)
@@ -1713,6 +1899,7 @@ func lower_global(ctx: int, src: str, node: int): int {
                 }
                 }
             }
+        }
         }
     }
     var g = ir_global_new(name_tok, gtype, init_val)

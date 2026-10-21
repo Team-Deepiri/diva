@@ -1,0 +1,4 @@
+func main(): int {
+    var x = Nope::Red
+    return x
+}

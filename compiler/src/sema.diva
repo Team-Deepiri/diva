@@ -227,8 +227,185 @@ func sema_check_file(src: str, toks: int, file_node: int): int {
     if sema_check_impls(file_node, src, toks) != 0 {
         return 1
     }
+    if sema_check_enum_decls(file_node, src, toks) != 0 {
+        return 1
+    }
     if sema_check_names(file_node, src, toks) != 0 {
         return 1
+    }
+    return 0
+}
+
+// --- Enum declarations and tagged-variant construction (Issue #85) ---
+
+func sema_find_enum(file_node: int, src: str, toks: int, want: str): int {
+    var children = ast_child(file_node, 0)
+    var n = int_vec_len(children)
+    var i = 0
+    while (i < n) {
+        var ch = int_vec_get(children, i)
+        if ast_kind(ch) == nd_enum() {
+            if str_eq(tok_text(src, toks, ast_child(ch, 0)), want) == 1 {
+                return ch
+            }
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// Variant lookup: [found (0/1), tag, has_payload (0/1)].
+func sema_enum_variant_info(decl: int, src: str, toks: int, want: str): int {
+    var info = int_vec_new()
+    var variants = ast_child(decl, 1)
+    var n = int_vec_len(variants)
+    var i = 0
+    while (i < n) {
+        var v = int_vec_get(variants, i)
+        if str_eq(tok_text(src, toks, ast_child(v, 0)), want) == 1 {
+            int_vec_push(info, 1)
+            int_vec_push(info, ast_child(v, 2))
+            var hp = 0
+            if ast_child(v, 1) >= 0 { hp = 1 }
+            int_vec_push(info, hp)
+            return info
+        }
+        i = i + 1
+    }
+    int_vec_push(info, 0)
+    int_vec_push(info, 0 - 1)
+    int_vec_push(info, 0)
+    return info
+}
+
+func sema_check_enum_decls(file_node: int, src: str, toks: int): int {
+    var children = ast_child(file_node, 0)
+    var n = int_vec_len(children)
+    var seen = int_vec_new()
+    var i = 0
+    while (i < n) {
+        var ch = int_vec_get(children, i)
+        if ast_kind(ch) == nd_enum() {
+            var name_tok = ast_child(ch, 0)
+            var nm = tok_text(src, toks, name_tok)
+            if sctx_tok_list_has(seen, src, toks, nm) == 1 {
+                int_vec_free(seen)
+                diag_emit_loc(src, tok_start(toks, name_tok))
+                stderr("sema: duplicate enum '")
+                stderr(nm)
+                stderr("'")
+                stderr(char_to_str(10))
+                return 1
+            }
+            int_vec_push(seen, name_tok)
+            var variants = ast_child(ch, 1)
+            var vseen = int_vec_new()
+            var vi = 0
+            var vn = int_vec_len(variants)
+            while (vi < vn) {
+                var v = int_vec_get(variants, vi)
+                var vtok = ast_child(v, 0)
+                var vnm = tok_text(src, toks, vtok)
+                if sctx_tok_list_has(vseen, src, toks, vnm) == 1 {
+                    int_vec_free(seen)
+                    int_vec_free(vseen)
+                    diag_emit_loc(src, tok_start(toks, vtok))
+                    stderr("sema: duplicate variant '")
+                    stderr(vnm)
+                    stderr("' in enum '")
+                    stderr(nm)
+                    stderr("'")
+                    stderr(char_to_str(10))
+                    return 1
+                }
+                int_vec_push(vseen, vtok)
+                var vtype = ast_child(v, 1)
+                if vtype >= 0 {
+                    var tnm = ""
+                    if ast_kind(vtype) == nd_type_name() {
+                        tnm = tok_text(src, toks, ast_child(vtype, 0))
+                    }
+                    if str_eq(tnm, "int") == 0 {
+                        int_vec_free(seen)
+                        int_vec_free(vseen)
+                        diag_emit_loc(src, tok_start(toks, vtok))
+                        stderr("sema: enum payload type must be 'int' in variant '")
+                        stderr(vnm)
+                        stderr("' of enum '")
+                        stderr(nm)
+                        stderr("'")
+                        stderr(char_to_str(10))
+                        return 1
+                    }
+                }
+                vi = vi + 1
+            }
+            int_vec_free(vseen)
+        }
+        i = i + 1
+    }
+    int_vec_free(seen)
+    return 0
+}
+
+func sema_check_enum_variant(c: int, src: str, toks: int, node: int): int {
+    var enum_tok = ast_child(node, 0)
+    var variant_tok = ast_child(node, 1)
+    var args = ast_child(node, 2)
+    var enum_nm = tok_text(src, toks, enum_tok)
+    var variant_nm = tok_text(src, toks, variant_tok)
+    var decl = sema_find_enum(sctx_file_ast(c), src, toks, enum_nm)
+    if (decl < 0) {
+        diag_emit_loc(src, tok_start(toks, enum_tok))
+        stderr("sema: unknown enum '")
+        stderr(enum_nm)
+        stderr("'")
+        stderr(char_to_str(10))
+        return 1
+    }
+    var info = sema_enum_variant_info(decl, src, toks, variant_nm)
+    if int_vec_get(info, 0) == 0 {
+        int_vec_free(info)
+        diag_emit_loc(src, tok_start(toks, variant_tok))
+        stderr("sema: unknown variant '")
+        stderr(variant_nm)
+        stderr("' in enum '")
+        stderr(enum_nm)
+        stderr("'")
+        stderr(char_to_str(10))
+        return 1
+    }
+    var has_payload = int_vec_get(info, 2)
+    var argc = int_vec_len(args)
+    if has_payload == 1 {
+        if argc != 1 {
+            int_vec_free(info)
+            diag_emit_loc(src, tok_start(toks, variant_tok))
+            stderr("sema: variant '")
+            stderr(variant_nm)
+            stderr("' expects 1 payload argument, got ")
+            stderr(int_to_str(argc))
+            stderr(char_to_str(10))
+            return 1
+        }
+    } else {
+        if argc != 0 {
+            int_vec_free(info)
+            diag_emit_loc(src, tok_start(toks, variant_tok))
+            stderr("sema: unit variant '")
+            stderr(variant_nm)
+            stderr("' of enum '")
+            stderr(enum_nm)
+            stderr("' takes no payload")
+            stderr(char_to_str(10))
+            return 1
+        }
+    }
+    int_vec_free(info)
+    var ai = 0
+    while (ai < argc) {
+        if sema_check_expr(c, src, toks, int_vec_get(args, ai)) != 0 { return 1 }
+        ai = ai + 1
     }
     return 0
 }
@@ -249,6 +426,7 @@ func sctx_new(): int {
     int_vec_push(c, mut_new(0))
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())
+    int_vec_push(c, mut_new(0))
     return c
 }
 
@@ -269,6 +447,8 @@ func sctx_set_names(c: int, v: int): int { return mut_set(int_vec_get(c, 0), v) 
 func sctx_set_marks(c: int, v: int): int { return mut_set(int_vec_get(c, 1), v) }
 func sctx_set_local_types(c: int, v: int): int { return mut_set(int_vec_get(c, 8), v) }
 func sctx_set_cur_ret_ty(c: int, v: int): int { return mut_set(int_vec_get(c, 9), v) }
+func sctx_file_ast(c: int): int { return mut_get(int_vec_get(c, 12)) }
+func sctx_set_file_ast(c: int, v: int): int { return mut_set(int_vec_get(c, 12), v) }
 
 func sctx_free(c: int): int {
     int_vec_free(sctx_names(c))
@@ -468,6 +648,9 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
     if kind == nd_generic_call() {
         return ir_ty_int()
     }
+    if kind == nd_enum_variant() {
+        return ir_ty_int()
+    }
     if kind == nd_method_call() {
         return ir_ty_int()
     }
@@ -652,6 +835,9 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
     }
     if kind == nd_generic_call() {
         return sema_check_generic_call(c, src, toks, node)
+    }
+    if kind == nd_enum_variant() {
+        return sema_check_enum_variant(c, src, toks, node)
     }
     if kind == nd_method_call() {
         return sema_check_method_call(c, src, toks, node)
@@ -1013,6 +1199,7 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
 
 func sema_check_names(file_node: int, src: str, toks: int): int {
     var c = sctx_new()
+    sctx_set_file_ast(c, file_node)
     if sema_collect_toplevel(c, src, toks, file_node) != 0 {
         sctx_free(c)
         return 1

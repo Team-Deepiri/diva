@@ -54,6 +54,7 @@ Root keeps only `README.md`, `LICENSE`, and `.gitignore` besides those directori
 - explicit generic functions via `func name[T](...)`
 - `class` declarations with methods
 - `trait` declarations and `impl Trait for Type` conformance checks
+- `enum` declarations with tagged variants (Phase 1: `int` payloads, qualified `E::V` construction, `.tag` / `.data` reads)
 - `var` declarations with optional `::` type annotations
 - `if` / `else`
 - `while condition => update`

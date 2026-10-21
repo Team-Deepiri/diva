@@ -1,0 +1,6 @@
+enum Opt { None, Some(int) }
+
+func main(): int {
+    var x = Opt::Some(1, 2)
+    return x
+}

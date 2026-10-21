@@ -34,6 +34,15 @@ jobs:
       - name: Run broad native gate
         run: sh tests/run-native-broad.sh
 
+  enums:
+    name: enums tagged variants (#85)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run enums gate (builds driver from seed)
+        run: sh tests/enums.sh
+
   selfhost-consistency:
     name: selfhost consistency (stage2 = stage3)
     runs-on: ubuntu-latest
