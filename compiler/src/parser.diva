@@ -179,6 +179,16 @@ func parse_primary(ps: int, src: str): int {
     if kind == tk_ident() | kind == tk_self() {
         var ident_tok = tok
         p_advance(ps)
+        // Qualified enum variant: `Enum::Variant` / `Enum::Variant(payload)`.
+        if p_cur(ps) == tk_coloncolon() {
+            p_advance(ps)
+            var vtok = p_expect(ps, src, tk_ident())
+            var vargs = int_vec_new()
+            if p_cur(ps) == tk_lparen() {
+                vargs = parse_args(ps, src)
+            }
+            return ast_qualified_variant(ident_tok, vtok, vargs)
+        }
         if p_cur(ps) == tk_lbrace() {
             // Avoid treating stmt blocks as struct lits (if a == b {, while (i < n) {).
             // Real struct literals start with ident: or empty fields.

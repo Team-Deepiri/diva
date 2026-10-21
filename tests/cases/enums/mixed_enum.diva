@@ -1,0 +1,28 @@
+// #85 Phase 1: bare and qualified construction coexist; enum-to-enum copies
+// keep the payload; a unit variant resets the payload slot.
+extern func print_int(x: int): void
+
+enum Opt { None, Some(int) }
+enum Color { Red, Green }
+
+func main(): int {
+    var a = Opt::Some(5)
+    var b: Opt = a
+    print_int(b.tag)
+    print_int(b.data)
+    b = Opt::None
+    print_int(b.tag)
+    print_int(b.data)
+    b = a
+    print_int(b.data)
+    var e = Some(11)
+    print_int(e.tag)
+    print_int(e.data)
+    var c = Color::Green
+    print_int(c.tag)
+    print_int(c.data)
+    if c == Color::Green {
+        print_int(3)
+    }
+    return 0
+}

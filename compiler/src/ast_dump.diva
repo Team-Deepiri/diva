@@ -66,6 +66,23 @@ func dump_expr(node: int, depth: int, src: str, toks: int, nl: str): int {
         }
         return 0
     }
+    if (k == nd_qualified_variant()) {
+        var b = str_builder_new()
+        str_builder_append(b, "QualifiedVariant(")
+        str_builder_append(b, tok_text(src, toks, ast_child(node, 0)))
+        str_builder_append(b, "::")
+        str_builder_append(b, tok_text(src, toks, ast_child(node, 1)))
+        str_builder_append(b, ")")
+        dump_line(depth, str_builder_to_str(b), nl)
+        str_builder_free(b)
+        var qargs = ast_child(node, 2)
+        var qi = 0
+        while (qi < int_vec_len(qargs)) {
+            dump_expr(int_vec_get(qargs, qi), depth + 1, src, toks, nl)
+            qi = qi + 1
+        }
+        return 0
+    }
     if (k == nd_generic_call()) {
         dump_line(depth, "GenericCall", nl)
         dump_expr(ast_child(node, 0), depth + 1, src, toks, nl)

@@ -102,6 +102,8 @@ func ib_find_blk_by_label(ctx: int, label: int): int {
 //   [13] = file_ast_cell (root AST handle for struct layout lookup)
 //   [14] = struct_ty_cell (int_vec parallel to names: type_name_tok or -1)
 //   [15] = array_strides_cell (0 = not an array; 1 = scalar elems; W = struct-elem stride)
+//   [16] = text_vregs_cell (vregs known to hold text)
+//   [17] = enum_ty_cell (int_vec parallel to names: enum name tok or -1)
 
 func bctx_new(src: str, toks: int): int {
     var ctx = int_vec_new()
@@ -124,6 +126,7 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, mut_new(int_vec_new())) // [14] struct type name tok per local (-1 = not struct)
     int_vec_push(ctx, mut_new(int_vec_new())) // [15] array strides (0 = non-array)
     int_vec_push(ctx, mut_new(int_vec_new())) // [16] text_vregs (vregs known to hold text)
+    int_vec_push(ctx, mut_new(int_vec_new())) // [17] enum type name tok per local (-1 = not an enum)
     return ctx
 }
 
@@ -166,6 +169,15 @@ func bctx_text_vregs(ctx: int): int {
 
 func bctx_set_text_vregs(ctx: int, v: int): int {
     return mut_set(int_vec_get(ctx, 16), v)
+}
+
+// Enum type name token per local binding (-1 = not an enum local).
+func bctx_enum_ty(ctx: int): int {
+    return mut_get(int_vec_get(ctx, 17))
+}
+
+func bctx_set_enum_ty(ctx: int, v: int): int {
+    return mut_set(int_vec_get(ctx, 17), v)
 }
 
 // Mark a vreg as holding a `text` value (for type-directed operator lowering).
@@ -273,16 +285,6 @@ func ib_ident_token(ctx: int, src: str, name: str): int {
     return 0 - 1
 }
 
-// Enum name spelled by a `var x: Type` annotation, or "" when the type is not
-// a declared enum. Uses the merged AST so imported enums resolve too.
-func ib_enum_type_name(ctx: int, src: str, type_node: int): str {
-    if type_node < 0 { return "" }
-    if ast_kind(type_node) != nd_type_name() { return "" }
-    var tn = ib_tok_text(ctx, src, ast_child(type_node, 0))
-    if ib_enum_decl_for_type(ctx, src, tn) < 0 { return "" }
-    return tn
-}
-
 func ib_enum_decl_for_type(ctx: int, src: str, name: str): int {
     var root = mut_get(int_vec_get(ctx, 13))
     if root == 0 { return 0 - 1 }
@@ -322,6 +324,131 @@ func ib_lower_variant_ctor(ctx: int, src: str, name: str): int {
     return rt
 }
 
+// Slot count of an enum value: 1 for unit-only enums, 2 when the enum
+// declares a payload variant (tag slot + payload slot).
+func ib_enum_width(ctx: int, src: str, enum_name: str): int {
+    var decl = ib_enum_decl_for_type(ctx, src, enum_name)
+    if decl < 0 { return 1 }
+    var variants = ast_child(decl, 1)
+    var i = 0
+    while (i < int_vec_len(variants)) {
+        if ast_child(int_vec_get(variants, i), 1) >= 0 { return 2 }
+        i = i + 1
+    }
+    return 1
+}
+
+// The nd_variant node named |vname| inside |decl|, or -1.
+func ib_enum_variant_in_decl(ctx: int, src: str, decl: int, vname: str): int {
+    if decl < 0 { return 0 - 1 }
+    var variants = ast_child(decl, 1)
+    var i = 0
+    while (i < int_vec_len(variants)) {
+        var v = int_vec_get(variants, i)
+        if str_eq(ib_tok_text(ctx, src, ast_child(v, 0)), vname) == 1 {
+            return v
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// The enum declaration owning variant node |vnode|, or -1.
+func ib_enum_decl_for_variant(ctx: int, src: str, vnode: int): int {
+    if vnode < 0 { return 0 - 1 }
+    var root = mut_get(int_vec_get(ctx, 13))
+    if root == 0 { return 0 - 1 }
+    var kids = ast_child(root, 0)
+    var i = 0
+    while (i < int_vec_len(kids)) {
+        var decl = int_vec_get(kids, i)
+        if ast_kind(decl) == nd_enum() {
+            var variants = ast_child(decl, 1)
+            var vi = 0
+            while (vi < int_vec_len(variants)) {
+                if int_vec_get(variants, vi) == vnode { return decl }
+                vi = vi + 1
+            }
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// Variant name constructed by a bare variant expression (`None`, `Some(9)`),
+// or "" when the expression is not a bare variant construction. Locals and
+// globals shadow variant names, so they are not variant constructions.
+func ib_bare_variant_name(ctx: int, src: str, node: int): str {
+    if node < 0 { return "" }
+    var kind = ast_kind(node)
+    if kind == nd_ident() {
+        var itok = ast_child(node, 0)
+        if ib_lookup_by_name_tok(ctx, src, itok) >= 0 { return "" }
+        if ib_find_global_index(ctx, src, itok) >= 0 { return "" }
+        return ib_tok_text(ctx, src, itok)
+    }
+    if kind == nd_call() {
+        var callee = ast_child(node, 0)
+        if ast_kind(callee) != nd_ident() { return "" }
+        var ctok = ast_child(callee, 0)
+        if ib_lookup_by_name_tok(ctx, src, ctok) >= 0 { return "" }
+        if ib_find_global_index(ctx, src, ctok) >= 0 { return "" }
+        return ib_tok_text(ctx, src, ctok)
+    }
+    return ""
+}
+
+// The name spelled by an identifier expression (`x`, `f(x)`), or "" when the
+// expression is not an identifier.
+func ib_expr_ident_name(ctx: int, src: str, node: int): str {
+    if node < 0 { return "" }
+    var kind = ast_kind(node)
+    if kind == nd_ident() {
+        return ib_tok_text(ctx, src, ast_child(node, 0))
+    }
+    if kind == nd_call() {
+        var callee = ast_child(node, 0)
+        if ast_kind(callee) != nd_ident() { return "" }
+        return ib_tok_text(ctx, src, ast_child(callee, 0))
+    }
+    return ""
+}
+
+// The nd_variant node constructed by |node| (`Enum::Variant`, `Variant` or
+// `Variant(payload)`), or -1 when the expression is not a variant
+// construction.
+func ib_variant_ctor_node(ctx: int, src: str, node: int): int {
+    if node < 0 { return 0 - 1 }
+    if ast_kind(node) == nd_qualified_variant() {
+        var ename = ib_tok_text(ctx, src, ast_child(node, 0))
+        var vname = ib_tok_text(ctx, src, ast_child(node, 1))
+        var decl = ib_enum_decl_for_type(ctx, src, ename)
+        if decl < 0 { return 0 - 1 }
+        return ib_enum_variant_in_decl(ctx, src, decl, vname)
+    }
+    var bname = ib_bare_variant_name(ctx, src, node)
+    if bname == "" { return 0 - 1 }
+    return ib_enum_variant(ctx, src, bname)
+}
+
+// The payload expression of a variant construction, or -1 when the variant
+// is written without a payload.
+func ib_variant_ctor_payload(ctx: int, src: str, node: int): int {
+    if node < 0 { return 0 - 1 }
+    var kind = ast_kind(node)
+    if kind == nd_qualified_variant() {
+        var args = ast_child(node, 2)
+        if int_vec_len(args) > 0 { return int_vec_get(args, 0) }
+        return 0 - 1
+    }
+    if kind == nd_call() {
+        var cargs = ast_child(node, 1)
+        if int_vec_len(cargs) > 0 { return int_vec_get(cargs, 0) }
+        return 0 - 1
+    }
+    return 0 - 1
+}
+
 // --- Local variable name -> slot mapping ---
 
 func ib_name_hash(name: str): int {
@@ -344,12 +471,14 @@ func ib_scope_pop(ctx: int, mark: int): int {
     var lens = bctx_array_lens(ctx)
     var sty = bctx_struct_ty(ctx)
     var strides = bctx_array_strides(ctx)
+    var ety = bctx_enum_ty(ctx)
     if (int_vec_len(names) > mark) {
         var fresh_n = int_vec_new()
         var fresh_s = int_vec_new()
         var fresh_l = int_vec_new()
         var fresh_sty = int_vec_new()
         var fresh_st = int_vec_new()
+        var fresh_ety = int_vec_new()
         var i = 0
         while (i < mark) {
             int_vec_push(fresh_n, int_vec_get(names, i))
@@ -357,6 +486,7 @@ func ib_scope_pop(ctx: int, mark: int): int {
             int_vec_push(fresh_l, int_vec_get(lens, i))
             int_vec_push(fresh_sty, int_vec_get(sty, i))
             int_vec_push(fresh_st, int_vec_get(strides, i))
+            int_vec_push(fresh_ety, int_vec_get(ety, i))
             i = i + 1
         }
         int_vec_free(names)
@@ -364,16 +494,22 @@ func ib_scope_pop(ctx: int, mark: int): int {
         int_vec_free(lens)
         int_vec_free(sty)
         int_vec_free(strides)
+        int_vec_free(ety)
         bctx_set_names(ctx, fresh_n)
         bctx_set_slots(ctx, fresh_s)
         bctx_set_array_lens(ctx, fresh_l)
         mut_set(int_vec_get(ctx, 14), fresh_sty)
         bctx_set_array_strides(ctx, fresh_st)
+        bctx_set_enum_ty(ctx, fresh_ety)
     }
     return 0
 }
 
 func ib_struct_ty_none(): int {
+    return 0 - 1
+}
+
+func ib_enum_ty_none(): int {
     return 0 - 1
 }
 
@@ -384,7 +520,27 @@ func ib_define_local(ctx: int, def_name_tok: int): int {
     int_vec_push(bctx_array_lens(ctx), 1)
     int_vec_push(bctx_struct_ty(ctx), ib_struct_ty_none())
     int_vec_push(bctx_array_strides(ctx), 0)
+    int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
     return slot
+}
+
+// Enum local: tag slot at |base| and payload slot at |base+1| (payload enums
+// only). |width| is 1 for unit-only enums, 2 when the enum declares a
+// payload variant.
+func ib_define_enum_local(ctx: int, def_name_tok: int, enum_name_tok: int, width: int): int {
+    var base = ib_fresh_vreg(ctx)
+    var j = 1
+    while (j < width) {
+        ib_fresh_vreg(ctx)
+        j = j + 1
+    }
+    int_vec_push(bctx_names(ctx), def_name_tok)
+    int_vec_push(bctx_slots(ctx), base)
+    int_vec_push(bctx_array_lens(ctx), width)
+    int_vec_push(bctx_struct_ty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_array_strides(ctx), 0)
+    int_vec_push(bctx_enum_ty(ctx), enum_name_tok)
+    return base
 }
 
 // Reserve n*stride consecutive vregs. |n| = element count; |stride| slots per element
@@ -403,6 +559,7 @@ func ib_define_array_local(ctx: int, def_name_tok: int, n: int, stride: int, ele
     int_vec_push(bctx_array_lens(ctx), n)
     int_vec_push(bctx_struct_ty(ctx), elem_sty)
     int_vec_push(bctx_array_strides(ctx), stride)
+    int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
     return base
 }
 
@@ -419,6 +576,7 @@ func ib_define_struct_local(ctx: int, def_name_tok: int, n: int, type_name_tok: 
     int_vec_push(bctx_array_lens(ctx), n)
     int_vec_push(bctx_struct_ty(ctx), type_name_tok)
     int_vec_push(bctx_array_strides(ctx), 0)
+    int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
     return base
 }
 
@@ -494,6 +652,24 @@ func ib_lookup_struct_ty(ctx: int, src: str, name: str): int {
     while (j < n2) {
         if str_eq_tok_spelling(name, src, toks, int_vec_get(names, j)) == 1 {
             found = int_vec_get(sty, j)
+        }
+        j = j + 1
+    }
+    return found
+}
+
+// Enum type name token bound to |name|, or -1 when the name is not an enum
+// local.
+func ib_lookup_enum_ty(ctx: int, src: str, name: str): int {
+    var toks = bctx_toks(ctx)
+    var names = bctx_names(ctx)
+    var ety = bctx_enum_ty(ctx)
+    var n2 = int_vec_len(names)
+    var found = ib_enum_ty_none()
+    var j = 0
+    while (j < n2) {
+        if str_eq_tok_spelling(name, src, toks, int_vec_get(names, j)) == 1 {
+            found = int_vec_get(ety, j)
         }
         j = j + 1
     }
@@ -893,6 +1069,27 @@ func lower_expr_field(ctx: int, src: str, node: int): int {
         var alen = ib_lookup_array_len(ctx, src, obj_name)
         var stride = ib_lookup_array_stride(ctx, src, obj_name)
         var sty = ib_lookup_struct_ty(ctx, src, obj_name)
+        // Enum locals: `.tag` reads the tag slot, `.data` the payload slot
+        // (0 for unit-only enums, which carry no payload slot).
+        var ety = ib_lookup_enum_ty(ctx, src, obj_name)
+        if ((base < 0) == 0) & (ety != ib_enum_ty_none()) {
+            var efield = ib_tok_text(ctx, src, field_tok)
+            if str_eq(efield, "tag") == 1 {
+                var ert = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_load(), ert, base, 0, 0))
+                return ert
+            }
+            if str_eq(efield, "data") == 1 {
+                if ib_enum_width(ctx, src, ib_tok_text(ctx, src, ety)) > 1 {
+                    var erd = ib_fresh_vreg(ctx)
+                    ib_emit(ctx, ir_inst(ir_load(), erd, base + 1, 0, 0))
+                    return erd
+                }
+                var erz = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_const(), erz, 0, 0, 0))
+                return erz
+            }
+        }
         // Scalar struct only (stride 0). Struct arrays use index+field above.
         if ((base < 0) == 0) & (stride == 0) & (sty != ib_struct_ty_none()) {
             var fidx = ib_struct_field_index(ctx, src, sty, field_tok)
@@ -903,25 +1100,11 @@ func lower_expr_field(ctx: int, src: str, node: int): int {
             }
         }
         if ((base < 0) == 0) & (stride == 0) & (alen == 1) {
-            // `o.tag` reads the enum tag slot (Issue #93); `o.data` is not
-            // carried yet. Enum scalars lower to a single int slot.
-            var enm = ast_child(obj_node, 0)
-            var fty_name = ib_enum_type_name(ctx, src, enm)
-            if ib_enum_decl_for_type(ctx, src, fty_name) < 0 {
-                var r = ib_fresh_vreg(ctx)
-                ib_emit(ctx, ir_inst(ir_load(), r, base, 0, 0))
-                return r
-            }
-            var gl = ib_find_global_index(ctx, src, enm)
-            var v = ib_enum_variant(ctx, src, ib_tok_text(ctx, src, enm))
-            if (gl < 0) & (v >= 0) {
-                var rq = ib_fresh_vreg(ctx)
-                ib_emit(ctx, ir_inst(ir_const(), rq, ast_child(v, 2), 0, 0))
-                return rq
-            }
-            var re = ib_fresh_vreg(ctx)
-            ib_emit(ctx, ir_inst(ir_load(), re, base, 0, 0))
-            return re
+            // Enum values carried as plain ints (parameters, globals) and
+            // plain scalars share one slot: read it.
+            var r = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_load(), r, base, 0, 0))
+            return r
         }
     }
     var r2 = ib_fresh_vreg(ctx)
@@ -1064,6 +1247,20 @@ func lower_expr(ctx: int, src: str, node: int): int {
     if kind == nd_method_call() { return lower_expr_method_call(ctx, src, node) }
     if kind == nd_index() { return lower_expr_index(ctx, src, node) }
     if kind == nd_field() { return lower_expr_field(ctx, src, node) }
+
+    // Qualified variant in expression position (`Enum::Variant`) lowers to
+    // its tag; the payload is evaluated for its side effects only. Payload
+    // values are materialized when the variant is stored into an enum local.
+    if kind == nd_qualified_variant() {
+        var vnode = ib_variant_ctor_node(ctx, src, node)
+        var qtag = 0
+        if vnode >= 0 { qtag = ast_child(vnode, 2) }
+        var pnode = ib_variant_ctor_payload(ctx, src, node)
+        if pnode >= 0 { lower_expr(ctx, src, pnode) }
+        var qrt = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), qrt, qtag, 0, 0))
+        return qrt
+    }
 
     var r = ib_fresh_vreg(ctx)
     ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
@@ -1350,6 +1547,146 @@ func lower_stmt_var_array(ctx: int, src: str, name_tok: int, type_node: int, ini
     return 1
 }
 
+// Enum type token for a local declaration: from the type annotation when it
+// names an enum, else from the variant construction in the initializer.
+// Returns -1 when the declaration is not enum-typed.
+func ib_enum_local_type_tok(ctx: int, src: str, type_node: int, init: int): int {
+    if (type_node < 0) == 0 {
+        if ast_kind(type_node) == nd_type_name() {
+            var tnm = ib_tok_text(ctx, src, ast_child(type_node, 0))
+            if ib_enum_decl_for_type(ctx, src, tnm) >= 0 {
+                return ast_child(type_node, 0)
+            }
+        }
+    }
+    if (init < 0) == 0 {
+        if ast_kind(init) == nd_qualified_variant() {
+            var qnm = ib_tok_text(ctx, src, ast_child(init, 0))
+            if ib_enum_decl_for_type(ctx, src, qnm) >= 0 {
+                return ast_child(init, 0)
+            }
+        }
+        var bname = ib_bare_variant_name(ctx, src, init)
+        if bname != "" {
+            var bv = ib_enum_variant(ctx, src, bname)
+            if bv >= 0 {
+                var bdecl = ib_enum_decl_for_variant(ctx, src, bv)
+                if bdecl >= 0 { return ast_child(bdecl, 0) }
+            }
+        }
+    }
+    return 0 - 1
+}
+
+// Lower nd_var_decl for enum-typed locals. An enum value lives in
+// consecutive slots: the tag slot and, for enums with a payload variant, the
+// payload slot. Returns 1 when handled, 0 to fall back to the generic path.
+func lower_stmt_var_enum(ctx: int, src: str, name_tok: int, type_node: int, init: int): int {
+    var enum_tok = ib_enum_local_type_tok(ctx, src, type_node, init)
+    if enum_tok < 0 { return 0 }
+    var enum_name = ib_tok_text(ctx, src, enum_tok)
+    var width = ib_enum_width(ctx, src, enum_name)
+    var base = ib_define_enum_local(ctx, name_tok, enum_tok, width)
+    var si = 0
+    while (si < width) {
+        ib_emit(ctx, ir_inst(ir_alloca(), base + si, 0, 0, 0))
+        si = si + 1
+    }
+    var vnode = ib_variant_ctor_node(ctx, src, init)
+    var tv = 0 - 1
+    var pv = 0 - 1
+    if vnode >= 0 {
+        tv = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), tv, ast_child(vnode, 2), 0, 0))
+        var pnode = ib_variant_ctor_payload(ctx, src, init)
+        if (ast_child(vnode, 1) >= 0) & (pnode >= 0) {
+            pv = lower_expr(ctx, src, pnode)
+        }
+    } else {
+        // Copy from another enum local: keep its payload.
+        var iname = ib_expr_ident_name(ctx, src, init)
+        var src_payload = ib_enum_payload_slot(ctx, src, iname)
+        if src_payload >= 0 {
+            var src_base = ib_lookup_local(ctx, src, iname)
+            var sv = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_load(), sv, src_base, 0, 0))
+            tv = sv
+            var sp = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_load(), sp, src_payload, 0, 0))
+            pv = sp
+        } else {
+            if (init < 0) == 0 {
+                tv = lower_expr(ctx, src, init)
+            } else {
+                tv = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_const(), tv, 0, 0, 0))
+            }
+        }
+    }
+    ib_emit(ctx, ir_inst(ir_store(), base, tv, 0, 0))
+    if width > 1 {
+        if pv < 0 {
+            pv = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_const(), pv, 0, 0, 0))
+        }
+        ib_emit(ctx, ir_inst(ir_store(), base + 1, pv, 0, 0))
+    }
+    return 1
+}
+
+// Slot of the payload of the enum local named |name|, or -1 when the name is
+// not an enum local with a payload slot.
+func ib_enum_payload_slot(ctx: int, src: str, name: str): int {
+    var ety = ib_lookup_enum_ty(ctx, src, name)
+    if ety == ib_enum_ty_none() { return 0 - 1 }
+    if ib_enum_width(ctx, src, ib_tok_text(ctx, src, ety)) < 2 { return 0 - 1 }
+    var base = ib_lookup_local(ctx, src, name)
+    if base < 0 { return 0 - 1 }
+    return base + 1
+}
+
+// Store a variant construction into an enum local: the tag slot at |base| and
+// the payload slot at |base+1| (unit variants reset the payload to 0).
+// Returns 1 when handled, 0 to fall back to the generic path.
+func lower_assign_enum(ctx: int, src: str, base: int, enum_tok: int, value: int): int {
+    var vnode = ib_variant_ctor_node(ctx, src, value)
+    var tv = 0 - 1
+    var pv = 0 - 1
+    if vnode >= 0 {
+        tv = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), tv, ast_child(vnode, 2), 0, 0))
+        var pnode = ib_variant_ctor_payload(ctx, src, value)
+        if (ast_child(vnode, 1) >= 0) & (pnode >= 0) {
+            pv = lower_expr(ctx, src, pnode)
+        }
+    } else {
+        // Copy from another enum local: keep its payload.
+        var vname = ib_expr_ident_name(ctx, src, value)
+        var src_payload = ib_enum_payload_slot(ctx, src, vname)
+        if src_payload >= 0 {
+            var src_base = ib_lookup_local(ctx, src, vname)
+            var sv = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_load(), sv, src_base, 0, 0))
+            tv = sv
+            var sp = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_load(), sp, src_payload, 0, 0))
+            pv = sp
+        }
+        if tv < 0 {
+            tv = lower_expr(ctx, src, value)
+        }
+    }
+    ib_emit(ctx, ir_inst(ir_store(), base, tv, 0, 0))
+    if ib_enum_width(ctx, src, ib_tok_text(ctx, src, enum_tok)) > 1 {
+        if pv < 0 {
+            pv = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_const(), pv, 0, 0, 0))
+        }
+        ib_emit(ctx, ir_inst(ir_store(), base + 1, pv, 0, 0))
+    }
+    return 1
+}
+
 // Lower nd_var_decl for struct types.
 func lower_stmt_var_struct(ctx: int, src: str, name_tok: int, type_name_tok: int, init: int): int {
     var sw = ib_type_struct_width(ctx, src, type_name_tok)
@@ -1430,8 +1767,13 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
     if ast_kind(target) == nd_ident() {
         var name_tok = ast_child(target, 0)
         var slot = ib_lookup_by_name_tok(ctx, src, name_tok)
-        var val = lower_expr(ctx, src, value)
         if (slot < 0) == 0 {
+            // Enum local: `e = Opt::Some(7)` writes the tag and payload slots.
+            var enum_tok = ib_lookup_enum_ty(ctx, src, ib_tok_text(ctx, src, name_tok))
+            if enum_tok != ib_enum_ty_none() {
+                if lower_assign_enum(ctx, src, slot, enum_tok, value) == 1 { return 0 }
+            }
+            var val = lower_expr(ctx, src, value)
             ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
             if ib_expr_is_text(ctx, src, value) == 1 {
                 ib_mark_text(ctx, slot)
@@ -1439,7 +1781,8 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
         } else {
             var gi = ib_find_global_index(ctx, src, name_tok)
             if (gi < 0) == 0 {
-                ib_emit(ctx, ir_inst(ir_global_store(), gi, val, 0, 0))
+                var gval = lower_expr(ctx, src, value)
+                ib_emit(ctx, ir_inst(ir_global_store(), gi, gval, 0, 0))
             }
         }
         return 0
@@ -1565,6 +1908,10 @@ func lower_stmt(ctx: int, src: str, node: int): int {
                 if lower_stmt_var_struct(ctx, src, name_tok, lit_ty, init) == 1 { return 0 }
             }
         }
+
+        // Enum local: `var e = Color::Red` / `var o: Option = None` /
+        // `var e = Opt::Some(5)`.
+        if lower_stmt_var_enum(ctx, src, name_tok, type_node, init) == 1 { return 0 }
 
         var slot = ib_define_local(ctx, name_tok)
         ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
@@ -1808,6 +2155,11 @@ func lower_global(ctx: int, src: str, node: int): int {
     var init_val = 0
     if (init < 0) == 0 {
         var ik = ast_kind(init)
+        // Enum variant init: the global holds the variant tag.
+        var gv = ib_variant_ctor_node(ctx, src, init)
+        if gv >= 0 {
+            init_val = ast_child(gv, 2)
+        } else {
         if ik == nd_int_lit() {
             init_val = ast_child(init, 0)
         } else {
@@ -1841,6 +2193,7 @@ func lower_global(ctx: int, src: str, node: int): int {
                 }
                 }
             }
+        }
         }
     }
     var g = ir_global_new(name_tok, gtype, init_val)
