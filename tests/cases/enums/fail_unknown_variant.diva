@@ -1,0 +1,6 @@
+enum Color { Red, Green }
+
+func main(): int {
+    var x = Color::Purple
+    return x
+}

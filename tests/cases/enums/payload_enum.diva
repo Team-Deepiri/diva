@@ -1,0 +1,22 @@
+// #85 Phase 1: payload enums — tag/data slots, unit variant resets payload.
+extern func print_int(x: int): void
+
+enum Opt { None, Some(int) }
+
+func main(): int {
+    var e = Opt::None
+    print_int(e.tag)
+    print_int(e.data)
+    e = Opt::Some(42)
+    print_int(e.tag)
+    print_int(e.data)
+    e = Opt::None
+    print_int(e.tag)
+    print_int(e.data)
+    if e.tag == 0 {
+        print_int(7)
+    }
+    var f = Opt::Some(5)
+    print_int(f.data)
+    return 0
+}

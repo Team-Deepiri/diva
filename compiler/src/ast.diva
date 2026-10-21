@@ -43,6 +43,12 @@ func nd_class_field(): int { return 34 }
 func nd_generic_call(): int { return 35 }
 func nd_text_lit(): int    { return 36 }
 func nd_text_slice(): int  { return 37 }
+func nd_enum(): int        { return 38 }
+func nd_variant(): int     { return 39 }
+<<<<<<< ours
+func nd_enum_variant(): int { return 40 }
+=======
+>>>>>>> theirs
 
 // --- Binary operator sub-kinds (stored in binop payload) ---
 
@@ -417,6 +423,40 @@ func ast_class_field(name_tok: int, type_node: int): int {
     return n
 }
 
+// Enum: [kind, name_tok, variants_handle (int_vec of nd_variant)]
+func ast_enum(name_tok: int, variants: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_enum())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, variants)
+    return n
+}
+
+// Variant: [kind, name_tok, type_node (-1 = unit variant), tag]
+// Tag is the 0-based declaration index of the variant within its enum.
+func ast_variant(name_tok: int, type_node: int, tag: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_variant())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, type_node)
+    int_vec_push(n, tag)
+    return n
+}
+
+<<<<<<< ours
+// Enum variant construction: [kind, enum_name_tok, variant_name_tok, args_handle]
+// args_handle is an int_vec of expression nodes (empty for unit variants).
+func ast_enum_variant(enum_tok: int, variant_tok: int, args: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_enum_variant())
+    int_vec_push(n, enum_tok)
+    int_vec_push(n, variant_tok)
+    int_vec_push(n, args)
+    return n
+}
+
+=======
+>>>>>>> theirs
 // Expr statement: [kind, expr_node]
 func ast_expr_stmt(expr: int): int {
     var n = int_vec_new()

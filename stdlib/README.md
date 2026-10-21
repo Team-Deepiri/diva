@@ -15,6 +15,21 @@ consumers: **`docs/stdlib-packages.md`** (Issue #28).
 | collections | `std/collections.diva` (IntBuf), `std/stack.diva`, `std/queue.diva`, `std/map.diva`, `std/table.diva`, `std/kv.diva` (str→str key/value store) |
 | iter | `std/iter.diva`, `std/range.diva` |
 | os | `std/os.diva`, `std/fs.diva`, `std/path.diva` |
+| option/result | `std/option.diva` (`Option[T]`), `std/result.diva` (`Result[T, E]`) |
+
+Phase 1 (Issue #93): enum values lower to their `int` tag, so the accessors
+below read the tag rather than carried payloads. See `docs/language-spec.md`
+("Enums") for the supported surface and limitations.
+
+- `std/option.diva` — `Option[T] { None, Some(T) }`;
+  `option_tag`, `option_is_some`, `option_is_none`, `option_unwrap`,
+  `option_unwrap_or`, `option_unwrap_str`
+- `std/result.diva` — `Result[T, E] { Ok(T), Err(E) }`;
+  `result_tag`, `result_is_ok`, `result_is_err`, `result_unwrap`,
+  `result_unwrap_err`, `result_unwrap_or`, `result_unwrap_str`,
+  `result_unwrap_err_str`
+
+Both modules `import "std/mem.diva"`. Covered by `tests/optres.sh`.
 
 ## Usage
 

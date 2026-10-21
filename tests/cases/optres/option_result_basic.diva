@@ -1,0 +1,103 @@
+import "std/option.diva"
+import "std/result.diva"
+import "std/io.diva"
+import "std/host.diva"
+import "std/str.diva"
+
+// #93 Phase 1: Option<T> / Result<T,E> as first-class language types.
+//
+// Covers declaration, qualified construction, reassignment, `.tag` reads,
+// `==` against variants, the stdlib accessor surface, and assignment through
+// a function boundary. Every assertion bumps a counter; the program prints
+// deterministic lines and returns the failure count (0 = pass).
+//
+// Phase 1 limitation exercised here: payload values are not carried at
+// runtime (Option/Result lower to their int tag), so `option_unwrap(o)` is 0
+// even for `Some(...)`. The encoding itself is what these cases pin down.
+
+var optres_fail = 0
+
+func chk(cond: int, name: str): int {
+    if cond == 0 {
+        stderr("FAIL ")
+        stderr(name)
+        stderr("\n")
+        optres_fail = optres_fail + 1
+    }
+    return 0
+}
+
+func eqs(a: str, b: str): int {
+    return str_eq(a, b)
+}
+
+// Helper crossing a function boundary with Option/Result parameters.
+func none_if_zero(x: int): Option {
+    if x == 0 {
+        return None
+    }
+    return Some(x)
+}
+
+func ok_if_positive(x: int): Result {
+    if x > 0 {
+        return Ok(x)
+    }
+    return Err(0)
+}
+
+func main(): int {
+    // --- Option: unit + payload variants, tags pinned to declaration order ---
+    var o: Option = None
+    chk(option_tag(o) == 0, "none_tag_0")
+    chk(o == None, "none_eq_none")
+    chk(option_is_none(o) == 1, "none_is_none")
+    chk(option_is_some(o) == 0, "none_is_some_false")
+    chk(option_unwrap(o) == 0, "none_unwrap_0")
+    chk(option_unwrap_or(o, 42) == 42, "none_unwrap_or_default")
+    chk(eqs(option_unwrap_str(o), "") == 1, "none_unwrap_str_empty")
+
+    o = Some(0)
+    chk(option_tag(o) == 1, "some_tag_1")
+    chk(o == Some(0), "some_eq_some")
+    chk(option_is_some(o) == 1, "some_is_some")
+    chk(option_is_none(o) == 0, "some_is_none_false")
+    chk(o.tag == 1, "some_tag_field")
+    chk(option_unwrap(o) == 0, "some_unwrap_phase1")
+
+    // --- Option: reassignment back to None ---
+    o = None
+    chk(option_is_none(o) == 1, "reassign_none")
+    o = Some(9)
+    chk(option_is_some(o) == 1, "reassign_some")
+
+    // --- Result: tags pinned; unit-ish payload is int in Phase 1 ---
+    var r: Result = Ok(0)
+    chk(result_tag(r) == 0, "ok_tag_0")
+    chk(result_is_ok(r) == 1, "ok_is_ok")
+    chk(result_is_err(r) == 0, "ok_is_err_false")
+    chk(result_unwrap(r) == 0, "ok_unwrap_phase1")
+    chk(result_unwrap_or(r, 7) == 0, "ok_unwrap_or_payload_phase1")
+    chk(eqs(result_unwrap_str(r), "") == 1, "ok_unwrap_str_empty")
+
+    r = Err(0)
+    chk(result_tag(r) == 1, "err_tag_1")
+    chk(result_is_err(r) == 1, "err_is_err")
+    chk(result_is_ok(r) == 0, "err_is_ok_false")
+    chk(r == Err(0), "err_eq_err")
+    chk(result_unwrap_or(r, 7) == 7, "err_unwrap_or_default")
+
+    // --- Across a function boundary ---
+    chk(option_is_none(none_if_zero(0)) == 1, "helper_none")
+    chk(option_is_some(none_if_zero(5)) == 1, "helper_some")
+    chk(result_is_ok(ok_if_positive(3)) == 1, "helper_ok")
+    chk(result_is_err(ok_if_positive(-1)) == 1, "helper_err")
+
+    // Deterministic stdout for the harness.
+    print_int(option_tag(None))
+    print_int(option_tag(Some(1)))
+    print_int(result_is_ok(Ok(0)))
+    print_int(result_is_err(Err(0)))
+    print_int(optres_fail)
+    return optres_fail
+}

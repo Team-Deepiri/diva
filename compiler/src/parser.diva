@@ -179,6 +179,15 @@ func parse_primary(ps: int, src: str): int {
     if kind == tk_ident() | kind == tk_self() {
         var ident_tok = tok
         p_advance(ps)
+        if p_cur(ps) == tk_coloncolon() {
+            p_advance(ps)
+            var vtok = p_expect(ps, src, tk_ident())
+            var vargs = int_vec_new()
+            if p_cur(ps) == tk_lparen() {
+                vargs = parse_args(ps, src)
+            }
+            return ast_enum_variant(ident_tok, vtok, vargs)
+        }
         if p_cur(ps) == tk_lbrace() {
             // Avoid treating stmt blocks as struct lits (if a == b {, while (i < n) {).
             // Real struct literals start with ident: or empty fields.
@@ -741,6 +750,72 @@ func parse_class_decl(ps: int, src: str): int {
     return ast_class_generic(name, type_params, members)
 }
 
+<<<<<<< ours
+func parse_enum_decl(ps: int, src: str): int {
+    p_advance(ps)
+    var name = p_expect(ps, src, tk_ident())
+=======
+// enum Name { Variant, Variant(payload_type), ... }
+// Optional type parameters (enum Option[T]) are parsed and ignored for now:
+// Phase 1 has no generic instantiation, so variants declare erased payloads.
+func parse_enum_decl(ps: int, src: str): int {
+    p_advance(ps)
+    var name = p_expect(ps, src, tk_ident())
+    if p_cur(ps) == tk_lbrack() {
+        p_advance(ps)
+        if p_cur(ps) != tk_rbrack() {
+            p_expect(ps, src, tk_ident())
+            while p_cur(ps) == tk_comma() {
+                p_advance(ps)
+                p_expect(ps, src, tk_ident())
+            }
+        }
+        p_expect(ps, src, tk_rbrack())
+    }
+>>>>>>> theirs
+    p_expect(ps, src, tk_lbrace())
+    var variants = int_vec_new()
+    var tag = 0
+    while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
+        if ps_err(ps) != 0 { return ast_enum(name, variants) }
+        p_skip_semi(ps)
+        p_match(ps, tk_comma())
+        if p_cur(ps) == tk_ident() {
+            var vname = p_advance(ps)
+            var vtype = 0 - 1
+            if p_cur(ps) == tk_lparen() {
+                p_advance(ps)
+                vtype = parse_type(ps, src)
+                p_expect(ps, src, tk_rparen())
+            }
+            int_vec_push(variants, ast_variant(vname, vtype, tag))
+            tag = tag + 1
+<<<<<<< ours
+            p_skip_semi(ps)
+            p_match(ps, tk_comma())
+        } else {
+            if p_cur(ps) == tk_rbrace() {
+                return ast_enum(name, variants)
+            }
+            p_advance(ps)
+=======
+        } else {
+            if ps_quiet(ps) == 0 {
+                p_diag(ps, src)
+                stderr("parse error: expected variant name in enum '")
+                stderr(p_text(ps, src, name))
+                stderr("'")
+                stderr("\n")
+            }
+            ps_set_err(ps)
+            return ast_enum(name, variants)
+>>>>>>> theirs
+        }
+    }
+    p_expect(ps, src, tk_rbrace())
+    return ast_enum(name, variants)
+}
+
 func parse_struct_lit(ps: int, src: str, type_tok: int): int {
     p_advance(ps)
     var fields = int_vec_new()
@@ -795,6 +870,9 @@ func parse_top_level(ps: int, src: str): int {
         if kind == tk_class() | kind == tk_struct() {
             int_vec_push(children, parse_class_decl(ps, src))
         } else {
+        if kind == tk_enum() {
+            int_vec_push(children, parse_enum_decl(ps, src))
+        } else {
         if kind == tk_trait() {
             int_vec_push(children, parse_trait_decl(ps, src))
         } else {
@@ -814,7 +892,7 @@ func parse_top_level(ps: int, src: str): int {
                 stderr("\n")
             }
             ps_set_err(ps)
-        } } } } } } } } }
+        } } } } } } } } } }
         p_skip_semi(ps)
     }
     return ast_file(children)
