@@ -1,0 +1,25 @@
+// #91 Phase 1: int literal patterns with a wildcard arm.
+extern func print_int(x: int): void
+
+func classify(n: int): int {
+    return match n {
+        0 => 10,
+        1 => 20,
+        2 => 30,
+        _ => 40,
+    }
+}
+
+func main(): int {
+    print_int(classify(0))
+    print_int(classify(1))
+    print_int(classify(2))
+    print_int(classify(9))
+    var v = match -2 {
+        -2 => 1,
+        -1 => 2,
+        _ => 3,
+    }
+    print_int(v)
+    return 0
+}

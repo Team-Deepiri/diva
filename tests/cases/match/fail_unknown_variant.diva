@@ -1,0 +1,11 @@
+// #91 Phase 1: an unknown variant name is rejected.
+enum Color { Red, Green }
+
+func main(): int {
+    var c: Color = Color::Red
+    var v = match c {
+        Color::Red => 1,
+        Color::Purple => 2,
+    }
+    return v
+}

@@ -1,0 +1,11 @@
+// #91 Phase 1: a unit variant takes no payload.
+enum Opt { None, Some(int) }
+
+func main(): int {
+    var o = Opt::None
+    var v = match o {
+        Opt::None(x) => 0,
+        Opt::Some(y) => y,
+    }
+    return v
+}

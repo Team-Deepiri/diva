@@ -62,6 +62,7 @@ func main(): int {
 - `return`
 - `true`
 - `false`
+- `match`
 - `package`
 - `import`
 
@@ -177,8 +178,9 @@ when the variant has one; storing a unit variant resets the payload slot to
 Phase 1 limitations: outside a local binding an enum value is just its `int`
 tag, so payloads are **not carried across a function boundary** — a parameter
 or a return value carries the tag only, and the standard library's
-`option_unwrap` still returns `0`. Equality compares tags. Pattern matching,
-`?`, `map`/`and_then`, and niche optimization are not implemented yet.
+`option_unwrap` still returns `0`. Equality compares tags. `match` expressions
+can match variants (see [Match Expressions](#match-expressions)); `?`,
+`map`/`and_then`, and niche optimization are not implemented yet.
 
 The standard library ships ready-made `Option[T]` and `Result[T, E]` enums with
 accessor helpers; see `stdlib/std/option.diva` and `stdlib/std/result.diva`.
@@ -230,6 +232,76 @@ Supported expressions:
 - object literals: `Point { x: 1, y: 2 }`
 - array literals: `[1, 2, 3]`
 - ranges: `0..5`
+- `match` expressions
+
+## Match Expressions
+
+`match` is an expression: it picks an arm by pattern and yields that arm's
+value. The scrutinee is any expression; each arm is a pattern, an optional
+guard, and an arm expression.
+
+```diva
+var label = match status {
+    0 => "idle",
+    1 => "running",
+    _ => "unknown",
+}
+```
+
+Arms are tried top to bottom. The first arm whose pattern matches **and**
+whose guard holds wins. A guard is written `if <expr>` after the pattern and
+may read names the pattern binds:
+
+```diva
+var size = match n {
+    x if x > 100 => "big",
+    _ => "small",
+}
+```
+
+### Patterns
+
+| Pattern | Matches |
+| --- | --- |
+| `42`, `-1` | an `int` literal |
+| `true`, `false` | a `bool` literal |
+| `"text"` | a `str` literal |
+| `_` | anything (the wildcard) |
+| `x` | anything, binding the whole value to `x` |
+| `Red` | a unit variant of the scrutinee's enum |
+| `Color::Red` | the same, qualified with the enum name |
+| `Opt::Some(x)` | a payload variant, binding its payload to `x` |
+
+A bare name is a unit-variant pattern when the name is a declared variant of
+the scrutinee's enum, and a whole-value binding otherwise. A name that names a
+variant of a *different* enum is rejected as an unknown pattern.
+
+### Exhaustiveness and reachability
+
+The compiler rejects a `match` that can miss a case:
+
+- over an enum, every variant must be covered — the error lists the missing
+  variant names
+- over a `bool`, both `true` and `false` must be covered
+- over an `int` or `str`, a wildcard arm is required (there are too many
+  values to enumerate)
+
+An arm that can never run — one that follows an arm covering everything, or
+one whose pattern is already covered by an earlier unguarded arm — is
+rejected as an unreachable pattern.
+
+All arms must agree on a type: a `match` has the type of its arms, and
+mismatched arm types are rejected.
+
+### Phase 1 limitations
+
+- one level of destructuring: a payload variant binds its payload, but nested
+  patterns inside a payload are not supported yet
+- a payload can only be bound when the scrutinee is a local enum binding;
+  Phase 1 does not carry enum payloads through expressions, so
+  `match Opt::None { Opt::Some(x) => x }` is rejected
+- a `match` on an enum needs a variant pattern, not a whole-value binding
+- no `|` alternatives in a single pattern, and no range patterns
 
 ## Control Flow
 
@@ -338,6 +410,11 @@ func main(): int {
   qualified (`Color::Red`) construction, `==` against variants, and `.tag` /
   `.data` reads (Issue #93 Phase 1); see `stdlib/std/option.diva` /
   `stdlib/std/result.diva`, `tests/enums.sh`, and `tests/optres.sh`
+- **`match` expressions (Issue #91 Phase 1):** int/bool/str literal
+  patterns, wildcard, whole-value binding, enum variant patterns (bare and
+  qualified) with payload binding, guard clauses, exhaustiveness and
+  reachability checking, and a typed match value; see `tests/match.sh` and
+  `tests/cases/match/`
 - `trait` declarations and `impl Trait for Type` validation
 - **Native sema (Issue #53):** scoped symbol table (globals, funcs, locals); unknown identifiers rejected; call/generic-call arity; assign/return/binop type checks for `int`/`bool`/`str`; object-literal and method-call name lookup. Diagnostics use `path:line:col:` (Issue #54). See `tests/cases/sema/` and `tests/run-sema.sh`.
 - `var` bindings with optional `::` type annotations
@@ -369,4 +446,5 @@ func main(): int {
 - sub-byte addressing experiments
 - enum payloads carried across function boundaries (Phase 1 carries the payload
   only in local enum bindings; elsewhere an enum value is its tag)
-- enum pattern matching, `?`, `map`/`and_then`, and niche optimization
+- `?`, `map`/`and_then`, and niche optimization
+- nested patterns inside an enum payload, `|` alternatives, and range patterns

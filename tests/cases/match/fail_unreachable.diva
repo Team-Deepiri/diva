@@ -1,0 +1,8 @@
+// #91 Phase 1: an arm after an irrefutable arm can never run.
+func main(): int {
+    var v = match 5 {
+        _ => 1,
+        2 => 2,
+    }
+    return v
+}

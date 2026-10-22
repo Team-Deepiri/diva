@@ -43,6 +43,15 @@ jobs:
       - name: Run optres gate (builds driver from seed)
         run: sh tests/optres.sh
 
+  match:
+    name: match expressions (#91)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run match gate (builds driver from seed)
+        run: sh tests/match.sh
+
   selfhost-consistency:
     name: selfhost consistency (stage2 = stage3)
     runs-on: ubuntu-latest

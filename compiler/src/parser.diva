@@ -10,7 +10,7 @@ import "cell.diva"
 import "diag.diva"
 
 // --- Parser context ---
-// ps = int_vec: [pos_cell, tlen, err_cell, toks_handle, quiet (0=loud, 1=no stderr on error)]
+// ps = int_vec: [pos_cell, tlen, err_cell, toks_handle, quiet (0=loud, 1=no stderr on error), struct_ok_cell]
 
 func ps_new(toks: int, quiet: int): int {
     var ps = int_vec_new()
@@ -19,6 +19,7 @@ func ps_new(toks: int, quiet: int): int {
     int_vec_push(ps, mut_new(0))
     int_vec_push(ps, toks)
     int_vec_push(ps, quiet)
+    int_vec_push(ps, mut_new(1))
     return ps
 }
 
@@ -27,9 +28,12 @@ func ps_tlen(ps: int): int { return int_vec_get(ps, 1) }
 func ps_err(ps: int): int  { return mut_get(int_vec_get(ps, 2)) }
 func ps_toks(ps: int): int { return int_vec_get(ps, 3) }
 func ps_quiet(ps: int): int { return int_vec_get(ps, 4) }
+// Struct literals are ambiguous with block openers; match scrutinees disable them.
+func ps_struct_ok(ps: int): int { return mut_get(int_vec_get(ps, 5)) }
 
 func ps_set_pos(ps: int, v: int): int { return mut_set(int_vec_get(ps, 0), v) }
 func ps_set_err(ps: int): int         { return mut_set(int_vec_get(ps, 2), 1) }
+func ps_set_struct_ok(ps: int, v: int): int { return mut_set(int_vec_get(ps, 5), v) }
 
 // --- Core helpers ---
 
@@ -189,7 +193,7 @@ func parse_primary(ps: int, src: str): int {
             }
             return ast_qualified_variant(ident_tok, vtok, vargs)
         }
-        if p_cur(ps) == tk_lbrace() {
+        if (p_cur(ps) == tk_lbrace()) & (ps_struct_ok(ps) == 1) {
             // Avoid treating stmt blocks as struct lits (if a == b {, while (i < n) {).
             // Real struct literals start with ident: or empty fields.
             var save = ps_pos(ps)
@@ -247,6 +251,10 @@ func parse_primary(ps: int, src: str): int {
         return ast_unary(unop_neg(), parse_primary(ps, src))
     }
 
+    if kind == tk_match() {
+        return parse_match_expr(ps, src)
+    }
+
     if ps_quiet(ps) == 0 {
         p_diag(ps, src)
         stderr("parse error: unexpected token in expression: ")
@@ -255,6 +263,113 @@ func parse_primary(ps: int, src: str): int {
     }
     ps_set_err(ps)
     return 0 - 1
+}
+
+// --- Match expressions ---
+
+// Parse one match pattern: integer literal, string literal, wildcard,
+// identifier (binding or unit variant) or variant pattern
+// (`Enum::Variant`, `Enum::Variant(binding)`, `Variant(binding)`).
+func parse_pattern(ps: int, src: str): int {
+    var kind = p_cur(ps)
+    var tok = ps_pos(ps)
+    if kind == tk_int_lit() {
+        p_advance(ps)
+        return ast_pattern(pat_int_lit(), tok_int_value(src, ps_toks(ps), tok), 0 - 1, 0 - 1, tok)
+    }
+    if kind == tk_minus() {
+        p_advance(ps)
+        if p_cur(ps) == tk_int_lit() {
+            var ntok = p_advance(ps)
+            var nval = 0 - tok_int_value(src, ps_toks(ps), ntok)
+            return ast_pattern(pat_int_lit(), nval, 0 - 1, 0 - 1, tok)
+        }
+        if ps_quiet(ps) == 0 {
+            p_diag(ps, src)
+            stderr("parse error: expected integer literal after '-' in pattern\n")
+        }
+        ps_set_err(ps)
+        return 0 - 1
+    }
+    if kind == tk_true() {
+        p_advance(ps)
+        return ast_pattern(pat_bool_lit(), 1, 0 - 1, 0 - 1, tok)
+    }
+    if kind == tk_false() {
+        p_advance(ps)
+        return ast_pattern(pat_bool_lit(), 0, 0 - 1, 0 - 1, tok)
+    }
+    if kind == tk_str_lit() {
+        p_advance(ps)
+        return ast_pattern(pat_str_lit(), tok, 0 - 1, 0 - 1, tok)
+    }
+    if kind == tk_ident() {
+        var name_tok = p_advance(ps)
+        var nm = p_text(ps, src, name_tok)
+        if str_eq(nm, "_") == 1 {
+            return ast_pattern(pat_wildcard(), 0 - 1, 0 - 1, 0 - 1, tok)
+        }
+        if p_cur(ps) == tk_coloncolon() {
+            p_advance(ps)
+            var vtok = p_expect(ps, src, tk_ident())
+            var qbind = 0 - 1
+            if p_cur(ps) == tk_lparen() {
+                p_advance(ps)
+                qbind = p_expect(ps, src, tk_ident())
+                p_expect(ps, src, tk_rparen())
+            }
+            return ast_pattern(pat_variant(), vtok, qbind, name_tok, tok)
+        }
+        if p_cur(ps) == tk_lparen() {
+            p_advance(ps)
+            var bind = p_expect(ps, src, tk_ident())
+            p_expect(ps, src, tk_rparen())
+            return ast_pattern(pat_variant(), name_tok, bind, 0 - 1, tok)
+        }
+        return ast_pattern(pat_ident(), name_tok, 0 - 1, 0 - 1, tok)
+    }
+    if ps_quiet(ps) == 0 {
+        p_diag(ps, src)
+        stderr("parse error: expected pattern, got ")
+        stderr(tk_name(kind))
+        stderr("\n")
+    }
+    ps_set_err(ps)
+    return 0 - 1
+}
+
+// Parse `match <scrutinee> { <pattern> [if <guard>] => <expr> , ... }`.
+func parse_match_expr(ps: int, src: str): int {
+    p_advance(ps)
+    var saved_struct = ps_struct_ok(ps)
+    ps_set_struct_ok(ps, 0)
+    var scrutinee = parse_expr(ps, src)
+    ps_set_struct_ok(ps, saved_struct)
+    p_expect(ps, src, tk_lbrace())
+    var arms = int_vec_new()
+    var more = 1
+    while (more == 1) {
+        if (p_cur(ps) == tk_rbrace()) | (p_cur(ps) == tk_eof()) { more = 0 }
+        if ps_err(ps) != 0 { more = 0 }
+        if more == 1 {
+            var pat = parse_pattern(ps, src)
+            if pat < 0 {
+                more = 0
+            } else {
+                var guard = 0 - 1
+                if p_cur(ps) == tk_if() {
+                    p_advance(ps)
+                    guard = parse_expr(ps, src)
+                }
+                p_expect(ps, src, tk_fatarrow())
+                var body = parse_expr(ps, src)
+                int_vec_push(arms, ast_match_arm(pat, guard, body))
+                if p_cur(ps) == tk_comma() { p_advance(ps) }
+            }
+        }
+    }
+    p_expect(ps, src, tk_rbrace())
+    return ast_match(scrutinee, arms)
 }
 
 func parse_args(ps: int, src: str): int {
