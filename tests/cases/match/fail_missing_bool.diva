@@ -1,0 +1,7 @@
+// #91 Phase 1: a match over a bool must cover true and false.
+func main(): int {
+    var v = match true {
+        true => 1,
+    }
+    return v
+}

@@ -1,0 +1,22 @@
+// #91 Phase 1: enum variant patterns, qualified and bare.
+extern func print_int(x: int): void
+
+enum Color { Red, Green, Blue }
+
+func main(): int {
+    var c: Color = Color::Red
+    var v = match c {
+        Color::Red => 100,
+        Color::Green => 200,
+        Color::Blue => 300,
+    }
+    print_int(v)
+    var d: Color = Color::Blue
+    var w = match d {
+        Red => 1,
+        Green => 2,
+        Blue => 3,
+    }
+    print_int(w)
+    return 0
+}

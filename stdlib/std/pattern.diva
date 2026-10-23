@@ -87,16 +87,16 @@ func str_replace(s: str, old: str, new_val: str): str {
     var i = 0
     while (i < slen) {
         if (i <= slen - olen) {
-            var match = 1
+            var matched = 1
             var j = 0
             while (j < olen) {
                 if str_byte(s, i + j) != str_byte(old, j) {
-                    match = 0
+                    matched = 0
                     j = olen
                 }
                 j = j + 1
             }
-            if match == 1 {
+            if matched == 1 {
                 str_builder_append(b, new_val)
                 i = i + olen
             } else {
@@ -121,16 +121,16 @@ func str_replace_first(s: str, old: str, new_val: str): str {
     }
     var i = 0
     while (i <= slen - olen) {
-        var match = 1
+        var matched = 1
         var j = 0
         while (j < olen) {
             if str_byte(s, i + j) != str_byte(old, j) {
-                match = 0
+                matched = 0
                 j = olen
             }
             j = j + 1
         }
-        if match == 1 {
+        if matched == 1 {
             var b = str_builder_new()
             if b == 0 { return s }
             if (i > 0) {
@@ -158,16 +158,16 @@ func str_count(s: str, sub: str): int {
     var count = 0
     var i = 0
     while (i <= slen - sublen) {
-        var match = 1
+        var matched = 1
         var j = 0
         while (j < sublen) {
             if str_byte(s, i + j) != str_byte(sub, j) {
-                match = 0
+                matched = 0
                 j = sublen
             }
             j = j + 1
         }
-        if match == 1 {
+        if matched == 1 {
             count = count + 1
             i = i + sublen
         } else {

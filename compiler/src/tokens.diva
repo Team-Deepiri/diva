@@ -39,6 +39,7 @@ func tk_self(): int      { return 33 }
 func tk_const(): int     { return 34 }
 func tk_text_kw(): int   { return 35 }
 func tk_enum(): int      { return 36 }
+func tk_match(): int     { return 37 }
 
 func tk_lparen(): int    { return 40 }
 func tk_rparen(): int    { return 41 }
@@ -130,16 +131,16 @@ func tok_spelling_eq(src: str, stream: int, a: int, b: int): int {
         return 0
     }
     var k = 0
-    var match = 1
+    var matched = 1
     while (k < la) {
-        if match == 1 {
+        if matched == 1 {
             if (str_byte(src, sa + k) == str_byte(src, sb + k)) == 0 {
-                match = 0
+                matched = 0
             }
         }
         k = k + 1
     }
-    return match
+    return matched
 }
 
 // |name| str vs token spelling in src (one str view, byte compare; bounds on src).
@@ -157,16 +158,16 @@ func str_eq_tok_spelling(name: str, src: str, stream: int, tok: int): int {
         return 0
     }
     var k = 0
-    var match = 1
+    var matched = 1
     while (k < l) {
-        if match == 1 {
+        if matched == 1 {
             if (str_byte(name, k) == str_byte(src, s + k)) == 0 {
-                match = 0
+                matched = 0
             }
         }
         k = k + 1
     }
-    return match
+    return matched
 }
 
 func tok_int_value(src: str, stream: int, index: int): int {
@@ -348,6 +349,7 @@ func tk_name(kind: int): str {
     if kind == 31 { return "KW_STRUCT" }
     if kind == 35 { return "KW_TEXT" }
     if kind == 36 { return "KW_ENUM" }
+    if kind == 37 { return "KW_MATCH" }
     if kind == 40 { return "LPAREN" }
     if kind == 41 { return "RPAREN" }
     if kind == 42 { return "LBRACE" }

@@ -1247,6 +1247,7 @@ func lower_expr(ctx: int, src: str, node: int): int {
     if kind == nd_method_call() { return lower_expr_method_call(ctx, src, node) }
     if kind == nd_index() { return lower_expr_index(ctx, src, node) }
     if kind == nd_field() { return lower_expr_field(ctx, src, node) }
+    if kind == nd_match() { return lower_expr_match(ctx, src, node) }
 
     // Qualified variant in expression position (`Enum::Variant`) lowers to
     // its tag; the payload is evaluated for its side effects only. Payload
@@ -1714,6 +1715,173 @@ func lower_stmt_var_struct(ctx: int, src: str, name_tok: int, type_name_tok: int
         return 1
     }
     return 0
+}
+
+// --- Match expressions (Issue #91) ---
+//
+// A match lowers to a chain of test/body blocks. Each test block evaluates
+// the arm pattern against the scrutinee value (0/1) and branches to the arm
+// body or to the next test. Guarded arms get an extra block so the guard
+// expression runs only when the pattern matched. The arm result is stored in
+// a stack slot; the block after the chain loads it.
+
+// Compare the scrutinee value with a constant; returns a 0/1 vreg.
+func ib_match_eq_const(ctx: int, scr_reg: int, val: int): int {
+    var c = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), c, val, 0, 0))
+    var r = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_eq(), r, scr_reg, c, 0))
+    return r
+}
+
+// The enum variant node a pattern names, or -1 when the pattern is a
+// whole-value binding.
+func ib_match_variant_node(ctx: int, src: str, pat: int): int {
+    var pkind = ast_child(pat, 0)
+    var name_tok = ast_child(pat, 1)
+    var name = ib_tok_text(ctx, src, name_tok)
+    var enum_tok = ast_child(pat, 3)
+    if pkind == pat_variant() {
+        if enum_tok >= 0 {
+            var ename = ib_tok_text(ctx, src, enum_tok)
+            var decl = ib_enum_decl_for_type(ctx, src, ename)
+            return ib_enum_variant_in_decl(ctx, src, decl, name)
+        }
+        return ib_enum_variant(ctx, src, name)
+    }
+    return ib_enum_variant(ctx, src, name)
+}
+
+// Test a pattern against the scrutinee value; returns a 0/1 vreg.
+func ib_match_test(ctx: int, src: str, scr_reg: int, pat: int): int {
+    var pkind = ast_child(pat, 0)
+    var value = ast_child(pat, 1)
+    if pkind == pat_int_lit() { return ib_match_eq_const(ctx, scr_reg, value) }
+    if pkind == pat_bool_lit() { return ib_match_eq_const(ctx, scr_reg, value) }
+    if pkind == pat_str_lit() {
+        var str_id = int_vec_len(bctx_str_vec(ctx))
+        int_vec_push(bctx_str_vec(ctx), value)
+        var sreg = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const_str(), sreg, str_id, 0, 0))
+        var r = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_str_eq(), r, scr_reg, sreg, 0))
+        return r
+    }
+    if pkind == pat_wildcard() {
+        var always = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), always, 1, 0, 0))
+        return always
+    }
+    var vnode = ib_match_variant_node(ctx, src, pat)
+    if vnode < 0 {
+        var binds = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), binds, 1, 0, 0))
+        return binds
+    }
+    return ib_match_eq_const(ctx, scr_reg, ast_child(vnode, 2))
+}
+
+// Bind the names a pattern introduces in the current scope.
+func ib_match_bind(ctx: int, src: str, pat: int, scrutinee: int, scr_reg: int): int {
+    var pkind = ast_child(pat, 0)
+    var name_tok = ast_child(pat, 1)
+    if pkind == pat_variant() {
+        var bind_tok = ast_child(pat, 2)
+        if bind_tok < 0 { return 0 }
+        var bname = ib_tok_text(ctx, src, bind_tok)
+        if str_eq(bname, "_") == 1 { return 0 }
+        var pslot = ib_define_local(ctx, bind_tok)
+        ib_emit(ctx, ir_inst(ir_alloca(), pslot, 0, 0, 0))
+        // The payload of a local enum binding lives in the slot after the tag.
+        var base = 0 - 1
+        if ast_kind(scrutinee) == nd_ident() {
+            base = ib_lookup_by_name_tok(ctx, src, ast_child(scrutinee, 0))
+        }
+        if base >= 0 {
+            var pv = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_load(), pv, base + 1, 0, 0))
+            ib_emit(ctx, ir_inst(ir_store(), pslot, pv, 0, 0))
+        }
+        return 0
+    }
+    if pkind == pat_ident() {
+        if ib_match_variant_node(ctx, src, pat) >= 0 { return 0 }
+        var bname2 = ib_tok_text(ctx, src, name_tok)
+        if str_eq(bname2, "_") == 1 { return 0 }
+        var slot = ib_define_local(ctx, name_tok)
+        ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
+        ib_emit(ctx, ir_inst(ir_store(), slot, scr_reg, 0, 0))
+    }
+    return 0
+}
+
+// Lower a match expression; returns the vreg holding the arm result.
+func lower_expr_match(ctx: int, src: str, node: int): int {
+    var scrutinee = ast_child(node, 0)
+    var arms = ast_child(node, 1)
+    var scr_reg = lower_expr(ctx, src, scrutinee)
+    var res_slot = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_alloca(), res_slot, 0, 0, 0))
+    var n = int_vec_len(arms)
+    if n == 0 {
+        var r0 = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), r0, res_slot, 0, 0))
+        return r0
+    }
+    var end_lbl = ib_fresh_label(ctx)
+    var test_lbls = int_vec_new()
+    var body_lbls = int_vec_new()
+    var i = 0
+    while (i < n) {
+        int_vec_push(test_lbls, ib_fresh_label(ctx))
+        int_vec_push(body_lbls, ib_fresh_label(ctx))
+        i = i + 1
+    }
+    ib_emit(ctx, ir_inst(ir_br(), 0, int_vec_get(test_lbls, 0), 0, 0))
+    i = 0
+    while (i < n) {
+        var arm = int_vec_get(arms, i)
+        var pat = ast_child(arm, 0)
+        var guard = ast_child(arm, 1)
+        var body = ast_child(arm, 2)
+        var test_lbl = int_vec_get(test_lbls, i)
+        var body_lbl = int_vec_get(body_lbls, i)
+        var next_lbl = end_lbl
+        if ((i + 1) < n) == 1 { next_lbl = int_vec_get(test_lbls, i + 1) }
+        ib_add_blk(ctx, ir_block_new(test_lbl))
+        var th = ib_find_blk_by_label(ctx, test_lbl)
+        if (th < 0) == 0 { ib_set_blk(ctx, th) }
+        // Bind the pattern names before the guard runs: a guard may read them.
+        var scope = ib_scope_push(ctx)
+        ib_match_bind(ctx, src, pat, scrutinee, scr_reg)
+        var treg = ib_match_test(ctx, src, scr_reg, pat)
+        if guard >= 0 {
+            var guard_lbl = ib_fresh_label(ctx)
+            ib_emit(ctx, ir_inst(ir_br_cond(), treg, guard_lbl, next_lbl, 0))
+            ib_add_blk(ctx, ir_block_new(guard_lbl))
+            var gh = ib_find_blk_by_label(ctx, guard_lbl)
+            if (gh < 0) == 0 { ib_set_blk(ctx, gh) }
+            var greg = lower_expr(ctx, src, guard)
+            ib_emit(ctx, ir_inst(ir_br_cond(), greg, body_lbl, next_lbl, 0))
+        } else {
+            ib_emit(ctx, ir_inst(ir_br_cond(), treg, body_lbl, next_lbl, 0))
+        }
+        ib_add_blk(ctx, ir_block_new(body_lbl))
+        var bh = ib_find_blk_by_label(ctx, body_lbl)
+        if (bh < 0) == 0 { ib_set_blk(ctx, bh) }
+        var val = lower_expr(ctx, src, body)
+        ib_emit(ctx, ir_inst(ir_store(), res_slot, val, 0, 0))
+        if ib_expr_is_text(ctx, src, body) == 1 { ib_mark_text(ctx, res_slot) }
+        ib_scope_pop(ctx, scope)
+        ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
+        i = i + 1
+    }
+    ib_add_blk(ctx, ir_block_new(end_lbl))
+    var eh = ib_find_blk_by_label(ctx, end_lbl)
+    if (eh < 0) == 0 { ib_set_blk(ctx, eh) }
+    var r = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_load(), r, res_slot, 0, 0))
+    return r
 }
 
 // Lower nd_if statement.

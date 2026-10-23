@@ -1,0 +1,8 @@
+// #91 Phase 1: a literal match needs a wildcard arm to stay exhaustive.
+func main(): int {
+    var v = match 5 {
+        1 => 1,
+        2 => 2,
+    }
+    return v
+}

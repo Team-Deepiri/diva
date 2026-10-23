@@ -41,6 +41,19 @@ func type_str(node: int, src: str, toks: int): str {
     return "?"
 }
 
+func dump_pattern(pat: int, depth: int, src: str, toks: int, nl: str): int {
+    if (pat < 0) {
+        return 0
+    }
+    var b = str_builder_new()
+    str_builder_append(b, "Pattern(")
+    str_builder_append(b, int_to_str(ast_child(pat, 0)))
+    str_builder_append(b, ")")
+    dump_line(depth, str_builder_to_str(b), nl)
+    str_builder_free(b)
+    return 0
+}
+
 func dump_expr(node: int, depth: int, src: str, toks: int, nl: str): int {
     if (node < 0) {
         return 0
@@ -97,6 +110,23 @@ func dump_expr(node: int, depth: int, src: str, toks: int, nl: str): int {
         while (i2 < int_vec_len(args2)) {
             dump_expr(int_vec_get(args2, i2), depth + 1, src, toks, nl)
             i2 = i2 + 1
+        }
+        return 0
+    }
+    if (k == nd_match()) {
+        dump_line(depth, "Match", nl)
+        dump_expr(ast_child(node, 0), depth + 1, src, toks, nl)
+        var arms = ast_child(node, 1)
+        var ai = 0
+        while (ai < int_vec_len(arms)) {
+            var arm = int_vec_get(arms, ai)
+            dump_pattern(ast_child(arm, 0), depth + 1, src, toks, nl)
+            var guard = ast_child(arm, 1)
+            if (guard >= 0) {
+                dump_expr(guard, depth + 1, src, toks, nl)
+            }
+            dump_expr(ast_child(arm, 2), depth + 1, src, toks, nl)
+            ai = ai + 1
         }
         return 0
     }

@@ -63,7 +63,9 @@ func ir_array_store(): int { return 36 }
 func ir_const_text(): int  { return 37 }
 func ir_text_cmp(): int    { return 38 }
 func ir_text_concat(): int { return 39 }
-func ir_text_slice(): int  { return 40 }
+func ir_text_slice(): int { return 40 }
+func ir_str_eq(): int    { return 41 }
+
 
 func ir_op_name(op: int): str {
     if op == 0  { return "nop" }
@@ -107,6 +109,7 @@ func ir_op_name(op: int): str {
     if op == 38 { return "text.cmp" }
     if op == 39 { return "text.concat" }
     if op == 40 { return "text.slice" }
+    if op == 41 { return "str.eq" }
     return "???"
 }
 

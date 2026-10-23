@@ -1,0 +1,15 @@
+// #91 Phase 1: a bare name binds the whole scrutinee value.
+extern func print_int(x: int): void
+extern func print_str(s: str): void
+
+func main(): int {
+    var v = match 5 {
+        x => x + 1,
+    }
+    print_int(v)
+    var w = match "abc" {
+        s => s,
+    }
+    print_str(w)
+    return 0
+}

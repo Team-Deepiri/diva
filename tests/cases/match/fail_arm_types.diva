@@ -1,0 +1,8 @@
+// #91 Phase 1: all arms of a match must agree on a type.
+func main(): int {
+    var v = match 5 {
+        1 => 1,
+        2 => "two",
+    }
+    return v
+}

@@ -93,6 +93,9 @@ func classify_keyword(src: str, start: int, length: int): int {
     if str_eq(w, "enum") == 1 {
         return tk_enum()
     }
+    if str_eq(w, "match") == 1 {
+        return tk_match()
+    }
     if str_eq(w, "trait") == 1 {
         return tk_trait()
     }

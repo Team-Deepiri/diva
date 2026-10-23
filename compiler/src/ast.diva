@@ -46,6 +46,19 @@ func nd_text_slice(): int  { return 37 }
 func nd_enum(): int        { return 38 }
 func nd_variant(): int     { return 39 }
 func nd_qualified_variant(): int { return 40 }
+func nd_match(): int       { return 41 }
+func nd_match_arm(): int   { return 42 }
+func nd_pattern(): int     { return 43 }
+
+// --- Pattern sub-kinds (stored in pattern payload) ---
+
+func pat_int_lit(): int  { return 1 }
+func pat_str_lit(): int  { return 2 }
+func pat_wildcard(): int { return 3 }
+func pat_ident(): int    { return 4 }
+func pat_variant(): int  { return 5 }
+func pat_binding(): int  { return 6 }
+func pat_bool_lit(): int { return 7 }
 
 // --- Binary operator sub-kinds (stored in binop payload) ---
 
@@ -457,6 +470,45 @@ func ast_qualified_variant(enum_tok: int, variant_tok: int, args: int): int {
     int_vec_push(n, enum_tok)
     int_vec_push(n, variant_tok)
     int_vec_push(n, args)
+    return n
+}
+
+// Match expression: [kind, scrutinee_expr, arms_handle]
+// arms_handle is an int_vec of nd_match_arm nodes.
+func ast_match(scrutinee: int, arms: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_match())
+    int_vec_push(n, scrutinee)
+    int_vec_push(n, arms)
+    return n
+}
+
+// Match arm: [kind, pattern, guard_expr (-1 = no guard), body_expr]
+func ast_match_arm(pattern: int, guard: int, body: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_match_arm())
+    int_vec_push(n, pattern)
+    int_vec_push(n, guard)
+    int_vec_push(n, body)
+    return n
+}
+
+// Pattern: [kind, pat_kind, value, binding_tok, enum_tok, src_tok]
+//   pat_kind    - pat_int_lit / pat_bool_lit / pat_str_lit / pat_wildcard /
+//                 pat_ident / pat_variant
+//   value       - int literal value, bool literal value, or the token index of
+//                 the literal/name
+//   binding_tok - token index of the payload binding (-1 = none)
+//   enum_tok    - token index of the enum qualifier (-1 = unqualified)
+//   src_tok     - token index of the pattern's first token (diagnostics)
+func ast_pattern(pat_kind: int, value: int, binding_tok: int, enum_tok: int, src_tok: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_pattern())
+    int_vec_push(n, pat_kind)
+    int_vec_push(n, value)
+    int_vec_push(n, binding_tok)
+    int_vec_push(n, enum_tok)
+    int_vec_push(n, src_tok)
     return n
 }
 

@@ -1,0 +1,10 @@
+// #91 Phase 1: a match over an enum must cover every variant.
+enum Color { Red, Green, Blue }
+
+func main(): int {
+    var c: Color = Color::Red
+    var v = match c {
+        Color::Red => 1,
+    }
+    return v
+}
