@@ -1,0 +1,20 @@
+// #91 Phase 1: binding a payload carried by an enum variant.
+extern func print_int(x: int): void
+
+enum Opt { None, Some(int) }
+
+func main(): int {
+    var o = Opt::Some(42)
+    var v = match o {
+        Opt::None => 0,
+        Opt::Some(x) => x,
+    }
+    print_int(v)
+    var n = Opt::None
+    var w = match n {
+        Opt::None => 7,
+        Opt::Some(x) => x,
+    }
+    print_int(w)
+    return 0
+}

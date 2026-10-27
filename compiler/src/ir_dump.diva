@@ -33,6 +33,7 @@ func dump_inst_opname(b: int, op: int, a: int, bv: int, src: str, toks: int): in
     if op == ir_mod() { str_builder_append(b, "mod ") }
     if op == ir_eq()  { str_builder_append(b, "eq ") }
     if op == ir_ne()  { str_builder_append(b, "ne ") }
+    if op == ir_str_eq() { str_builder_append(b, "str.eq ") }
     if op == ir_lt()  { str_builder_append(b, "lt ") }
     if op == ir_le()  { str_builder_append(b, "le ") }
     if op == ir_gt()  { str_builder_append(b, "gt ") }

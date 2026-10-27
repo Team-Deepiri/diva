@@ -1,0 +1,11 @@
+// #91 Phase 1: a payload variant needs a payload binding.
+enum Opt { None, Some(int) }
+
+func main(): int {
+    var o = Opt::None
+    var v = match o {
+        Opt::None => 0,
+        Opt::Some => 1,
+    }
+    return v
+}

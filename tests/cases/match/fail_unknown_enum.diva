@@ -1,0 +1,11 @@
+// #91 Phase 1: an unknown enum qualifier is rejected.
+enum Color { Red, Green }
+
+func main(): int {
+    var c: Color = Color::Red
+    var v = match c {
+        Nope::Red => 1,
+        Color::Green => 2,
+    }
+    return v
+}

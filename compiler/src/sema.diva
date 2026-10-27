@@ -253,6 +253,8 @@ func sctx_new(): int {
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())
+    int_vec_push(c, int_vec_new())
+    int_vec_push(c, int_vec_new())
     return c
 }
 
@@ -277,6 +279,30 @@ func sctx_enum_type_toks(c: int): int { return int_vec_get(c, 12) }
 func sctx_variant_toks(c: int): int { return int_vec_get(c, 13) }
 func sctx_variant_enum_ids(c: int): int { return int_vec_get(c, 14) }
 func sctx_variant_payloads(c: int): int { return int_vec_get(c, 15) }
+func sctx_match_nodes(c: int): int { return int_vec_get(c, 16) }
+func sctx_match_types(c: int): int { return int_vec_get(c, 17) }
+
+// Remember the result type of a checked match expression.
+func sema_cache_match_type(c: int, node: int, ty: int): int {
+    int_vec_push(sctx_match_nodes(c), node)
+    int_vec_push(sctx_match_types(c), ty)
+    return 0
+}
+
+// The result type of a checked match expression, or -1 when not checked yet.
+func sema_cached_match_type(c: int, node: int): int {
+    var ns = sctx_match_nodes(c)
+    var ts = sctx_match_types(c)
+    var found = 0 - 1
+    var i = 0
+    while (i < int_vec_len(ns)) {
+        if int_vec_get(ns, i) == node {
+            found = int_vec_get(ts, i)
+        }
+        i = i + 1
+    }
+    return found
+}
 
 // Index of a registered variant name, or -1. Variants share one namespace.
 func sctx_variant_index(c: int, src: str, toks: int, want: str): int {
@@ -337,6 +363,8 @@ func sctx_free(c: int): int {
     int_vec_free(sctx_variant_toks(c))
     int_vec_free(sctx_variant_enum_ids(c))
     int_vec_free(sctx_variant_payloads(c))
+    int_vec_free(sctx_match_nodes(c))
+    int_vec_free(sctx_match_types(c))
     int_vec_free(c)
     return 0
 }
@@ -562,6 +590,16 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
     if kind == nd_index() {
         return ir_ty_int()
     }
+    if kind == nd_match() {
+        var cached = sema_cached_match_type(c, node)
+        if cached >= 0 { return cached }
+        var marms = ast_child(node, 1)
+        if int_vec_len(marms) > 0 {
+            var arm0 = int_vec_get(marms, 0)
+            return sema_expr_type(c, src, toks, ast_child(arm0, 2))
+        }
+        return ir_ty_int()
+    }
     return ir_ty_int()
 }
 
@@ -780,6 +818,9 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
     if kind == nd_range() {
         if sema_check_expr(c, src, toks, ast_child(node, 0)) != 0 { return 1 }
         return sema_check_expr(c, src, toks, ast_child(node, 1))
+    }
+    if kind == nd_match() {
+        return sema_check_match(c, src, toks, node)
     }
     return 0
 }
@@ -1471,6 +1512,493 @@ func sema_class_members_ok(members: int): int {
         j = j + 1
     }
     return 1
+}
+
+// --- Match expressions (Issue #91) ---
+//
+// A match has a scrutinee and a list of arms. Each arm is
+// `pattern [if guard] => body`. Patterns are integer literals, boolean
+// literals, string literals, the wildcard `_`, a binding name, or an enum
+// variant (`Enum::Variant`, `Variant`, `Variant(binding)`).
+//
+// Phase 1 runtime model: enum values are int tags, and payloads live in the
+// payload slot of a local enum binding only. A payload binding therefore
+// requires a local enum scrutinee; binding a payload of a value that crossed
+// a call boundary is a compile error (see docs/language-spec.md).
+
+// Runtime tag of a variant: its 0-based index inside its own enum.
+func sema_variant_tag(c: int, vi: int): int {
+    var eids = sctx_variant_enum_ids(c)
+    var want = int_vec_get(eids, vi)
+    var tag = 0
+    var i = 0
+    while (i < vi) {
+        if int_vec_get(eids, i) == want {
+            tag = tag + 1
+        }
+        i = i + 1
+    }
+    return tag
+}
+
+// Is |name| a local variable (not a global, not a function)?
+func sema_local_known(c: int, src: str, toks: int, want: str): int {
+    var names = sctx_names(c)
+    var i = 0
+    while (i < int_vec_len(names)) {
+        if str_eq(tok_text(src, toks, int_vec_get(names, i)), want) == 1 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Does the enum type |ety| declare a payload variant?
+func sema_enum_has_payload(c: int, ety: int): int {
+    var eids = sctx_variant_enum_ids(c)
+    var i = 0
+    while (i < int_vec_len(eids)) {
+        if int_vec_get(eids, i) == ety {
+            if int_vec_get(sctx_variant_payloads(c), i) != 0 - 1 {
+                return 1
+            }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Pattern analysis result layout (int_vec):
+//   [0] resolved kind (pat_int_lit / pat_bool_lit / pat_str_lit /
+//       pat_wildcard / pat_variant / pat_binding)
+//   [1] key (int literal value, bool literal value, or variant index)
+//   [2] variant tag (-1 when not a variant)
+//   [3] binding token (-1 when no binding)
+//   [4] binding type (-1 when no binding)
+//   [5] irrefutable (1 = wildcard or whole-value binding)
+func sema_pat_kind(o: int): int    { return int_vec_get(o, 0) }
+func sema_pat_key(o: int): int     { return int_vec_get(o, 1) }
+func sema_pat_bind(o: int): int    { return int_vec_get(o, 3) }
+func sema_pat_bind_ty(o: int): int { return int_vec_get(o, 4) }
+
+func sema_pat_type_mismatch(src: str, toks: int, pat: int, pat_ty: int, scr_ty: int): int {
+    diag_emit_loc(src, tok_start(toks, ast_child(pat, 5)))
+    stderr("sema: type mismatch: pattern of type ")
+    stderr(sctx_ty_name(pat_ty))
+    stderr(" does not match scrutinee of type ")
+    stderr(sctx_ty_name(scr_ty))
+    stderr(char_to_str(10))
+    return 1
+}
+
+// Resolve and type-check one pattern against the scrutinee type |sty|.
+// Returns the analysis vector, or -1 on error.
+func sema_check_pattern(c: int, src: str, toks: int, pat: int, sty: int): int {
+    var pkind = ast_child(pat, 0)
+    var value = ast_child(pat, 1)
+    var bind_tok = ast_child(pat, 2)
+    var enum_tok = ast_child(pat, 3)
+    var out = int_vec_new()
+    if pkind == pat_int_lit() {
+        if sty != ir_ty_int() {
+            sema_pat_type_mismatch(src, toks, pat, ir_ty_int(), sty)
+            return 0 - 1
+        }
+        int_vec_push(out, pat_int_lit())
+        int_vec_push(out, value)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0)
+        return out
+    }
+    if pkind == pat_bool_lit() {
+        if sty != ir_ty_bool() {
+            sema_pat_type_mismatch(src, toks, pat, ir_ty_bool(), sty)
+            return 0 - 1
+        }
+        int_vec_push(out, pat_bool_lit())
+        int_vec_push(out, value)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0)
+        return out
+    }
+    if pkind == pat_str_lit() {
+        if sty != ir_ty_str() {
+            sema_pat_type_mismatch(src, toks, pat, ir_ty_str(), sty)
+            return 0 - 1
+        }
+        int_vec_push(out, pat_str_lit())
+        int_vec_push(out, value)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0)
+        return out
+    }
+    if pkind == pat_wildcard() {
+        int_vec_push(out, pat_wildcard())
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 0 - 1)
+        int_vec_push(out, 1)
+        return out
+    }
+    // Variant or binding.
+    var vi = 0 - 1
+    var vname = tok_text(src, toks, value)
+    if pkind == pat_ident() {
+        vi = sctx_variant_index(c, src, toks, vname)
+        if vi >= 0 {
+            if int_vec_get(sctx_variant_enum_ids(c), vi) != sty {
+                // The name names a variant of another enum: it cannot match here.
+                diag_emit_loc(src, tok_start(toks, value))
+                stderr("sema: unknown pattern '")
+                stderr(vname)
+                stderr("'")
+                stderr(char_to_str(10))
+                return 0 - 1
+            }
+        } else {
+            if sty > ir_ty_text() {
+                // An enum scrutinee needs a variant pattern.
+                diag_emit_loc(src, tok_start(toks, value))
+                stderr("sema: unknown pattern '")
+                stderr(vname)
+                stderr("'")
+                stderr(char_to_str(10))
+                return 0 - 1
+            }
+            // A plain name binds the whole scrutinee value.
+            int_vec_push(out, pat_binding())
+            int_vec_push(out, 0 - 1)
+            int_vec_push(out, 0 - 1)
+            int_vec_push(out, value)
+            int_vec_push(out, sty)
+            int_vec_push(out, 1)
+            return out
+        }
+    } else {
+        if enum_tok >= 0 {
+            var ename = tok_text(src, toks, enum_tok)
+            var ei = sctx_enum_index(c, src, toks, ename)
+            if ei < 0 {
+                diag_emit_loc(src, tok_start(toks, enum_tok))
+                stderr("sema: unknown enum '")
+                stderr(ename)
+                stderr("'")
+                stderr(char_to_str(10))
+                return 0 - 1
+            }
+            vi = sctx_variant_index_in_enum(c, src, toks, ir_ty_text() + 1 + ei, vname)
+            if vi < 0 {
+                diag_emit_loc(src, tok_start(toks, value))
+                stderr("sema: unknown variant '")
+                stderr(vname)
+                stderr("' in enum '")
+                stderr(ename)
+                stderr("'")
+                stderr(char_to_str(10))
+                return 0 - 1
+            }
+        } else {
+            vi = sctx_variant_index(c, src, toks, vname)
+            if vi < 0 {
+                diag_emit_loc(src, tok_start(toks, value))
+                stderr("sema: unknown pattern '")
+                stderr(vname)
+                stderr("'")
+                stderr(char_to_str(10))
+                return 0 - 1
+            }
+        }
+    }
+    // Variant pattern: the variant must belong to the scrutinee's enum.
+    var venum = int_vec_get(sctx_variant_enum_ids(c), vi)
+    if venum != sty {
+        sema_pat_type_mismatch(src, toks, pat, venum, sty)
+        return 0 - 1
+    }
+    var pty = int_vec_get(sctx_variant_payloads(c), vi)
+    if pty == 0 - 1 {
+        if bind_tok >= 0 {
+            diag_emit_loc(src, tok_start(toks, bind_tok))
+            stderr("sema: unit variant '")
+            stderr(vname)
+            stderr("' takes no payload")
+            stderr(char_to_str(10))
+            return 0 - 1
+        }
+    } else {
+        if bind_tok < 0 {
+            diag_emit_loc(src, tok_start(toks, value))
+            stderr("sema: variant '")
+            stderr(vname)
+            stderr("' expects a payload binding")
+            stderr(char_to_str(10))
+            return 0 - 1
+        }
+    }
+    var bty = pty
+    if bty == 0 - 2 { bty = ir_ty_int() }
+    int_vec_push(out, pat_variant())
+    int_vec_push(out, vi)
+    int_vec_push(out, sema_variant_tag(c, vi))
+    int_vec_push(out, bind_tok)
+    int_vec_push(out, bty)
+    int_vec_push(out, 0)
+    return out
+}
+
+// Match context: [variants, int literals, bool literals, str literals,
+// irrefutable (mut), arm type (mut), scrutinee type]
+func sema_mctx_new(sty: int): int {
+    var m = int_vec_new()
+    int_vec_push(m, int_vec_new())
+    int_vec_push(m, int_vec_new())
+    int_vec_push(m, int_vec_new())
+    int_vec_push(m, int_vec_new())
+    int_vec_push(m, mut_new(0))
+    int_vec_push(m, mut_new(0 - 1))
+    int_vec_push(m, sty)
+    return m
+}
+func sema_mctx_variants(m: int): int { return int_vec_get(m, 0) }
+func sema_mctx_lits(m: int): int { return int_vec_get(m, 1) }
+func sema_mctx_bools(m: int): int { return int_vec_get(m, 2) }
+func sema_mctx_strs(m: int): int { return int_vec_get(m, 3) }
+func sema_mctx_irrefutable(m: int): int { return mut_get(int_vec_get(m, 4)) }
+func sema_mctx_arm_ty(m: int): int { return mut_get(int_vec_get(m, 5)) }
+func sema_mctx_sty(m: int): int { return int_vec_get(m, 6) }
+func sema_mctx_set_irrefutable(m: int, v: int): int { return mut_set(int_vec_get(m, 4), v) }
+func sema_mctx_set_arm_ty(m: int, v: int): int { return mut_set(int_vec_get(m, 5), v) }
+
+// Is |vi| covered by an earlier unguarded arm?
+func sema_mctx_covers_variant(m: int, vi: int): int {
+    var v = sema_mctx_variants(m)
+    var i = 0
+    while (i < int_vec_len(v)) {
+        if int_vec_get(v, i) == vi { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// Is the literal |key| covered by an earlier unguarded arm?
+func sema_mctx_covers_lit(m: int, key: int): int {
+    var v = sema_mctx_lits(m)
+    var i = 0
+    while (i < int_vec_len(v)) {
+        if int_vec_get(v, i) == key { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// Is the boolean literal |key| covered by an earlier unguarded arm?
+func sema_mctx_covers_bool(m: int, key: int): int {
+    var v = sema_mctx_bools(m)
+    var i = 0
+    while (i < int_vec_len(v)) {
+        if int_vec_get(v, i) == key { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// Is the string literal token |tok| covered by an earlier unguarded arm?
+func sema_mctx_covers_str(m: int, src: str, toks: int, tok: int): int {
+    var v = sema_mctx_strs(m)
+    var i = 0
+    while (i < int_vec_len(v)) {
+        if tok_spelling_eq(src, toks, int_vec_get(v, i), tok) == 1 { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// Is the pattern described by |info| already covered by an earlier arm?
+func sema_mctx_covers(m: int, src: str, toks: int, info: int): int {
+    if sema_mctx_irrefutable(m) == 1 { return 1 }
+    var kind = sema_pat_kind(info)
+    if kind == pat_variant() { return sema_mctx_covers_variant(m, sema_pat_key(info)) }
+    if kind == pat_int_lit() { return sema_mctx_covers_lit(m, sema_pat_key(info)) }
+    if kind == pat_bool_lit() { return sema_mctx_covers_bool(m, sema_pat_key(info)) }
+    if kind == pat_str_lit() { return sema_mctx_covers_str(m, src, toks, sema_pat_key(info)) }
+    return 0
+}
+
+// Record that an unguarded arm covers the pattern described by |info|.
+func sema_mctx_cover(m: int, info: int): int {
+    var kind = sema_pat_kind(info)
+    if kind == pat_variant() {
+        int_vec_push(sema_mctx_variants(m), sema_pat_key(info))
+        return 0
+    }
+    if kind == pat_int_lit() {
+        int_vec_push(sema_mctx_lits(m), sema_pat_key(info))
+        return 0
+    }
+    if kind == pat_bool_lit() {
+        int_vec_push(sema_mctx_bools(m), sema_pat_key(info))
+        return 0
+    }
+    if kind == pat_str_lit() {
+        int_vec_push(sema_mctx_strs(m), sema_pat_key(info))
+        return 0
+    }
+    sema_mctx_set_irrefutable(m, 1)
+    return 0
+}
+
+// A payload binding needs the payload slot of a local enum binding: Phase 1
+// does not carry payloads across call boundaries.
+func sema_scrutinee_payload_ok(c: int, src: str, toks: int, scrutinee: int, sty: int): int {
+    if sty <= ir_ty_text() { return 0 }
+    if ast_kind(scrutinee) != nd_ident() { return 0 }
+    var nm = tok_text(src, toks, ast_child(scrutinee, 0))
+    if sema_local_known(c, src, toks, nm) == 0 { return 0 }
+    if sctx_lookup_var_type(c, src, toks, nm) != sty { return 0 }
+    if sema_enum_has_payload(c, sty) == 0 { return 0 }
+    return 1
+}
+
+// Every value of the scrutinee type must be covered by an unguarded arm.
+func sema_match_exhaustive(c: int, src: str, toks: int, m: int, node: int): int {
+    if sema_mctx_irrefutable(m) == 1 { return 0 }
+    var sty = sema_mctx_sty(m)
+    if sty > ir_ty_text() {
+        var eids = sctx_variant_enum_ids(c)
+        var missing = int_vec_new()
+        var i = 0
+        while (i < int_vec_len(eids)) {
+            if int_vec_get(eids, i) == sty {
+                if sema_mctx_covers_variant(m, i) == 0 {
+                    int_vec_push(missing, i)
+                }
+            }
+            i = i + 1
+        }
+        if int_vec_len(missing) > 0 {
+            diag_emit_loc(src, tok_start(toks, ast_child(node, 0)))
+            stderr("sema: non-exhaustive match: missing variants ")
+            var j = 0
+            while (j < int_vec_len(missing)) {
+                if j > 0 { stderr(", ") }
+                stderr("'")
+                stderr(tok_text(src, toks, int_vec_get(sctx_variant_toks(c), int_vec_get(missing, j))))
+                stderr("'")
+                j = j + 1
+            }
+            stderr(char_to_str(10))
+            return 1
+        }
+        return 0
+    }
+    if sty == ir_ty_bool() {
+        var cov_t = sema_mctx_covers_bool(m, 1)
+        var cov_f = sema_mctx_covers_bool(m, 0)
+        if (cov_t == 0) | (cov_f == 0) {
+            diag_emit_loc(src, tok_start(toks, ast_child(node, 0)))
+            stderr("sema: non-exhaustive match: missing pattern")
+            if (cov_t == 0) & (cov_f == 0) { stderr("s 'true', 'false'") }
+            if (cov_t == 0) & (cov_f == 1) { stderr(" 'true'") }
+            if (cov_t == 1) & (cov_f == 0) { stderr(" 'false'") }
+            stderr(char_to_str(10))
+            return 1
+        }
+        return 0
+    }
+    diag_emit_loc(src, tok_start(toks, ast_child(node, 0)))
+    stderr("sema: non-exhaustive match: add a wildcard arm")
+    stderr(char_to_str(10))
+    return 1
+}
+
+// Check a match expression: arm types, reachability, exhaustiveness.
+func sema_check_match(c: int, src: str, toks: int, node: int): int {
+    var scrutinee = ast_child(node, 0)
+    var arms = ast_child(node, 1)
+    if sema_check_expr(c, src, toks, scrutinee) != 0 { return 1 }
+    var sty = sema_expr_type(c, src, toks, scrutinee)
+    var n = int_vec_len(arms)
+    if n == 0 {
+        return sema_err("non-exhaustive match: no arms")
+    }
+    var m = sema_mctx_new(sty)
+    var i = 0
+    while (i < n) {
+        var arm = int_vec_get(arms, i)
+        var pat = ast_child(arm, 0)
+        var guard = ast_child(arm, 1)
+        var body = ast_child(arm, 2)
+        var has_guard = 0
+        if guard >= 0 { has_guard = 1 }
+        sctx_scope_push(c)
+        var info = sema_check_pattern(c, src, toks, pat, sty)
+        if info < 0 {
+            sctx_scope_pop(c)
+            return 1
+        }
+        if sema_mctx_covers(m, src, toks, info) == 1 {
+            diag_emit_loc(src, tok_start(toks, ast_child(pat, 5)))
+            stderr("sema: unreachable pattern")
+            stderr(char_to_str(10))
+            sctx_scope_pop(c)
+            return 1
+        }
+        var bt = sema_pat_bind(info)
+        if bt >= 0 {
+            var bname = tok_text(src, toks, bt)
+            if sema_pat_kind(info) == pat_binding() {
+                sctx_define_typed(c, bt, sema_pat_bind_ty(info))
+            }
+            if (str_eq(bname, "_") == 0) & (sema_pat_kind(info) == pat_variant()) {
+                if sema_scrutinee_payload_ok(c, src, toks, scrutinee, sty) == 0 {
+                    diag_emit_loc(src, tok_start(toks, bt))
+                    stderr("sema: cannot bind payload '")
+                    stderr(bname)
+                    stderr("': Phase 1 carries enum payloads only in local enum bindings")
+                    stderr(char_to_str(10))
+                    sctx_scope_pop(c)
+                    return 1
+                }
+                sctx_define_typed(c, bt, sema_pat_bind_ty(info))
+            }
+        }
+        if has_guard == 1 {
+            if sema_check_expr(c, src, toks, guard) != 0 {
+                sctx_scope_pop(c)
+                return 1
+            }
+        }
+        if sema_check_expr(c, src, toks, body) != 0 {
+            sctx_scope_pop(c)
+            return 1
+        }
+        var bty = sema_expr_type(c, src, toks, body)
+        var aty = sema_mctx_arm_ty(m)
+        if aty < 0 {
+            sema_mctx_set_arm_ty(m, bty)
+        } else {
+            if bty != aty {
+                sctx_scope_pop(c)
+                return sema_err("match arms have inconsistent types")
+            }
+        }
+        sctx_scope_pop(c)
+        if has_guard == 0 {
+            sema_mctx_cover(m, info)
+        }
+        i = i + 1
+    }
+    if sema_match_exhaustive(c, src, toks, m, node) != 0 { return 1 }
+    sema_cache_match_type(c, node, sema_mctx_arm_ty(m))
+    return 0
 }
 
 func sema_file_only_native_subset(file_node: int): int {

@@ -1,0 +1,20 @@
+// #91 Phase 1: string literal patterns.
+extern func print_int(x: int): void
+extern func print_str(s: str): void
+
+func main(): int {
+    var s = "hello"
+    var v = match s {
+        "hi" => 1,
+        "hello" => 2,
+        _ => 3,
+    }
+    print_int(v)
+    var w = match "zzz" {
+        "hi" => 4,
+        "hello" => 5,
+        _ => 6,
+    }
+    print_int(w)
+    return 0
+}

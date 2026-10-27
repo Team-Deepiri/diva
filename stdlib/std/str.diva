@@ -44,16 +44,16 @@ func str_contains(haystack: str, needle: str): int {
     }
     var i = 0
     while (i > hlen - nlen) == 0 {
-        var match = 1
+        var matched = 1
         var j = 0
         while (j < nlen) {
             if str_byte(haystack, i + j) != str_byte(needle, j) {
-                match = 0
+                matched = 0
                 j = nlen
             }
             j = j + 1
         }
-        if match == 1 {
+        if matched == 1 {
             return 1
         }
         i = i + 1
@@ -72,16 +72,16 @@ func str_index_of(haystack: str, needle: str): int {
     }
     var i = 0
     while (i > hlen - nlen) == 0 {
-        var match = 1
+        var matched = 1
         var j = 0
         while (j < nlen) {
             if str_byte(haystack, i + j) != str_byte(needle, j) {
-                match = 0
+                matched = 0
                 j = nlen
             }
             j = j + 1
         }
-        if match == 1 {
+        if matched == 1 {
             return i
         }
         i = i + 1

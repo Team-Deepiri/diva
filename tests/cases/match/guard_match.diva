@@ -1,0 +1,16 @@
+// #91 Phase 1: guard clauses fall through to the next arm when false.
+extern func print_int(x: int): void
+
+func main(): int {
+    var v = match 5 {
+        n if n > 3 => 50,
+        _ => 60,
+    }
+    print_int(v)
+    var w = match 1 {
+        n if n > 3 => 50,
+        _ => 60,
+    }
+    print_int(w)
+    return 0
+}

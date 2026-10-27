@@ -1,0 +1,16 @@
+// #91 Phase 1: boolean literal patterns, both arms required.
+extern func print_int(x: int): void
+
+func main(): int {
+    var t = match true {
+        true => 1,
+        false => 2,
+    }
+    print_int(t)
+    var f = match false {
+        true => 3,
+        false => 4,
+    }
+    print_int(f)
+    return 0
+}
