@@ -1,0 +1,10 @@
+import "std/io.diva"
+
+func main(): int {
+    var xs: [int] = [1, 2, 3]
+    xs[1] = 99
+    print_int(xs[0])
+    print_int(xs[1])
+    print_int(xs[2])
+    return 0
+}

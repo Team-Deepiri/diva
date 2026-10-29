@@ -422,7 +422,8 @@ func main(): int {
 - `while condition => update`
 - `flux item in iterable`
 - primitive types: `int`, `bool`, `str`, `void`
-- arrays as `int[]`
+- arrays as `int[]` (fixed-size stack arrays)
+- slices as `[T]` (heap-backed, `s.len`, `s[i]`, `s[a:b]`, bounds-checked)
 - arithmetic, comparisons, and boolean logic
 - field access and field mutation
 - array indexing and mutation

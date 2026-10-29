@@ -49,6 +49,7 @@ func nd_qualified_variant(): int { return 40 }
 func nd_match(): int       { return 41 }
 func nd_match_arm(): int   { return 42 }
 func nd_pattern(): int     { return 43 }
+func nd_type_slice(): int  { return 44 }
 
 // --- Pattern sub-kinds (stored in pattern payload) ---
 
@@ -380,6 +381,14 @@ func ast_type_name(tok_idx: int): int {
 func ast_type_array(elem: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_type_array())
+    int_vec_push(n, elem)
+    return n
+}
+
+// Prefix slice type `[T]` (Issue #92). The element type node is child 0.
+func ast_type_slice(elem: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_type_slice())
     int_vec_push(n, elem)
     return n
 }

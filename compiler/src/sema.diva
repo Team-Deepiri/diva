@@ -430,6 +430,7 @@ func sctx_ty_name(ty: int): str {
     if ty == ir_ty_bool() { return "bool" }
     if ty == ir_ty_str() { return "str" }
     if ty == ir_ty_text() { return "text" }
+    if ty == ir_ty_slice() { return "slice" }
     if ty > ir_ty_text() { return "enum" }
     return "?"
 }
@@ -437,6 +438,9 @@ func sctx_ty_name(ty: int): str {
 func sema_type_from_node(c: int, type_node: int, src: str, toks: int): int {
     if (type_node < 0) {
         return ir_ty_int()
+    }
+    if ast_kind(type_node) == nd_type_slice() {
+        return ir_ty_slice()
     }
     if ast_kind(type_node) != nd_type_name() {
         return ir_ty_int()
@@ -515,6 +519,14 @@ func sema_binop_is_logic(op: int): int {
     return 0
 }
 
+// True when |node| denotes a slice-typed value (a `[T]` local, param, or a
+// sub-slice expression). Used to pick slice vs text lowering for `[a:b]`.
+func sema_expr_is_slice(c: int, src: str, toks: int, node: int): int {
+    if node < 0 { return 0 }
+    if sema_expr_type(c, src, toks, node) == ir_ty_slice() { return 1 }
+    return 0
+}
+
 func sema_expr_type(c: int, src: str, toks: int, node: int): int {
     if (node < 0) { return ir_ty_void() }
     var kind = ast_kind(node)
@@ -522,7 +534,10 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
     if kind == nd_bool_lit() { return ir_ty_bool() }
     if kind == nd_str_lit() { return ir_ty_str() }
     if kind == nd_text_lit() { return ir_ty_text() }
-    if kind == nd_text_slice() { return ir_ty_text() }
+    if kind == nd_text_slice() {
+        if sema_expr_is_slice(c, src, toks, ast_child(node, 0)) == 1 { return ir_ty_slice() }
+        return ir_ty_text()
+    }
     if kind == nd_ident() {
         var itok = ast_child(node, 0)
         var inm = tok_text(src, toks, itok)
@@ -1058,7 +1073,10 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
                 vty = sema_expr_type(c, src, toks, init)
             } else {
                 var got = sema_expr_type(c, src, toks, init)
-                if got != vty {
+                // `[T]` slice annotation accepts an array literal as its backing.
+                var slice_lit_ok = 0
+                if (vty == ir_ty_slice()) & (ast_kind(init) == nd_array_lit()) { slice_lit_ok = 1 }
+                if (slice_lit_ok == 0) & (got != vty) {
                     return sema_type_mismatch_at(src, toks, name_tok, vty, got)
                 }
             }
@@ -1086,7 +1104,9 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
             }
             var want = sctx_lookup_var_type(c, src, toks, nm)
             var got = sema_expr_type(c, src, toks, value)
-            if got != want {
+            var slice_lit_ok2 = 0
+            if (want == ir_ty_slice()) & (ast_kind(value) == nd_array_lit()) { slice_lit_ok2 = 1 }
+            if (slice_lit_ok2 == 0) & (got != want) {
                 return sema_type_mismatch_at(src, toks, ttok, want, got)
             }
         } else {

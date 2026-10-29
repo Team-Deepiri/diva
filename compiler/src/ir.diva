@@ -20,6 +20,9 @@ func ir_ty_bool(): int { return 2 }
 func ir_ty_str(): int  { return 3 }
 func ir_ty_ptr(): int  { return 4 }
 func ir_ty_text(): int { return 5 }
+// Slices are a distinct type but, unlike enums (which occupy 6,7,...), use a
+// high fixed id so it can never collide with a user enum's assigned type.
+func ir_ty_slice(): int { return 1099 }
 
 // --- IR opcodes ---
 
@@ -65,6 +68,10 @@ func ir_text_cmp(): int    { return 38 }
 func ir_text_concat(): int { return 39 }
 func ir_text_slice(): int { return 40 }
 func ir_str_eq(): int    { return 41 }
+func ir_alloc(): int      { return 42 }
+func ir_ptr_load(): int   { return 43 }
+func ir_ptr_store(): int  { return 44 }
+func ir_trap(): int       { return 45 }
 
 
 func ir_op_name(op: int): str {
@@ -110,6 +117,10 @@ func ir_op_name(op: int): str {
     if op == 39 { return "text.concat" }
     if op == 40 { return "text.slice" }
     if op == 41 { return "str.eq" }
+    if op == 42 { return "alloc" }
+    if op == 43 { return "ptr.load" }
+    if op == 44 { return "ptr.store" }
+    if op == 45 { return "trap" }
     return "???"
 }
 

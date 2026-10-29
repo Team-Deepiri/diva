@@ -307,6 +307,31 @@ func cg_inst_mem(ctx: int, src: str, nl: str, inst: int): int {
         lp_add(lp, "    movq %rax, (%rcx)") lp_flush_sb(lp, sb, nl)
         return 1
     }
+    if op == ir_ptr_load() {
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq (%rax), %rdx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_ptr_store() {
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rdx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rdx, (%rax)") lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_trap() {
+        lp_add(lp, "    movl $1, %edi") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movl $60, %eax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    syscall") lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_alloc() {
+        lp_add(lp, "    # ir_alloc nbytes=") lp_add_int(lp, a) lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rdi") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    call mem_alloc") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
     if op == ir_global_load() {
         var gl = mod_get_global(cg_ctx_m(ctx), a)
         var gln = tok_text(src, cg_ctx_toks(ctx), global_name_tok(gl))
@@ -1053,6 +1078,10 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (ik == ir_global_load()) { has_res = 1 }
     if (op_is2(ik, ir_array_load(), ir_array_store()) == 1) { has_res = 1 }
     if (op_is2(ik, ir_neg(), ir_not()) == 1) { has_res = 1 }
+    if (ik == ir_alloc()) { has_res = 1 }
+    if (ik == ir_ptr_load()) { has_res = 1 }
+    if (ik == ir_ptr_store()) { has_res = 1 }
+    if (ik == ir_trap()) { has_res = 1 }
     if (ik == ir_call()) { has_res = 1 }
     if (has_res == 1) {
         if (res > maxv) { maxv = res }
@@ -1070,6 +1099,9 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (ik == ir_global_store()) { has_ia = 1 }
     if (op_is2(ik, ir_array_load(), ir_array_store()) == 1) { has_ia = 1 }
     if (op_is2(ik, ir_neg(), ir_not()) == 1) { has_ia = 1 }
+    if (ik == ir_alloc()) { has_ia = 1 }
+    if (ik == ir_ptr_load()) { has_ia = 1 }
+    if (ik == ir_ptr_store()) { has_ia = 1 }
     if (ik == ir_ret()) { has_ia = 1 }
     if (has_ia == 1) {
         if (ia > maxv) { maxv = ia }
@@ -1084,6 +1116,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is2(ik, ir_array_load(), ir_array_store()) == 1) { has_ibk = 1 }
     if (op_is3(ik, ir_text_cmp(), ir_text_concat(), ir_text_slice()) == 1) { has_ibk = 1 }
     if (ik == ir_str_eq()) { has_ibk = 1 }
+    if (ik == ir_ptr_store()) { has_ibk = 1 }
     if (has_ibk == 1) {
         if (ibk > maxv) { maxv = ibk }
     }
@@ -1254,6 +1287,11 @@ func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
     if op == ir_text_concat() { return 208 }
     if op == ir_text_slice() { return 130 }
     if op == ir_str_eq() { return 51 }
+    // Issue #92: slices. ir_alloc inlines the mem_alloc builtin body.
+    if op == ir_alloc() { return 7 + 88 + 7 }
+    if op == ir_ptr_load() { return 17 }
+    if op == ir_ptr_store() { return 17 }
+    if op == ir_trap() { return 12 }
     if op_is2(op, ir_add(), ir_sub()) == 1 { return 21 }
     if op == ir_mul() { return 22 }
     if op_is2(op, ir_div(), ir_mod()) == 1 { return 23 }
@@ -1714,6 +1752,29 @@ func cg_p2_inst(p2fctx: int, src: str, brtab: int, p2out_ctx: int, inst: int): i
         emit_arg_move_to_abi_reg(out, 1, bv)
         emit_pure_builtin_call(out, 8)
         emit_mov_rax_to_stack(out, res)
+    }
+    // Issue #92: slice memory ops.
+    if op == ir_alloc() {
+        emit_arg_move_to_abi_reg(out, 0, a)
+        emit_pure_mem_alloc(out)
+        emit_mov_rax_to_stack(out, res)
+    }
+    if op == ir_ptr_load() {
+        emit_mov_stack_to_rax(out, a)
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 16)
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 149)
+        emit_i32(out, stack_disp32(res))
+    }
+    if op == ir_ptr_store() {
+        emit_mov_stack_to_rax(out, a)
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 149)
+        emit_i32(out, stack_disp32(bv))
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 16)
+    }
+    if op == ir_trap() {
+        int_vec_push(out, 191) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+        int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
+        int_vec_push(out, 15) int_vec_push(out, 5)
     }
     cg_p2_arith(out, op, res, a, bv, extra)
     cg_p2_cmp(out, op, res, a, bv)

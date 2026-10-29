@@ -1,0 +1,17 @@
+import "std/io.diva"
+
+func first(x: [int]): int {
+    return x[0]
+}
+
+func set0(x: [int], v: int): void {
+    x[0] = v
+}
+
+func main(): int {
+    var a: [int] = [7, 8]
+    print_int(first(a))
+    set0(a, 42)
+    print_int(a[0])
+    return 0
+}
