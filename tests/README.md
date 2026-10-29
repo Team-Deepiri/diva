@@ -12,6 +12,7 @@ Current coverage:
 - `tests/enums.sh` — qualified enum variant construction `Enum::Variant` /
   `Enum::Variant(payload)` (Issue #85)
 - `tests/match.sh` — `match` expressions: patterns, guards, exhaustiveness
+- `tests/slices.sh` — slices (`[T]`): slicing, `.len`, bounds-checked indexing
   and reachability (Issue #91)
 
 `tests/optres.sh`, `tests/enums.sh` and `tests/match.sh` need a driver built

@@ -109,6 +109,13 @@ func p_skip_semi(ps: int): int {
 func parse_type(ps: int, src: str): int {
     var kind = p_cur(ps)
     var tok = ps_pos(ps)
+    // Prefix slice type `[T]` (Issue #92), distinct from postfix arrays `T[]`.
+    if kind == tk_lbrack() {
+        p_advance(ps)
+        var elem = parse_type(ps, src)
+        p_expect(ps, src, tk_rbrack())
+        return ast_type_slice(elem)
+    }
     if kind == tk_int_kw() {
         p_advance(ps)
         var t = ast_type_name(tok)

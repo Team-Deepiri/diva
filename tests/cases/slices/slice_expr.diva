@@ -1,0 +1,22 @@
+import "std/io.diva"
+
+func sum(s: [int]): int {
+    var i = 0
+    var total = 0
+    while i < s.len {
+        total = total + s[i]
+        i = i + 1
+    }
+    return total
+}
+
+func main(): int {
+    var xs: [int] = [1, 2, 3, 4, 5]
+    var mid: [int] = xs[1:4]
+    print_int(mid.len)
+    print_int(mid[0])
+    print_int(sum(mid))
+    var t: [int] = xs[0:2]
+    print_int(t[1])
+    return 0
+}

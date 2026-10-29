@@ -1,0 +1,10 @@
+import "std/io.diva"
+
+func main(): int {
+    var xs: [int] = [5, 6]
+    var ys: [int] = xs
+    ys[0] = 42
+    print_int(xs[0])
+    print_int(ys.len)
+    return 0
+}

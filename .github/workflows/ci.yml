@@ -52,6 +52,15 @@ jobs:
       - name: Run match gate (builds driver from seed)
         run: sh tests/match.sh
 
+  slices:
+    name: slices (#92)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run slices gate (builds driver from seed)
+        run: bash tests/slices.sh
+
   selfhost-consistency:
     name: selfhost consistency (stage2 = stage3)
     runs-on: ubuntu-latest

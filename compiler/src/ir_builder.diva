@@ -127,6 +127,7 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, mut_new(int_vec_new())) // [15] array strides (0 = non-array)
     int_vec_push(ctx, mut_new(int_vec_new())) // [16] text_vregs (vregs known to hold text)
     int_vec_push(ctx, mut_new(int_vec_new())) // [17] enum type name tok per local (-1 = not an enum)
+    int_vec_push(ctx, mut_new(int_vec_new())) // [18] slice flag per local (1 = `[T]` slice)
     return ctx
 }
 
@@ -178,6 +179,15 @@ func bctx_enum_ty(ctx: int): int {
 
 func bctx_set_enum_ty(ctx: int, v: int): int {
     return mut_set(int_vec_get(ctx, 17), v)
+}
+
+// Slice flag per local binding (1 = `[T]` slice, 0 = not a slice).
+func bctx_slice_flags(ctx: int): int {
+    return mut_get(int_vec_get(ctx, 18))
+}
+
+func bctx_set_slice_flags(ctx: int, v: int): int {
+    return mut_set(int_vec_get(ctx, 18), v)
 }
 
 // Mark a vreg as holding a `text` value (for type-directed operator lowering).
@@ -472,6 +482,7 @@ func ib_scope_pop(ctx: int, mark: int): int {
     var sty = bctx_struct_ty(ctx)
     var strides = bctx_array_strides(ctx)
     var ety = bctx_enum_ty(ctx)
+    var slc = bctx_slice_flags(ctx)
     if (int_vec_len(names) > mark) {
         var fresh_n = int_vec_new()
         var fresh_s = int_vec_new()
@@ -479,6 +490,7 @@ func ib_scope_pop(ctx: int, mark: int): int {
         var fresh_sty = int_vec_new()
         var fresh_st = int_vec_new()
         var fresh_ety = int_vec_new()
+        var fresh_slc = int_vec_new()
         var i = 0
         while (i < mark) {
             int_vec_push(fresh_n, int_vec_get(names, i))
@@ -487,6 +499,7 @@ func ib_scope_pop(ctx: int, mark: int): int {
             int_vec_push(fresh_sty, int_vec_get(sty, i))
             int_vec_push(fresh_st, int_vec_get(strides, i))
             int_vec_push(fresh_ety, int_vec_get(ety, i))
+            int_vec_push(fresh_slc, int_vec_get(slc, i))
             i = i + 1
         }
         int_vec_free(names)
@@ -495,12 +508,14 @@ func ib_scope_pop(ctx: int, mark: int): int {
         int_vec_free(sty)
         int_vec_free(strides)
         int_vec_free(ety)
+        int_vec_free(slc)
         bctx_set_names(ctx, fresh_n)
         bctx_set_slots(ctx, fresh_s)
         bctx_set_array_lens(ctx, fresh_l)
         mut_set(int_vec_get(ctx, 14), fresh_sty)
         bctx_set_array_strides(ctx, fresh_st)
         bctx_set_enum_ty(ctx, fresh_ety)
+        bctx_set_slice_flags(ctx, fresh_slc)
     }
     return 0
 }
@@ -521,6 +536,20 @@ func ib_define_local(ctx: int, def_name_tok: int): int {
     int_vec_push(bctx_struct_ty(ctx), ib_struct_ty_none())
     int_vec_push(bctx_array_strides(ctx), 0)
     int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
+    int_vec_push(bctx_slice_flags(ctx), 0)
+    return slot
+}
+
+// Slice local (`[T]`): a single word holding a descriptor pointer.
+func ib_define_slice_local(ctx: int, def_name_tok: int): int {
+    var slot = ib_fresh_vreg(ctx)
+    int_vec_push(bctx_names(ctx), def_name_tok)
+    int_vec_push(bctx_slots(ctx), slot)
+    int_vec_push(bctx_array_lens(ctx), 1)
+    int_vec_push(bctx_struct_ty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_array_strides(ctx), 0)
+    int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
+    int_vec_push(bctx_slice_flags(ctx), 1)
     return slot
 }
 
@@ -540,6 +569,7 @@ func ib_define_enum_local(ctx: int, def_name_tok: int, enum_name_tok: int, width
     int_vec_push(bctx_struct_ty(ctx), ib_struct_ty_none())
     int_vec_push(bctx_array_strides(ctx), 0)
     int_vec_push(bctx_enum_ty(ctx), enum_name_tok)
+    int_vec_push(bctx_slice_flags(ctx), 0)
     return base
 }
 
@@ -560,6 +590,7 @@ func ib_define_array_local(ctx: int, def_name_tok: int, n: int, stride: int, ele
     int_vec_push(bctx_struct_ty(ctx), elem_sty)
     int_vec_push(bctx_array_strides(ctx), stride)
     int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
+    int_vec_push(bctx_slice_flags(ctx), 0)
     return base
 }
 
@@ -577,6 +608,7 @@ func ib_define_struct_local(ctx: int, def_name_tok: int, n: int, type_name_tok: 
     int_vec_push(bctx_struct_ty(ctx), type_name_tok)
     int_vec_push(bctx_array_strides(ctx), 0)
     int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
+    int_vec_push(bctx_slice_flags(ctx), 0)
     return base
 }
 
@@ -640,6 +672,29 @@ func ib_lookup_array_stride(ctx: int, src: str, name: str): int {
         j = j + 1
     }
     return found
+}
+
+func ib_lookup_is_slice(ctx: int, src: str, name: str): int {
+    var toks = bctx_toks(ctx)
+    var names = bctx_names(ctx)
+    var flags = bctx_slice_flags(ctx)
+    var n2 = int_vec_len(names)
+    var found = 0
+    var j = 0
+    while (j < n2) {
+        if str_eq_tok_spelling(name, src, toks, int_vec_get(names, j)) == 1 {
+            found = int_vec_get(flags, j)
+        }
+        j = j + 1
+    }
+    return found
+}
+
+// True when a type node is a prefix slice type `[T]`.
+func ib_type_node_is_slice(type_node: int): int {
+    if type_node < 0 { return 0 }
+    if ast_kind(type_node) == nd_type_slice() { return 1 }
+    return 0
 }
 
 func ib_lookup_struct_ty(ctx: int, src: str, name: str): int {
@@ -1023,6 +1078,15 @@ func lower_expr_field(ctx: int, src: str, node: int): int {
     var obj_node = ast_child(node, 0)
     var field_tok = ast_child(node, 1)
 
+    // Slice `.len` (Issue #92).
+    if ast_kind(obj_node) == nd_ident() {
+        var lnm = ib_tok_text(ctx, src, ast_child(obj_node, 0))
+        if ib_lookup_is_slice(ctx, src, lnm) == 1 {
+            var lfld = ib_tok_text(ctx, src, field_tok)
+            if str_eq(lfld, "len") == 1 { return ib_lower_slice_len(ctx, src, lnm) }
+        }
+    }
+
     // pts[i].x — struct-element array (Issue #64)
     if ast_kind(obj_node) == nd_index() {
         var arr_node = ast_child(obj_node, 0)
@@ -1152,6 +1216,12 @@ func lower_expr_method_call(ctx: int, src: str, node: int): int {
 func lower_expr_index(ctx: int, src: str, node: int): int {
     var obj = ast_child(node, 0)
     var idx_node = ast_child(node, 1)
+    // Slice indexing (Issue #92): s[i].
+    if ib_expr_is_slice(ctx, src, obj) == 1 {
+        var sdesc = lower_expr(ctx, src, obj)
+        var sidx = lower_expr(ctx, src, idx_node)
+        return ib_lower_slice_index(ctx, src, sdesc, sidx)
+    }
     if ast_kind(obj) == nd_ident() {
         var name = ib_tok_text(ctx, src, ast_child(obj, 0))
         var base = ib_lookup_local(ctx, src, name)
@@ -1216,6 +1286,13 @@ func lower_expr(ctx: int, src: str, node: int): int {
     }
 
     if kind == nd_text_slice() {
+        // `[T]` sub-slice vs `text` slicing (Issue #92).
+        if ib_expr_is_slice(ctx, src, ast_child(node, 0)) == 1 {
+            var dsc = lower_expr(ctx, src, ast_child(node, 0))
+            var pstart = lower_expr(ctx, src, ast_child(node, 1))
+            var pend = lower_expr(ctx, src, ast_child(node, 2))
+            return ib_lower_slice_slice(ctx, src, dsc, pstart, pend)
+        }
         var sobj = lower_expr(ctx, src, ast_child(node, 0))
         var sstart = lower_expr(ctx, src, ast_child(node, 1))
         var send = lower_expr(ctx, src, ast_child(node, 2))
@@ -1483,6 +1560,199 @@ func lower_stmt_flux(ctx: int, src: str, node: int): int {
     }
     ib_scope_pop(ctx, scope)
     return 0
+}
+
+// --- Slice lowering (Issue #92) ---
+//
+// A slice value is one machine word: the address of a heap descriptor
+// `[data_ptr, len]` (two 8-byte words). Backing storage is a heap array of
+// 8-byte elements. `[T]` is the slice type; `T[]` remains the fixed-size
+// stack array. Bounds are checked at runtime (trap -> exit 1).
+
+func ib_slice_alloc(ctx: int, nbytes: int): int {
+    var n = nbytes
+    if n < 8 { n = 8 }
+    var nv = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), nv, n, 0, 0))
+    var p = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_alloc(), p, nv, 0, 0))
+    return p
+}
+
+// |base| + |off| bytes, both ints.
+func ib_slice_ptr_off(ctx: int, base: int, off: int): int {
+    var c = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), c, off, 0, 0))
+    var r = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), r, base, c, 0))
+    return r
+}
+
+func ib_slice_load_word(ctx: int, addr: int): int {
+    var r = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_ptr_load(), r, addr, 0, 0))
+    return r
+}
+
+func ib_slice_store_word(ctx: int, addr: int, val: int): int {
+    var z = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_ptr_store(), z, addr, val, 0))
+    return 0
+}
+
+// Branch to a trap (exit 1) unless |ok| is true; continue in a fresh block.
+func ib_slice_guard(ctx: int, ok: int): int {
+    var bad = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_not(), bad, ok, 0, 0))
+    var trap_lbl = ib_fresh_label(ctx)
+    var ok_lbl = ib_fresh_label(ctx)
+    ib_emit(ctx, ir_inst(ir_br_cond(), bad, trap_lbl, ok_lbl, 0))
+    ib_add_blk(ctx, ir_block_new(trap_lbl))
+    var th = ib_find_blk_by_label(ctx, trap_lbl)
+    if th >= 0 { ib_set_blk(ctx, th) }
+    var tr = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_trap(), tr, 0, 0, 0))
+    ib_emit(ctx, ir_inst(ir_ret_void(), 0, 0, 0, 0))
+    ib_add_blk(ctx, ir_block_new(ok_lbl))
+    var oh = ib_find_blk_by_label(ctx, ok_lbl)
+    if oh >= 0 { ib_set_blk(ctx, oh) }
+    return 0
+}
+
+// 0 <= idx < slen
+func ib_slice_bounds(ctx: int, idx: int, slen: int): int {
+    var z = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), z, 0, 0, 0))
+    var ge0 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_ge(), ge0, idx, z, 0))
+    var ltlen = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_lt(), ltlen, idx, slen, 0))
+    var ok = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_and(), ok, ge0, ltlen, 0))
+    return ib_slice_guard(ctx, ok)
+}
+
+// 0 <= start <= end <= slen
+func ib_slice_range_bounds(ctx: int, start: int, end: int, slen: int): int {
+    var z = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), z, 0, 0, 0))
+    var ge0 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_ge(), ge0, start, z, 0))
+    var ord = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_ge(), ord, end, start, 0))
+    var lel = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_le(), lel, end, slen, 0))
+    var ok1 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_and(), ok1, ge0, ord, 0))
+    var ok = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_and(), ok, ok1, lel, 0))
+    return ib_slice_guard(ctx, ok)
+}
+
+// True when |node| is a slice-typed expression (ident bound as `[T]` or a
+// sub-slice). Used to choose slice vs text lowering for `[a:b]`.
+func ib_expr_is_slice(ctx: int, src: str, node: int): int {
+    if node < 0 { return 0 }
+    var k = ast_kind(node)
+    if k == nd_ident() {
+        var nm = ib_tok_text(ctx, src, ast_child(node, 0))
+        if ib_lookup_is_slice(ctx, src, nm) == 1 { return 1 }
+        return 0
+    }
+    if k == nd_text_slice() {
+        return ib_expr_is_slice(ctx, src, ast_child(node, 0))
+    }
+    return 0
+}
+
+// Read the descriptor stored in a slice local (one word).
+func ib_slice_local_value(ctx: int, src: str, name: str): int {
+    var base = ib_lookup_local(ctx, src, name)
+    var v = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_load(), v, base, 0, 0))
+    return v
+}
+
+func ib_lower_slice_len(ctx: int, src: str, name: str): int {
+    var desc = ib_slice_local_value(ctx, src, name)
+    var laddr = ib_slice_ptr_off(ctx, desc, 8)
+    return ib_slice_load_word(ctx, laddr)
+}
+
+// Load s[idx] from descriptor |desc| with bounds checking.
+func ib_lower_slice_index(ctx: int, src: str, desc: int, idx: int): int {
+    var data = ib_slice_load_word(ctx, desc)
+    var laddr = ib_slice_ptr_off(ctx, desc, 8)
+    var slen = ib_slice_load_word(ctx, laddr)
+    ib_slice_bounds(ctx, idx, slen)
+    var off = ib_fresh_vreg(ctx)
+    var c8 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), c8, 8, 0, 0))
+    ib_emit(ctx, ir_inst(ir_mul(), off, idx, c8, 0))
+    var addr = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), addr, data, off, 0))
+    return ib_slice_load_word(ctx, addr)
+}
+
+// Store s[idx] = val into descriptor |desc| with bounds checking.
+func ib_lower_slice_store(ctx: int, src: str, desc: int, idx: int, val: int): int {
+    var data = ib_slice_load_word(ctx, desc)
+    var laddr = ib_slice_ptr_off(ctx, desc, 8)
+    var slen = ib_slice_load_word(ctx, laddr)
+    ib_slice_bounds(ctx, idx, slen)
+    var off = ib_fresh_vreg(ctx)
+    var c8 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), c8, 8, 0, 0))
+    ib_emit(ctx, ir_inst(ir_mul(), off, idx, c8, 0))
+    var addr = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), addr, data, off, 0))
+    return ib_slice_store_word(ctx, addr, val)
+}
+
+// s[start:end] -> a fresh descriptor aliasing the same backing storage.
+func ib_lower_slice_slice(ctx: int, src: str, desc: int, start: int, end: int): int {
+    var data = ib_slice_load_word(ctx, desc)
+    var laddr = ib_slice_ptr_off(ctx, desc, 8)
+    var slen = ib_slice_load_word(ctx, laddr)
+    ib_slice_range_bounds(ctx, start, end, slen)
+    var off = ib_fresh_vreg(ctx)
+    var c8 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), c8, 8, 0, 0))
+    ib_emit(ctx, ir_inst(ir_mul(), off, start, c8, 0))
+    var newdata = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), newdata, data, off, 0))
+    var count = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_sub(), count, end, start, 0))
+    var nd = ib_slice_alloc(ctx, 16)
+    ib_slice_store_word(ctx, nd, newdata)
+    var nla = ib_slice_ptr_off(ctx, nd, 8)
+    ib_slice_store_word(ctx, nla, count)
+    return nd
+}
+
+// `[T]` local initialised from an array literal: heap-back the elements and
+// build a descriptor.
+func lower_stmt_var_slice(ctx: int, src: str, name_tok: int, type_node: int, init: int): int {
+    var elems = ast_child(init, 0)
+    var ne = int_vec_len(elems)
+    var data = ib_slice_alloc(ctx, ne * 8)
+    var j = 0
+    while (j < ne) {
+        var ev = lower_expr(ctx, src, int_vec_get(elems, j))
+        var addr = ib_slice_ptr_off(ctx, data, j * 8)
+        ib_slice_store_word(ctx, addr, ev)
+        j = j + 1
+    }
+    var desc = ib_slice_alloc(ctx, 16)
+    ib_slice_store_word(ctx, desc, data)
+    var laddr = ib_slice_ptr_off(ctx, desc, 8)
+    var nv = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), nv, ne, 0, 0))
+    ib_slice_store_word(ctx, laddr, nv)
+    var slot = ib_define_slice_local(ctx, name_tok)
+    ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
+    ib_emit(ctx, ir_inst(ir_store(), slot, desc, 0, 0))
+    return 1
 }
 
 // Lower nd_var_decl for array types (int[]/bool[]/str[] or struct-element arrays).
@@ -2013,6 +2283,14 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
     if ast_kind(target) == nd_index() {
         var obj = ast_child(target, 0)
         var idx_node = ast_child(target, 1)
+        // Slice element store: s[i] = v (Issue #92).
+        if ib_expr_is_slice(ctx, src, obj) == 1 {
+            var sdesc = lower_expr(ctx, src, obj)
+            var sidx = lower_expr(ctx, src, idx_node)
+            var sval2 = lower_expr(ctx, src, value)
+            ib_lower_slice_store(ctx, src, sdesc, sidx, sval2)
+            return 0
+        }
         if ast_kind(obj) == nd_ident() {
             var name = ib_tok_text(ctx, src, ast_child(obj, 0))
             var base = ib_lookup_local(ctx, src, name)
@@ -2055,6 +2333,36 @@ func lower_stmt(ctx: int, src: str, node: int): int {
                         if lower_stmt_var_array(ctx, src, name_tok, type_node, init) == 1 { return 0 }
                     }
                 }
+            }
+        }
+
+        // `var s: [T] = [...]` — slice with heap backing (Issue #92).
+        if (type_node < 0) == 0 {
+            if ast_kind(type_node) == nd_type_slice() {
+                if (init < 0) == 0 {
+                    if ast_kind(init) == nd_array_lit() {
+                        lower_stmt_var_slice(ctx, src, name_tok, type_node, init)
+                        return 0
+                    }
+                    // Slice from an existing slice value (param, call, sub-slice).
+                    var from_slot = ib_define_slice_local(ctx, name_tok)
+                    ib_emit(ctx, ir_inst(ir_alloca(), from_slot, 0, 0, 0))
+                    var from_val = lower_expr(ctx, src, init)
+                    ib_emit(ctx, ir_inst(ir_store(), from_slot, from_val, 0, 0))
+                    return 0
+                }
+                // `var s: [T]` with no initialiser: empty slice.
+                var eslot = ib_define_slice_local(ctx, name_tok)
+                ib_emit(ctx, ir_inst(ir_alloca(), eslot, 0, 0, 0))
+                var edesc = ib_slice_alloc(ctx, 16)
+                var edata = ib_slice_alloc(ctx, 8)
+                ib_slice_store_word(ctx, edesc, edata)
+                var ela = ib_slice_ptr_off(ctx, edesc, 8)
+                var ez = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_const(), ez, 0, 0, 0))
+                ib_slice_store_word(ctx, ela, ez)
+                ib_emit(ctx, ir_inst(ir_store(), eslot, edesc, 0, 0))
+                return 0
             }
         }
 
@@ -2207,10 +2515,16 @@ func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_
     var i = 0
     while (i < pcount) {
         var p = int_vec_get(params_h, i)
-        var slot = ib_define_local(ctx, ast_child(p, 0))
-        ib_emit(ctx, ir_inst(ir_param(), slot, pi, 0, 0))
-        if ib_type_node_is_text(ctx, src, ast_child(p, 1)) == 1 {
-            ib_mark_text(ctx, slot)
+        var ptype = ast_child(p, 1)
+        if ib_type_node_is_slice(ptype) == 1 {
+            var sslot = ib_define_slice_local(ctx, ast_child(p, 0))
+            ib_emit(ctx, ir_inst(ir_param(), sslot, pi, 0, 0))
+        } else {
+            var slot = ib_define_local(ctx, ast_child(p, 0))
+            ib_emit(ctx, ir_inst(ir_param(), slot, pi, 0, 0))
+            if ib_type_node_is_text(ctx, src, ptype) == 1 {
+                ib_mark_text(ctx, slot)
+            }
         }
         pi = pi + 1
         i = i + 1

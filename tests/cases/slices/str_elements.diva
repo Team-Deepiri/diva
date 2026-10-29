@@ -1,0 +1,9 @@
+import "std/io.diva"
+
+func main(): int {
+    var xs: [str] = ["a", "bb", "ccc"]
+    print_int(xs.len)
+    print_str(xs[1])
+    print_str("\n")
+    return 0
+}

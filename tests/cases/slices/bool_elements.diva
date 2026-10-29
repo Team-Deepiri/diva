@@ -1,0 +1,8 @@
+import "std/io.diva"
+
+func main(): int {
+    var bs: [bool] = [true, false]
+    if bs[0] { print_int(1) }
+    if bs[1] { print_int(9) } else { print_int(0) }
+    return 0
+}
