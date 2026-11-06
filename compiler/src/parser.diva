@@ -193,12 +193,16 @@ func parse_primary(ps: int, src: str): int {
         // Qualified enum variant: `Enum::Variant` / `Enum::Variant(payload)`.
         if p_cur(ps) == tk_coloncolon() {
             p_advance(ps)
-            var vtok = p_expect(ps, src, tk_ident())
-            var vargs = int_vec_new()
-            if p_cur(ps) == tk_lparen() {
-                vargs = parse_args(ps, src)
+            if p_cur(ps) == tk_ident() {
+                var vtok = p_expect(ps, src, tk_ident())
+                var vargs = int_vec_new()
+                if p_cur(ps) == tk_lparen() {
+                    vargs = parse_args(ps, src)
+                }
+                return ast_qualified_variant(ident_tok, vtok, vargs)
             }
-            return ast_qualified_variant(ident_tok, vtok, vargs)
+            // qualified path like math.add - return ident for now (module path)
+            return ast_ident(ident_tok)
         }
         if (p_cur(ps) == tk_lbrace()) & (ps_struct_ok(ps) == 1) {
             // Avoid treating stmt blocks as struct lits (if a == b {, while (i < n) {).
@@ -957,7 +961,37 @@ func parse_top_level(ps: int, src: str): int {
         if ps_err(ps) != 0 { return ast_file(children) }
         p_skip_semi(ps)
         var kind = p_cur(ps)
-
+        var is_pub_decl = 0
+        if kind == tk_pub() { is_pub_decl = 1; p_advance(ps); p_skip_semi(ps); kind = p_cur(ps); }
+        if kind == tk_use() {
+            p_advance(ps)
+            var path = int_vec_new()
+            if p_cur(ps) == tk_star() { p_advance(ps); } else {
+                while p_cur(ps) == tk_ident() {
+                    int_vec_push(path, p_expect(ps, src, tk_ident()))
+                    if p_cur(ps) == tk_coloncolon() {
+                        p_advance(ps)
+                        if p_cur(ps) == tk_star() { p_advance(ps); }
+                    }
+                }
+            }
+            var un = int_vec_new()
+            int_vec_push(un, nd_use())
+            int_vec_push(un, int_vec_len(path))
+            int_vec_push(un, is_pub_decl)
+            var i = 0
+            while i < int_vec_len(path) { int_vec_push(un, int_vec_get(path, i)); i = i + 1 }
+            int_vec_push(children, un)
+        } else {
+        if kind == tk_module() {
+            p_advance(ps)
+            var mntok = p_expect(ps, src, tk_ident())
+            var mn = int_vec_new()
+            int_vec_push(mn, nd_module())
+            int_vec_push(mn, mntok)
+            int_vec_push(mn, is_pub_decl)
+            int_vec_push(children, mn)
+        } else {
         if kind == tk_import() {
             p_advance(ps)
             var stok = p_expect(ps, src, tk_str_lit())
@@ -999,7 +1033,7 @@ func parse_top_level(ps: int, src: str): int {
                 stderr("\n")
             }
             ps_set_err(ps)
-        } } } } } } } } } }
+        } } } } } } } } } } } }
         p_skip_semi(ps)
     }
     return ast_file(children)

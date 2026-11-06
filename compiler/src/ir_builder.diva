@@ -1309,7 +1309,30 @@ func lower_expr(ctx: int, src: str, node: int): int {
 
     if kind == nd_unary() {
         var op = ast_child(node, 0)
-        var operand = lower_expr(ctx, src, ast_child(node, 1))
+        var operand_node = ast_child(node, 1)
+        if op == unop_addr() {
+            // &x: address of a local variable (Issue #94)
+            if ast_kind(operand_node) == nd_ident() {
+                var anm = ib_tok_text(ctx, src, ast_child(operand_node, 0))
+                var abase = ib_lookup_local(ctx, src, anm)
+                if abase >= 0 {
+                    var ar = ib_fresh_vreg(ctx)
+                    ib_emit(ctx, ir_inst(ir_copy(), ar, abase, 0, 0))
+                    return ar
+                }
+            }
+            var operand = lower_expr(ctx, src, operand_node)
+            var raddr = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_copy(), raddr, operand, 0, 0))
+            return raddr
+        }
+        if op == unop_deref() {
+            var dptr = lower_expr(ctx, src, operand_node)
+            var dr = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_ptr_load(), dr, dptr, 0, 0))
+            return dr
+        }
+        var operand = lower_expr(ctx, src, operand_node)
         var r = ib_fresh_vreg(ctx)
         if op == unop_neg() {
             ib_emit(ctx, ir_inst(ir_neg(), r, operand, 0, 0))
@@ -2694,6 +2717,8 @@ func lower_file(ctx: int, src: str, file_node: int): int {
     while (i < n) {
         var child = int_vec_get(children, i)
         var kind = ast_kind(child)
+        if kind == nd_module() { i = i + 1; }
+        if kind == nd_use() { i = i + 1; }
         if kind == nd_import() {
             // Native pipeline always builds IR from merge_file_sources / merge_package_sources:
             // one lex stream and one AST for the whole translation unit. Do not re-parse imports

@@ -98,7 +98,9 @@ func sema_check_func_body_dup_lets(file_node: int, src: str, toks: int): int {
     var i = 0
     while (i < n) {
         var ch = int_vec_get(children, i)
-        if ast_kind(ch) == nd_func() {
+        var ckind = ast_kind(ch)
+        if (ckind == nd_module()) | (ckind == nd_use()) { i = i + 1; }
+        if ckind == nd_func() {
             var body = ast_child(ch, 3)
             if sema_dup_let_flat_block(body, src, toks) != 0 {
                 return 1
@@ -430,6 +432,7 @@ func sctx_ty_name(ty: int): str {
     if ty == ir_ty_bool() { return "bool" }
     if ty == ir_ty_str() { return "str" }
     if ty == ir_ty_text() { return "text" }
+    if ty == ir_ty_ptr() { return "*T" }
     if ty == ir_ty_slice() { return "slice" }
     if ty > ir_ty_text() { return "enum" }
     return "?"
@@ -441,6 +444,12 @@ func sema_type_from_node(c: int, type_node: int, src: str, toks: int): int {
     }
     if ast_kind(type_node) == nd_type_slice() {
         return ir_ty_slice()
+    }
+    if ast_kind(type_node) == nd_type_ptr() {
+        return ir_ty_ptr()
+    }
+    if ast_kind(type_node) == nd_type_array() {
+        return ir_ty_int() + 1000000
     }
     if ast_kind(type_node) != nd_type_name() {
         return ir_ty_int()
@@ -572,7 +581,18 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
         return ir_ty_int()
     }
     if kind == nd_unary() {
-        return sema_expr_type(c, src, toks, ast_child(node, 1))
+        var op = ast_child(node, 0)
+        var oper = ast_child(node, 1)
+        if op == unop_addr() {
+            // &x gives *T
+            var t = sema_expr_type(c, src, toks, oper)
+            // For now return ptr type (IR ptr type tag)
+            return ir_ty_ptr()
+        }
+        if op == unop_deref() {
+            return ir_ty_int()
+        }
+        return sema_expr_type(c, src, toks, oper)
     }
     if kind == nd_call() {
         var callee = ast_child(node, 0)
@@ -792,7 +812,21 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
         return sema_check_binop_types(c, src, toks, node)
     }
     if kind == nd_unary() {
-        return sema_check_expr(c, src, toks, ast_child(node, 1))
+        var op = ast_child(node, 0)
+        var oper = ast_child(node, 1)
+        if op == unop_addr() {
+            if ast_kind(oper) == nd_ident() {
+                var itok = ast_child(oper, 0)
+                var iname = tok_text(src, toks, itok)
+                if sctx_name_known(c, src, toks, iname) == 0 { return sema_unknown_at(src, toks, itok) }
+                return 0
+            }
+            return sema_check_expr(c, src, toks, oper)
+        }
+        if op == unop_deref() {
+            return sema_check_expr(c, src, toks, oper)
+        }
+        return sema_check_expr(c, src, toks, oper)
     }
     if kind == nd_call() {
         return sema_check_call(c, src, toks, node)
@@ -1076,6 +1110,8 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
                 // `[T]` slice annotation accepts an array literal as its backing.
                 var slice_lit_ok = 0
                 if (vty == ir_ty_slice()) & (ast_kind(init) == nd_array_lit()) { slice_lit_ok = 1 }
+                if (vty == ir_ty_ptr()) { slice_lit_ok = 1 }
+                if (got == ir_ty_ptr()) { slice_lit_ok = 1 }
                 if (slice_lit_ok == 0) & (got != vty) {
                     return sema_type_mismatch_at(src, toks, name_tok, vty, got)
                 }

@@ -40,39 +40,42 @@ func tk_const(): int     { return 34 }
 func tk_text_kw(): int   { return 35 }
 func tk_enum(): int      { return 36 }
 func tk_match(): int     { return 37 }
+func tk_module(): int    { return 38 }
+func tk_pub(): int       { return 39 }
+func tk_use(): int       { return 40 }
 
-func tk_lparen(): int    { return 40 }
-func tk_rparen(): int    { return 41 }
-func tk_lbrace(): int    { return 42 }
-func tk_rbrace(): int    { return 43 }
-func tk_lbrack(): int    { return 44 }
-func tk_rbrack(): int    { return 45 }
-func tk_comma(): int     { return 46 }
-func tk_semi(): int      { return 47 }
-func tk_colon(): int     { return 48 }
-func tk_dot(): int       { return 49 }
-func tk_plus(): int      { return 50 }
-func tk_minus(): int     { return 51 }
-func tk_star(): int      { return 52 }
-func tk_slash(): int     { return 53 }
-func tk_lt(): int        { return 54 }
-func tk_gt(): int        { return 55 }
-func tk_bang(): int      { return 56 }
-func tk_amp(): int       { return 57 }
-func tk_pipe(): int      { return 58 }
-func tk_eq(): int        { return 59 }
-func tk_eqeq(): int     { return 60 }
-func tk_ne(): int        { return 61 }
-func tk_le(): int        { return 62 }
-func tk_ge(): int        { return 63 }
-func tk_fatarrow(): int  { return 64 }
-func tk_dotdot(): int    { return 65 }
-func tk_coloncolon(): int { return 66 }
-func tk_percent(): int   { return 67 }
-func tk_shl(): int      { return 68 }
-func tk_shr(): int      { return 69 }
-func tk_ampamp(): int   { return 70 }
-func tk_pipepipe(): int { return 71 }
+func tk_lparen(): int    { return 41 }
+func tk_rparen(): int    { return 42 }
+func tk_lbrace(): int    { return 43 }
+func tk_rbrace(): int    { return 44 }
+func tk_lbrack(): int    { return 45 }
+func tk_rbrack(): int    { return 46 }
+func tk_comma(): int     { return 47 }
+func tk_semi(): int      { return 48 }
+func tk_colon(): int     { return 49 }
+func tk_dot(): int       { return 50 }
+func tk_plus(): int      { return 51 }
+func tk_minus(): int     { return 52 }
+func tk_star(): int      { return 53 }
+func tk_slash(): int     { return 54 }
+func tk_lt(): int        { return 55 }
+func tk_gt(): int        { return 56 }
+func tk_bang(): int      { return 57 }
+func tk_amp(): int       { return 58 }
+func tk_pipe(): int      { return 59 }
+func tk_eq(): int        { return 60 }
+func tk_eqeq(): int     { return 61 }
+func tk_ne(): int        { return 62 }
+func tk_le(): int        { return 63 }
+func tk_ge(): int        { return 64 }
+func tk_fatarrow(): int  { return 65 }
+func tk_dotdot(): int    { return 66 }
+func tk_coloncolon(): int { return 67 }
+func tk_percent(): int   { return 68 }
+func tk_shl(): int      { return 69 }
+func tk_shr(): int      { return 70 }
+func tk_ampamp(): int   { return 71 }
+func tk_pipepipe(): int { return 72 }
 
 // --- Token stream ---
 
@@ -350,37 +353,40 @@ func tk_name(kind: int): str {
     if kind == 35 { return "KW_TEXT" }
     if kind == 36 { return "KW_ENUM" }
     if kind == 37 { return "KW_MATCH" }
-    if kind == 40 { return "LPAREN" }
-    if kind == 41 { return "RPAREN" }
-    if kind == 42 { return "LBRACE" }
-    if kind == 43 { return "RBRACE" }
-    if kind == 44 { return "LBRACK" }
-    if kind == 45 { return "RBRACK" }
-    if kind == 46 { return "COMMA" }
-    if kind == 47 { return "SEMI" }
-    if kind == 48 { return "COLON" }
-    if kind == 49 { return "DOT" }
-    if kind == 50 { return "PLUS" }
-    if kind == 51 { return "MINUS" }
-    if kind == 52 { return "STAR" }
-    if kind == 53 { return "SLASH" }
-    if kind == 54 { return "LT" }
-    if kind == 55 { return "GT" }
-    if kind == 56 { return "BANG" }
-    if kind == 57 { return "AMP" }
-    if kind == 58 { return "PIPE" }
-    if kind == 59 { return "EQ" }
-    if kind == 60 { return "EQEQ" }
-    if kind == 61 { return "NE" }
-    if kind == 62 { return "LE" }
-    if kind == 63 { return "GE" }
-    if kind == 64 { return "FATARROW" }
-    if kind == 65 { return "DOTDOT" }
-    if kind == 66 { return "COLONCOLON" }
-    if kind == 67 { return "PERCENT" }
-    if kind == 68 { return "SHL" }
-    if kind == 69 { return "SHR" }
-    if kind == 70 { return "AMPAMP" }
-    if kind == 71 { return "PIPEPIPE" }
+    if kind == 38 { return "MODULE" }
+    if kind == 39 { return "PUB" }
+    if kind == 40 { return "USE" }
+    if kind == 41 { return "LPAREN" }
+    if kind == 42 { return "RPAREN" }
+    if kind == 43 { return "LBRACE" }
+    if kind == 44 { return "RBRACE" }
+    if kind == 45 { return "LBRACK" }
+    if kind == 46 { return "RBRACK" }
+    if kind == 47 { return "COMMA" }
+    if kind == 48 { return "SEMI" }
+    if kind == 49 { return "COLON" }
+    if kind == 50 { return "DOT" }
+    if kind == 51 { return "PLUS" }
+    if kind == 52 { return "MINUS" }
+    if kind == 53 { return "STAR" }
+    if kind == 54 { return "SLASH" }
+    if kind == 55 { return "LT" }
+    if kind == 56 { return "GT" }
+    if kind == 57 { return "BANG" }
+    if kind == 58 { return "AMP" }
+    if kind == 59 { return "PIPE" }
+    if kind == 60 { return "EQ" }
+    if kind == 61 { return "EQEQ" }
+    if kind == 62 { return "NE" }
+    if kind == 63 { return "LE" }
+    if kind == 64 { return "GE" }
+    if kind == 65 { return "FATARROW" }
+    if kind == 66 { return "DOTDOT" }
+    if kind == 67 { return "COLONCOLON" }
+    if kind == 68 { return "PERCENT" }
+    if kind == 69 { return "SHL" }
+    if kind == 70 { return "SHR" }
+    if kind == 71 { return "AMPAMP" }
+    if kind == 72 { return "PIPEPIPE" }
     return "???"
 }
