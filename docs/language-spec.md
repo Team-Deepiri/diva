@@ -65,6 +65,9 @@ func main(): int {
 - `match`
 - `package`
 - `import`
+- `module`
+- `pub`
+- `use`
 
 ## Types
 
@@ -381,6 +384,31 @@ import "pkg/math_lib"
 `pkg/<name>` resolves to that dependency package's manifest entry file.
 
 Imports are resolved as a file graph and merged into a single program for semantic analysis and code generation.
+
+### Modules (`module`, `pub`, `use`)
+
+A source file may name its module and use path-based imports:
+
+```diva
+module math
+
+pub func add(a: int, b: int): int {
+    return a + b
+}
+
+use std::io
+use std::io::*
+pub use math::add
+```
+
+`module <name>` names the current module. `use a::b` imports a path; a trailing
+`::*` imports all public symbols from that path. `pub` marks a declaration as
+exported, including `pub use` re-exports.
+
+> Foundation status (#97): `module`, `pub`, and `use` parse into the AST, but
+> namespaces, per-symbol visibility enforcement, and re-export resolution are
+> follow-ups. Today `module`/`use` nodes are skipped by sema and the IR builder,
+> so a `pub` item behaves like an ordinary top-level item.
 
 ## Example
 

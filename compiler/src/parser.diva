@@ -951,17 +951,52 @@ func parse_struct_lit(ps: int, src: str, type_tok: int): int {
     return ast_obj_lit(type_tok, fields)
 }
 
+// Parse a `use` path: `a::b::c` or `a::b::*`. Returns an nd_use/nd_use_glob node.
+func parse_use_decl(ps: int, src: str): int {
+    var path = int_vec_new()
+    var tok = p_expect(ps, src, tk_ident())
+    int_vec_push(path, tok)
+    var is_glob = 0
+    while (p_cur(ps) == tk_coloncolon()) & (is_glob == 0) {
+        p_advance(ps)
+        if p_cur(ps) == tk_star() {
+            p_advance(ps)
+            is_glob = 1
+        } else {
+            var seg = p_expect(ps, src, tk_ident())
+            int_vec_push(path, seg)
+        }
+    }
+    if is_glob == 1 {
+        return ast_use_glob(path)
+    }
+    return ast_use(path)
+}
+
 func parse_top_level(ps: int, src: str): int {
     var children = int_vec_new()
     while p_cur(ps) != tk_eof() {
         if ps_err(ps) != 0 { return ast_file(children) }
         p_skip_semi(ps)
         var kind = p_cur(ps)
+        if kind == tk_pub() {
+            p_advance(ps)
+            kind = p_cur(ps)
+        }
 
         if kind == tk_import() {
             p_advance(ps)
             var stok = p_expect(ps, src, tk_str_lit())
             int_vec_push(children, ast_import(stok))
+        } else {
+        if kind == tk_module() {
+            p_advance(ps)
+            var mtok = p_expect(ps, src, tk_ident())
+            int_vec_push(children, ast_module(mtok))
+        } else {
+        if kind == tk_use() {
+            p_advance(ps)
+            int_vec_push(children, parse_use_decl(ps, src))
         } else {
         if kind == tk_package() {
             p_advance(ps)
@@ -999,7 +1034,7 @@ func parse_top_level(ps: int, src: str): int {
                 stderr("\n")
             }
             ps_set_err(ps)
-        } } } } } } } } } }
+        } } } } } } } } } } } }
         p_skip_semi(ps)
     }
     return ast_file(children)
