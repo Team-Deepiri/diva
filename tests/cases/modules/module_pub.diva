@@ -1,0 +1,7 @@
+module foo
+pub func bar(): int {
+    return 7
+}
+func main(): int {
+    return bar()
+}

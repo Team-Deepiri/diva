@@ -96,6 +96,15 @@ func classify_keyword(src: str, start: int, length: int): int {
     if str_eq(w, "match") == 1 {
         return tk_match()
     }
+    if str_eq(w, "module") == 1 {
+        return tk_module()
+    }
+    if str_eq(w, "pub") == 1 {
+        return tk_pub()
+    }
+    if str_eq(w, "use") == 1 {
+        return tk_use()
+    }
     if str_eq(w, "trait") == 1 {
         return tk_trait()
     }

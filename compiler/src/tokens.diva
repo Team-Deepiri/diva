@@ -73,6 +73,9 @@ func tk_shl(): int      { return 68 }
 func tk_shr(): int      { return 69 }
 func tk_ampamp(): int   { return 70 }
 func tk_pipepipe(): int { return 71 }
+func tk_module(): int   { return 72 }
+func tk_pub(): int      { return 73 }
+func tk_use(): int      { return 74 }
 
 // --- Token stream ---
 
@@ -382,5 +385,8 @@ func tk_name(kind: int): str {
     if kind == 69 { return "SHR" }
     if kind == 70 { return "AMPAMP" }
     if kind == 71 { return "PIPEPIPE" }
+    if kind == 72 { return "KW_MODULE" }
+    if kind == 73 { return "KW_PUB" }
+    if kind == 74 { return "KW_USE" }
     return "???"
 }

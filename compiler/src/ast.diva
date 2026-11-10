@@ -50,6 +50,9 @@ func nd_match(): int       { return 41 }
 func nd_match_arm(): int   { return 42 }
 func nd_pattern(): int     { return 43 }
 func nd_type_slice(): int  { return 44 }
+func nd_module(): int      { return 45 }
+func nd_use(): int         { return 46 }
+func nd_use_glob(): int    { return 47 }
 
 // --- Pattern sub-kinds (stored in pattern payload) ---
 
@@ -107,6 +110,30 @@ func ast_package(tok_idx: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_package_decl())
     int_vec_push(n, tok_idx)
+    return n
+}
+
+// Module declaration: [kind, name_tok]
+func ast_module(name_tok: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_module())
+    int_vec_push(n, name_tok)
+    return n
+}
+
+// Use declaration: [kind, path_vec] where path_vec is a vec of ident token indices.
+// A glob use (`use a::b::*`) uses nd_use_glob() as the kind instead.
+func ast_use(path_vec: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_use())
+    int_vec_push(n, path_vec)
+    return n
+}
+
+func ast_use_glob(path_vec: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_use_glob())
+    int_vec_push(n, path_vec)
     return n
 }
 

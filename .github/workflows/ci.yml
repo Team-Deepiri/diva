@@ -61,6 +61,15 @@ jobs:
       - name: Run slices gate (builds driver from seed)
         run: bash tests/slices.sh
 
+  modules:
+    name: modules/pub/use (#97 foundation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run modules gate (builds driver from seed)
+        run: sh tests/modules.sh
+
   selfhost-consistency:
     name: selfhost consistency (stage2 = stage3)
     runs-on: ubuntu-latest

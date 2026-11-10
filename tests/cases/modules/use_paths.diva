@@ -1,0 +1,7 @@
+module app
+use std::io
+use std::io::*
+pub use foo::bar
+func main(): int {
+    return 0
+}
