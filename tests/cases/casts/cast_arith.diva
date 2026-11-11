@@ -1,0 +1,6 @@
+func main(): int {
+    let a: int = 4
+    let b: int = a as i32 * 2
+    let c: int = (b as u8) + 1
+    return c
+}

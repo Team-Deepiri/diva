@@ -1,0 +1,11 @@
+func main(): int {
+    let a: int = 3
+    let b: int = a as int
+    let c: i32 = b as i32
+    let d: int = c as int
+    let flag: bool = d as bool
+    if flag {
+        return 7
+    }
+    return 0
+}

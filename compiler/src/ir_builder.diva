@@ -1319,6 +1319,10 @@ func lower_expr(ctx: int, src: str, node: int): int {
         return r
     }
 
+    // `expr as Type` (Issue #86): all current numeric/bool types share the
+    // machine-word representation, so the cast lowers to its operand.
+    if kind == nd_cast() { return lower_expr(ctx, src, ast_child(node, 0)) }
+
     if kind == nd_call() { return lower_expr_call(ctx, src, node) }
     if kind == nd_generic_call() { return lower_expr_generic_call(ctx, src, node) }
     if kind == nd_method_call() { return lower_expr_method_call(ctx, src, node) }
