@@ -447,6 +447,18 @@ func sema_type_from_node(c: int, type_node: int, src: str, toks: int): int {
     }
     var tn = tok_text(src, toks, ast_child(type_node, 0))
     if str_eq(tn, "int") == 1 { return ir_ty_int() }
+    // Integer/float width type names (Issue #86). All share the machine-word
+    // representation for now; per-width semantics are a follow-up.
+    if str_eq(tn, "i8") == 1 { return ir_ty_int() }
+    if str_eq(tn, "i16") == 1 { return ir_ty_int() }
+    if str_eq(tn, "i32") == 1 { return ir_ty_int() }
+    if str_eq(tn, "i64") == 1 { return ir_ty_int() }
+    if str_eq(tn, "u8") == 1 { return ir_ty_int() }
+    if str_eq(tn, "u16") == 1 { return ir_ty_int() }
+    if str_eq(tn, "u32") == 1 { return ir_ty_int() }
+    if str_eq(tn, "u64") == 1 { return ir_ty_int() }
+    if str_eq(tn, "f32") == 1 { return ir_ty_int() }
+    if str_eq(tn, "f64") == 1 { return ir_ty_int() }
     if str_eq(tn, "bool") == 1 { return ir_ty_bool() }
     if str_eq(tn, "str") == 1 { return ir_ty_str() }
     if str_eq(tn, "text") == 1 { return ir_ty_text() }
@@ -573,6 +585,9 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
     }
     if kind == nd_unary() {
         return sema_expr_type(c, src, toks, ast_child(node, 1))
+    }
+    if kind == nd_cast() {
+        return sema_type_from_node(c, ast_child(node, 1), src, toks)
     }
     if kind == nd_call() {
         var callee = ast_child(node, 0)
@@ -793,6 +808,9 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
     }
     if kind == nd_unary() {
         return sema_check_expr(c, src, toks, ast_child(node, 1))
+    }
+    if kind == nd_cast() {
+        return sema_check_expr(c, src, toks, ast_child(node, 0))
     }
     if kind == nd_call() {
         return sema_check_call(c, src, toks, node)

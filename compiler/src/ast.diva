@@ -53,6 +53,7 @@ func nd_type_slice(): int  { return 44 }
 func nd_module(): int      { return 45 }
 func nd_use(): int         { return 46 }
 func nd_use_glob(): int    { return 47 }
+func nd_cast(): int        { return 48 }
 
 // --- Pattern sub-kinds (stored in pattern payload) ---
 
@@ -134,6 +135,15 @@ func ast_use_glob(path_vec: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_use_glob())
     int_vec_push(n, path_vec)
+    return n
+}
+
+// Cast expression: [kind, expr_node, type_node]
+func ast_cast(expr: int, type_node: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_cast())
+    int_vec_push(n, expr)
+    int_vec_push(n, type_node)
     return n
 }
 

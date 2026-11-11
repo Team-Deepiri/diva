@@ -493,12 +493,24 @@ func parse_unary(ps: int, src: str): int {
     return parse_postfix(ps, src, prim)
 }
 
+// `expr as Type` casts (Issue #86). Binds tighter than binary operators,
+// looser than unary operators.
+func parse_cast(ps: int, src: str): int {
+    var e = parse_unary(ps, src)
+    while p_cur(ps) == tk_as() {
+        p_advance(ps)
+        var ty = parse_type(ps, src)
+        e = ast_cast(e, ty)
+    }
+    return e
+}
+
 func parse_mul(ps: int, src: str): int {
-    var left = parse_unary(ps, src)
+    var left = parse_cast(ps, src)
     while p_cur(ps) == tk_star() | p_cur(ps) == tk_slash() | p_cur(ps) == tk_percent() {
         var op = p_cur(ps)
         p_advance(ps)
-        var right = parse_unary(ps, src)
+        var right = parse_cast(ps, src)
         if op == tk_star()    { left = ast_binop(binop_mul(), left, right) }
         if op == tk_slash()   { left = ast_binop(binop_div(), left, right) }
         if op == tk_percent() { left = ast_binop(binop_mod(), left, right) }

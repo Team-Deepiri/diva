@@ -68,6 +68,7 @@ func main(): int {
 - `module`
 - `pub`
 - `use`
+- `as`
 
 ## Types
 
@@ -236,8 +237,26 @@ Supported expressions:
 - array literals: `[1, 2, 3]`
 - ranges: `0..5`
 - `match` expressions
+- casts: `x as i32`
 
-## Match Expressions
+### Casts
+
+`expr as Type` converts a value to another numeric or boolean type:
+
+```diva
+let a: int = 3
+let b: i32 = a as i32
+let flag: bool = a as bool
+```
+
+`as` binds tighter than binary operators and looser than unary operators, so
+`a as i32 * 2` parses as `(a as i32) * 2`.
+
+> Foundation status (#86): `i8`/`i16`/`i32`/`i64`/`u8`/`u16`/`u32`/`u64`/
+> `f32`/`f64` are accepted as type names and currently share the machine-word
+> representation, so casts lower to their operand. Per-width narrowing and
+> widening codegen, and float representations, are follow-ups. Assignment
+> remains strict: crossing numeric/bool types requires an explicit `as`.
 
 `match` is an expression: it picks an arm by pattern and yields that arm's
 value. The scrutinee is any expression; each arm is a pattern, an optional
