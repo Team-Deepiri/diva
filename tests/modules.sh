@@ -72,9 +72,32 @@ check_rc() {
   echo "[modules] OK   ${_name}"
 }
 
+# check_fail <name> <src> <needle>
+check_fail() {
+  _name=$1
+  _src=$2
+  _needle=$3
+  total=$((total + 1))
+  if DI_STDLIB_DIR="${ROOT_DIR}/stdlib" DIVA_NO_EXTERNAL=1 \
+     DI_RUNTIME_O="${ROOT_DIR}/bootstrap/runtime-linux-amd64.o" \
+     timeout 60 "${DRIVER}" build "${_src}" "${WORK}/${_name}.exe" \
+     >"${WORK}/${_name}.log" 2>&1; then
+    fail "${_name} (expected build failure)"
+    return 0
+  fi
+  if ! grep -q "${_needle}" "${WORK}/${_name}.log"; then
+    fail "${_name} (missing needle '${_needle}')"
+    sed -n '1,20p' "${WORK}/${_name}.log" >&2
+    return 0
+  fi
+  echo "[modules] OK   ${_name} (fail)"
+}
+
 check_rc module_pub "${ROOT_DIR}/tests/cases/modules/module_pub.diva" 7
 check_rc use_paths "${ROOT_DIR}/tests/cases/modules/use_paths.diva" 0
 check_rc module_first_stmt "${ROOT_DIR}/tests/cases/modules/module_first_stmt.diva" 5
+check_rc qualified_call "${ROOT_DIR}/tests/cases/modules/qualified_call.diva" 5
+check_fail fail_unknown_fn "${ROOT_DIR}/tests/cases/modules/fail_unknown_fn.diva" "unknown function 'nope' in module 'math'"
 
 echo "[modules] total=${total} failed=${failed}"
 [ "${failed}" -eq 0 ]

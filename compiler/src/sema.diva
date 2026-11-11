@@ -255,6 +255,7 @@ func sctx_new(): int {
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())
+    int_vec_push(c, int_vec_new())   // [18] module name tokens (Issue #97)
     return c
 }
 
@@ -281,6 +282,7 @@ func sctx_variant_enum_ids(c: int): int { return int_vec_get(c, 14) }
 func sctx_variant_payloads(c: int): int { return int_vec_get(c, 15) }
 func sctx_match_nodes(c: int): int { return int_vec_get(c, 16) }
 func sctx_match_types(c: int): int { return int_vec_get(c, 17) }
+func sctx_modules(c: int): int { return int_vec_get(c, 18) }
 
 // Remember the result type of a checked match expression.
 func sema_cache_match_type(c: int, node: int, ty: int): int {
@@ -365,6 +367,7 @@ func sctx_free(c: int): int {
     int_vec_free(sctx_variant_payloads(c))
     int_vec_free(sctx_match_nodes(c))
     int_vec_free(sctx_match_types(c))
+    int_vec_free(sctx_modules(c))
     int_vec_free(c)
     return 0
 }
@@ -1033,7 +1036,18 @@ func sema_check_generic_call(c: int, src: str, toks: int, node: int): int {
 }
 
 func sema_check_method_call(c: int, src: str, toks: int, node: int): int {
-    if sema_check_expr(c, src, toks, ast_child(node, 0)) != 0 { return 1 }
+    // Module-qualified call `module.func(...)` (Issue #97): when the receiver
+    // is a declared module name, resolve the callee as a top-level function
+    // and skip receiver-expression checking (it is a namespace, not a value).
+    var recv = ast_child(node, 0)
+    var is_mod = 0
+    if ast_kind(recv) == nd_ident() {
+        var rnm = tok_text(src, toks, ast_child(recv, 0))
+        if sctx_tok_list_has(sctx_modules(c), src, toks, rnm) == 1 { is_mod = 1 }
+    }
+    if is_mod == 0 {
+        if sema_check_expr(c, src, toks, recv) != 0 { return 1 }
+    }
     var args = ast_child(node, 2)
     var ai = 0
     while (ai < int_vec_len(args)) {
@@ -1044,6 +1058,16 @@ func sema_check_method_call(c: int, src: str, toks: int, node: int): int {
     var mname = tok_text(src, toks, mtok)
     if sctx_tok_list_has(sctx_fn_names(c), src, toks, mname) == 1 { return 0 }
     if sctx_tok_list_has(sctx_methods(c), src, toks, mname) == 1 { return 0 }
+    if is_mod == 1 {
+        diag_emit_loc(src, tok_start(toks, mtok))
+        stderr("sema: unknown function '")
+        stderr(mname)
+        stderr("' in module '")
+        stderr(tok_text(src, toks, ast_child(recv, 0)))
+        stderr("'")
+        stderr(char_to_str(10))
+        return 1
+    }
     diag_emit_loc(src, tok_start(toks, mtok))
     stderr("sema: unknown method '")
     stderr(mname)
@@ -1383,6 +1407,18 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
     // annotation or initializer can resolve them regardless of source order.
     if sema_collect_enums(c, src, toks, file_node) != 0 {
         return 1
+    }
+    // Register module names (Issue #97) so qualified calls like `math.add()`
+    // resolve against declared modules before any other checks run.
+    var mchildren = ast_child(file_node, 0)
+    var mn = int_vec_len(mchildren)
+    var mj = 0
+    while (mj < mn) {
+        var mch = int_vec_get(mchildren, mj)
+        if ast_kind(mch) == nd_module() {
+            int_vec_push(sctx_modules(c), ast_child(mch, 0))
+        }
+        mj = mj + 1
     }
     var children = ast_child(file_node, 0)
     var n = int_vec_len(children)
