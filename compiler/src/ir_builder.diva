@@ -128,6 +128,7 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, mut_new(int_vec_new())) // [16] text_vregs (vregs known to hold text)
     int_vec_push(ctx, mut_new(int_vec_new())) // [17] enum type name tok per local (-1 = not an enum)
     int_vec_push(ctx, mut_new(int_vec_new())) // [18] slice flag per local (1 = `[T]` slice)
+    int_vec_push(ctx, int_vec_new())          // [19] module name tokens (Issue #97)
     return ctx
 }
 
@@ -153,6 +154,11 @@ func bctx_set_array_lens(ctx: int, v: int): int { return mut_set(int_vec_get(ctx
 func bctx_global_names(ctx: int): int { return mut_get(int_vec_get(ctx, 11)) }
 func bctx_global_vals(ctx: int): int  { return mut_get(int_vec_get(ctx, 12)) }
 func bctx_set_global_vals(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 12), v) }
+
+// Module name tokens declared in this translation unit (Issue #97).
+func bctx_modules(ctx: int): int {
+    return int_vec_get(ctx, 19)
+}
 
 func bctx_struct_ty(ctx: int): int {
     return mut_get(int_vec_get(ctx, 14))
@@ -245,6 +251,18 @@ func ib_new_block(ctx: int): int {
 
 func ib_tok_text(ctx: int, src: str, tok_idx: int): str {
     return tok_text(src, bctx_toks(ctx), tok_idx)
+}
+
+// Whether a token-index list contains a token whose text equals `want`.
+func ib_tok_list_has(list: int, src: str, toks: int, want: str): int {
+    var i = 0
+    while (i < int_vec_len(list)) {
+        if str_eq(tok_text(src, toks, int_vec_get(list, i)), want) == 1 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
 }
 
 // --- Enum helpers (Issue #93) ---
@@ -1179,10 +1197,35 @@ func lower_expr_field(ctx: int, src: str, node: int): int {
 // Lower obj.method(args) as method(obj, args...) — free-function receiver convention.
 // ir_call layout matches lower_expr_call: [op, res, fname_tok, argc, arg|args_vec].
 func lower_expr_method_call(ctx: int, src: str, node: int): int {
-    var obj_reg = lower_expr(ctx, src, ast_child(node, 0))
+    var recv = ast_child(node, 0)
     var method_tok = ast_child(node, 1)
     var args_h = ast_child(node, 2)
     var argc = int_vec_len(args_h)
+    // Module-qualified call `module.func(...)` (Issue #97): lower as a plain
+    // call with no receiver argument.
+    var is_mod = 0
+    if ast_kind(recv) == nd_ident() {
+        var rnm = tok_text(src, bctx_toks(ctx), ast_child(recv, 0))
+        if ib_tok_list_has(bctx_modules(ctx), src, bctx_toks(ctx), rnm) == 1 { is_mod = 1 }
+    }
+    if is_mod == 1 {
+        var mr = ib_fresh_vreg(ctx)
+        var margs = int_vec_new()
+        var mj = 0
+        while (mj < argc) {
+            int_vec_push(margs, lower_expr(ctx, src, int_vec_get(args_h, mj)))
+            mj = mj + 1
+        }
+        var mc = int_vec_new()
+        int_vec_push(mc, ir_call())
+        int_vec_push(mc, mr)
+        int_vec_push(mc, method_tok)
+        int_vec_push(mc, argc)
+        int_vec_push(mc, margs)
+        ib_emit(ctx, mc)
+        return mr
+    }
+    var obj_reg = lower_expr(ctx, src, recv)
     var total = argc + 1
     var r = ib_fresh_vreg(ctx)
     if total == 1 {
@@ -2694,6 +2737,16 @@ func lower_global(ctx: int, src: str, node: int): int {
 func lower_file(ctx: int, src: str, file_node: int): int {
     var children = ast_child(file_node, 0)
     var n = int_vec_len(children)
+    // Pre-pass: register module names so `module.func()` lowers as a plain
+    // call instead of passing the namespace identifier as a receiver (#97).
+    var mi = 0
+    while (mi < n) {
+        var mch = int_vec_get(children, mi)
+        if ast_kind(mch) == nd_module() {
+            int_vec_push(bctx_modules(ctx), ast_child(mch, 0))
+        }
+        mi = mi + 1
+    }
     var i = 0
     while (i < n) {
         var child = int_vec_get(children, i)
