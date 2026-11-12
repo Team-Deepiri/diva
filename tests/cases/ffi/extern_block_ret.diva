@@ -1,0 +1,6 @@
+extern "C" {
+    func host_argc(): int
+}
+func main(): int {
+    return host_argc()
+}

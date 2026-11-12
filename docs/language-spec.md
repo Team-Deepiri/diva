@@ -101,6 +101,22 @@ func add(a: int, b: int): int {
 extern func print_str(x: str): void
 ```
 
+An explicit C ABI can be given as a string. It may decorate a single
+declaration or group several in a block:
+
+```diva
+extern "C" func print_str(x: str): void
+
+extern "C" {
+    func print_int(x: int): void
+    func host_argc(): int
+}
+```
+
+> Foundation status (#95): the ABI string is accepted and extern declarations
+> are linked as before. `#[repr(C)]`, function-pointer types, variadics,
+> `#[export_name]`, and `diva bindgen` are follow-ups.
+
 Hosted runtime hooks currently exposed through `extern func` include:
 
 - `print_int(x: int): void`

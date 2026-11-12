@@ -2822,6 +2822,14 @@ func lower_file(ctx: int, src: str, file_node: int): int {
         if kind == nd_extern_func() {
             lower_extern(ctx, src, child)
         }
+        if kind == nd_extern_block() {
+            var ebc = ast_child(child, 0)
+            var ebi = 0
+            while (ebi < int_vec_len(ebc)) {
+                lower_extern(ctx, src, int_vec_get(ebc, ebi))
+                ebi = ebi + 1
+            }
+        }
         if kind == nd_var_decl() {
             lower_global(ctx, src, child)
         }

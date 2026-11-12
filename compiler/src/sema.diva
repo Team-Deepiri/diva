@@ -1438,6 +1438,18 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
                 return 1
             }
         }
+        if k == nd_extern_block() {
+            var ebf = ast_child(ch, 0)
+            var efi = 0
+            while (efi < int_vec_len(ebf)) {
+                var ef = int_vec_get(ebf, efi)
+                var ef_ret = sema_type_from_node(c, ast_child(ef, 2), src, toks)
+                if sctx_add_fn(c, src, toks, ast_child(ef, 0), int_vec_len(ast_child(ef, 1)), ef_ret) != 0 {
+                    return 1
+                }
+                efi = efi + 1
+            }
+        }
         if k == nd_var_decl() {
             var g_type_node = ast_child(ch, 1)
             var gty = sema_type_from_node(c, g_type_node, src, toks)
