@@ -1352,7 +1352,33 @@ func lower_expr(ctx: int, src: str, node: int): int {
 
     if kind == nd_unary() {
         var op = ast_child(node, 0)
-        var operand = lower_expr(ctx, src, ast_child(node, 1))
+        var onode = ast_child(node, 1)
+        // `&x` (Issue #94): yield the address of a local slot.
+        if op == unop_addr() {
+            if ast_kind(onode) == nd_ident() {
+                var slot = ib_lookup_by_name_tok(ctx, src, ast_child(onode, 0))
+                if slot >= 0 {
+                    var ar = ib_fresh_vreg(ctx)
+                    ib_emit(ctx, ir_inst(ir_addr_of(), ar, slot, 0, 0))
+                    return ar
+                }
+            }
+            // Fallback: spill the value to a temporary and take its address.
+            var aval = lower_expr(ctx, src, onode)
+            var atmp = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_store(), atmp, aval, 0, 0))
+            var ar2 = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_addr_of(), ar2, atmp, 0, 0))
+            return ar2
+        }
+        // `*p` (Issue #94): load through a pointer value.
+        if op == unop_deref() {
+            var pv = lower_expr(ctx, src, onode)
+            var dr = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_ptr_load(), dr, pv, 0, 0))
+            return dr
+        }
+        var operand = lower_expr(ctx, src, onode)
         var r = ib_fresh_vreg(ctx)
         if op == unop_neg() {
             ib_emit(ctx, ir_inst(ir_neg(), r, operand, 0, 0))
@@ -2249,6 +2275,15 @@ func lower_stmt_if(ctx: int, src: str, node: int): int {
 func lower_stmt_assign(ctx: int, src: str, node: int): int {
     var target = ast_child(node, 0)
     var value = ast_child(node, 1)
+    // `*p = v` (Issue #94): store through a pointer.
+    if ast_kind(target) == nd_unary() {
+        if ast_child(target, 0) == unop_deref() {
+            var ptr = lower_expr(ctx, src, ast_child(target, 1))
+            var pval = lower_expr(ctx, src, value)
+            ib_slice_store_word(ctx, ptr, pval)
+            return 0
+        }
+    }
     if ast_kind(target) == nd_ident() {
         var name_tok = ast_child(target, 0)
         var slot = ib_lookup_by_name_tok(ctx, src, name_tok)

@@ -54,6 +54,7 @@ func nd_module(): int      { return 45 }
 func nd_use(): int         { return 46 }
 func nd_use_glob(): int    { return 47 }
 func nd_cast(): int        { return 48 }
+func nd_type_ptr(): int    { return 49 }
 
 // --- Pattern sub-kinds (stored in pattern payload) ---
 
@@ -87,6 +88,8 @@ func binop_shr(): int  { return 15 }
 
 func unop_neg(): int   { return 1 }
 func unop_not(): int   { return 2 }
+func unop_addr(): int  { return 3 }
+func unop_deref(): int { return 4 }
 
 // --- Node constructors ---
 
@@ -426,6 +429,13 @@ func ast_type_array(elem: int): int {
 func ast_type_slice(elem: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_type_slice())
+    int_vec_push(n, elem)
+    return n
+}
+
+func ast_type_ptr(elem: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_type_ptr())
     int_vec_push(n, elem)
     return n
 }

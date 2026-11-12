@@ -79,6 +79,15 @@ jobs:
       - name: Run casts gate (builds driver from seed)
         run: sh tests/casts.sh
 
+  pointers:
+    name: raw pointers (#94)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run pointers gate (builds driver from seed)
+        run: sh tests/pointers.sh
+
   selfhost-consistency:
     name: selfhost consistency (stage2 = stage3)
     runs-on: ubuntu-latest
