@@ -844,14 +844,42 @@ func parse_impl_decl(ps: int, src: str): int {
     return ast_impl(trait_tok, type_tok, methods)
 }
 
-func parse_extern_decl(ps: int, src: str): int {
-    p_advance(ps)
+func parse_extern_func_decl(ps: int, src: str): int {
     p_expect(ps, src, tk_func())
     var name = p_expect(ps, src, tk_ident())
     var params = parse_params(ps, src)
     p_expect(ps, src, tk_colon())
     var ret = parse_type(ps, src)
     return ast_extern_func(name, params, ret)
+}
+
+func parse_extern_decl(ps: int, src: str): int {
+    p_advance(ps)
+    // Optional ABI string: `extern "C" ...` (Issue #95).
+    if p_cur(ps) == tk_str_lit() {
+        p_advance(ps)
+        // Block form: `extern "C" { func a(...): T  func b(...): U }`
+        if p_cur(ps) == tk_lbrace() {
+            p_advance(ps)
+            var funcs = int_vec_new()
+            while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
+                if ps_err(ps) != 0 { return ast_extern_block(funcs) }
+                if p_cur(ps) == tk_func() {
+                    int_vec_push(funcs, parse_extern_func_decl(ps, src))
+                    p_skip_semi(ps)
+                } else {
+                    p_diag(ps, src)
+                    stderr("parse error: expected 'func' in extern block\n")
+                    ps_set_err(ps)
+                    return ast_extern_block(funcs)
+                }
+            }
+            p_expect(ps, src, tk_rbrace())
+            return ast_extern_block(funcs)
+        }
+        return parse_extern_func_decl(ps, src)
+    }
+    return parse_extern_func_decl(ps, src)
 }
 
 func parse_class_decl(ps: int, src: str): int {

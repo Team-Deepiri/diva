@@ -88,6 +88,15 @@ jobs:
       - name: Run pointers gate (builds driver from seed)
         run: sh tests/pointers.sh
 
+  ffi:
+    name: extern C blocks (#95)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run FFI gate (builds driver from seed)
+        run: sh tests/ffi.sh
+
   selfhost-consistency:
     name: selfhost consistency (stage2 = stage3)
     runs-on: ubuntu-latest

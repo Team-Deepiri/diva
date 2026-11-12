@@ -1,0 +1,7 @@
+extern "C" {
+    func print_int(x: int): void
+}
+func main(): int {
+    print_int(7)
+    return 0
+}

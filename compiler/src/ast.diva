@@ -55,6 +55,7 @@ func nd_use(): int         { return 46 }
 func nd_use_glob(): int    { return 47 }
 func nd_cast(): int        { return 48 }
 func nd_type_ptr(): int    { return 49 }
+func nd_extern_block(): int { return 50 }
 
 // --- Pattern sub-kinds (stored in pattern payload) ---
 
@@ -182,6 +183,14 @@ func ast_extern_func(name_tok: int, params: int, ret_type: int): int {
     int_vec_push(n, name_tok)
     int_vec_push(n, params)
     int_vec_push(n, ret_type)
+    return n
+}
+
+// Extern block: [kind, children_handle] where children are nd_extern_func nodes.
+func ast_extern_block(children: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_extern_block())
+    int_vec_push(n, children)
     return n
 }
 
