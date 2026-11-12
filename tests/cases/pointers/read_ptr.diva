@@ -1,0 +1,5 @@
+func main(): int {
+    let x: int = 41;
+    let p: *int = &x;
+    return *p + 1;
+}

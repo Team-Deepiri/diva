@@ -1,0 +1,6 @@
+func main(): int {
+    let x: int = 1;
+    let p: *int = &x;
+    *p = 40;
+    return x + 2;
+}

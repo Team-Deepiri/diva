@@ -116,6 +116,11 @@ func parse_type(ps: int, src: str): int {
         p_expect(ps, src, tk_rbrack())
         return ast_type_slice(elem)
     }
+    // Prefix raw pointer type `*T` (Issue #94).
+    if kind == tk_star() {
+        p_advance(ps)
+        return ast_type_ptr(parse_type(ps, src))
+    }
     if kind == tk_int_kw() {
         p_advance(ps)
         var t = ast_type_name(tok)
@@ -488,6 +493,14 @@ func parse_unary(ps: int, src: str): int {
     if p_cur(ps) == tk_minus() {
         p_advance(ps)
         return ast_unary(unop_neg(), parse_unary(ps, src))
+    }
+    if p_cur(ps) == tk_star() {
+        p_advance(ps)
+        return ast_unary(unop_deref(), parse_unary(ps, src))
+    }
+    if p_cur(ps) == tk_amp() {
+        p_advance(ps)
+        return ast_unary(unop_addr(), parse_unary(ps, src))
     }
     var prim = parse_primary(ps, src)
     return parse_postfix(ps, src, prim)

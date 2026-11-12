@@ -258,6 +258,27 @@ let flag: bool = a as bool
 > widening codegen, and float representations, are follow-ups. Assignment
 > remains strict: crossing numeric/bool types requires an explicit `as`.
 
+### Raw pointers
+
+`&x` takes the address of a local variable, `*p` loads through a pointer, and
+`*T` is the pointer type:
+
+```diva
+func main(): int {
+    let x: int = 41;
+    let p: *int = &x;
+    *p = 42;          // store through the pointer
+    return *p;        // 42
+}
+```
+
+> Foundation status (#94): pointers address stack slots directly. There is no
+> pointer arithmetic, null checking, or lifetime tracking yet, and `*T` is
+> treated as the machine-word type by the type checker. Because the grammar is
+> newline-insensitive, a statement that *begins* with `*` or `&` must be
+> separated from the previous statement with `;` (otherwise the token binds as
+> multiplication / logical-and).
+
 `match` is an expression: it picks an arm by pattern and yields that arm's
 value. The scrutinee is any expression; each arm is a pattern, an optional
 guard, and an arm expression.
