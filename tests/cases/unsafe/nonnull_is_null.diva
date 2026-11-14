@@ -1,0 +1,12 @@
+func main(): int {
+    let x: int = 7;
+    let p: *int = &x;
+    if p.is_null() {
+        return 0;
+    }
+    let y: int = 0;
+    unsafe {
+        y = *p;
+    }
+    return y;
+}

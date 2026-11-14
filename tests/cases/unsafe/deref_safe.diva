@@ -1,0 +1,9 @@
+func main(): int {
+    let x: int = 42;
+    let p: *int = &x;
+    let y: int = 0;
+    unsafe {
+        y = *p;
+    }
+    return y;
+}

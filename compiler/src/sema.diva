@@ -256,6 +256,7 @@ func sctx_new(): int {
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())   // [18] module name tokens (Issue #97)
+    int_vec_push(c, mut_new(0))      // [19] unsafe-block nesting depth (Issue #94)
     return c
 }
 
@@ -283,6 +284,8 @@ func sctx_variant_payloads(c: int): int { return int_vec_get(c, 15) }
 func sctx_match_nodes(c: int): int { return int_vec_get(c, 16) }
 func sctx_match_types(c: int): int { return int_vec_get(c, 17) }
 func sctx_modules(c: int): int { return int_vec_get(c, 18) }
+func sctx_unsafe(c: int): int { return mut_get(int_vec_get(c, 19)) }
+func sctx_set_unsafe(c: int, v: int): int { return mut_set(int_vec_get(c, 19), v) }
 
 // Remember the result type of a checked match expression.
 func sema_cache_match_type(c: int, node: int, ty: int): int {
@@ -615,6 +618,9 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
         return ir_ty_int()
     }
     if kind == nd_method_call() {
+        // `ptr.is_null()` yields a bool (Issue #94).
+        var mtok = ast_child(node, 1)
+        if str_eq(tok_text(src, toks, mtok), "is_null") == 1 { return ir_ty_bool() }
         return ir_ty_int()
     }
     if kind == nd_field() {
@@ -782,6 +788,20 @@ func sema_unknown_at(src: str, toks: int, name_tok: int): int {
     return 1
 }
 
+// Raw dereferences are only legal inside an `unsafe { ... }` block (Issue #94).
+func sema_require_unsafe_deref(c: int, src: str, toks: int, node: int): int {
+    if sctx_unsafe(c) > 0 { return 0 }
+    var operand = ast_child(node, 1)
+    if ast_kind(operand) == nd_ident() {
+        var otok = ast_child(operand, 0)
+        diag_emit_loc(src, tok_start(toks, otok))
+        stderr("sema: raw pointer dereference requires an unsafe block")
+        stderr(char_to_str(10))
+        return 1
+    }
+    return sema_err("raw pointer dereference requires an unsafe block")
+}
+
 func sema_check_expr(c: int, src: str, toks: int, node: int): int {
     if (node < 0) { return 0 }
     var kind = ast_kind(node)
@@ -810,6 +830,9 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
         return sema_check_binop_types(c, src, toks, node)
     }
     if kind == nd_unary() {
+        if ast_child(node, 0) == unop_deref() {
+            if sema_require_unsafe_deref(c, src, toks, node) != 0 { return 1 }
+        }
         return sema_check_expr(c, src, toks, ast_child(node, 1))
     }
     if kind == nd_cast() {
@@ -1056,6 +1079,8 @@ func sema_check_method_call(c: int, src: str, toks: int, node: int): int {
     }
     var mtok = ast_child(node, 1)
     var mname = tok_text(src, toks, mtok)
+    // Built-in raw-pointer methods (Issue #94).
+    if str_eq(mname, "is_null") == 1 { return 0 }
     if sctx_tok_list_has(sctx_fn_names(c), src, toks, mname) == 1 { return 0 }
     if sctx_tok_list_has(sctx_methods(c), src, toks, mname) == 1 { return 0 }
     if is_mod == 1 {
@@ -1130,6 +1155,11 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
         var target = ast_child(node, 0)
         var value = ast_child(node, 1)
         if sema_check_expr(c, src, toks, value) != 0 { return 1 }
+        if ast_kind(target) == nd_unary() {
+            if ast_child(target, 0) == unop_deref() {
+                if sema_require_unsafe_deref(c, src, toks, target) != 0 { return 1 }
+            }
+        }
         if ast_kind(target) == nd_ident() {
             var ttok = ast_child(target, 0)
             var nm = tok_text(src, toks, ttok)
@@ -1205,6 +1235,12 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
         sctx_scope_pop(c)
         return rc
     }
+    if kind == nd_unsafe_block() {
+        sctx_set_unsafe(c, sctx_unsafe(c) + 1)
+        var urc = sema_check_block_or_stmt(c, src, toks, ast_child(node, 0))
+        sctx_set_unsafe(c, sctx_unsafe(c) - 1)
+        return urc
+    }
     if kind == nd_block() {
         return sema_check_block_or_stmt(c, src, toks, node)
     }
@@ -1232,6 +1268,7 @@ func sema_check_block_or_stmt(c: int, src: str, toks: int, node: int): int {
 
 func sema_check_func_node(c: int, src: str, toks: int, fn: int): int {
     sctx_scope_push(c)
+    sctx_set_unsafe(c, 0)
     var ret_node = ast_child(fn, 2)
     sctx_set_cur_ret_ty(c, sema_type_from_node(c, ret_node, src, toks))
     var params = ast_child(fn, 1)

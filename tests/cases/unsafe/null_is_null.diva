@@ -1,0 +1,8 @@
+func main(): int {
+    let p: *mut int = null;
+    let n: bool = p.is_null();
+    if n {
+        return 42;
+    }
+    return 0;
+}

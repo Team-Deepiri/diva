@@ -56,6 +56,7 @@ func nd_use_glob(): int    { return 47 }
 func nd_cast(): int        { return 48 }
 func nd_type_ptr(): int    { return 49 }
 func nd_extern_block(): int { return 50 }
+func nd_unsafe_block(): int { return 51 }
 
 // --- Pattern sub-kinds (stored in pattern payload) ---
 
@@ -191,6 +192,14 @@ func ast_extern_block(children: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_extern_block())
     int_vec_push(n, children)
+    return n
+}
+
+// Unsafe block: [kind, body_node] where body_node is an nd_block.
+func ast_unsafe_block(body: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_unsafe_block())
+    int_vec_push(n, body)
     return n
 }
 
