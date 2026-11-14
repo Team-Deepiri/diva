@@ -1,0 +1,10 @@
+struct Point {
+    var x: int
+    var y: int
+}
+
+func main(): int {
+    var p = Point { x: 20, y: 22 }
+    p.y = 22
+    return p.x + p.y
+}

@@ -1,0 +1,11 @@
+struct Point {
+    var x: int
+    var y: int
+}
+
+func main(): int {
+    let p: Point = Point { x: 5, y: 7 }
+    let q: Point = p
+    q.x = 30
+    return p.x * 8 + q.x + q.y
+}
