@@ -116,9 +116,15 @@ func parse_type(ps: int, src: str): int {
         p_expect(ps, src, tk_rbrack())
         return ast_type_slice(elem)
     }
-    // Prefix raw pointer type `*T` (Issue #94).
+    // Prefix raw pointer type `*T` / `*mut T` (Issue #94). `mut` is a plain
+    // identifier in the grammar, so match its spelling rather than a token.
     if kind == tk_star() {
         p_advance(ps)
+        if p_cur(ps) == tk_ident() {
+            if str_eq(p_text(ps, src, ps_pos(ps)), "mut") == 1 {
+                p_advance(ps)
+            }
+        }
         return ast_type_ptr(parse_type(ps, src))
     }
     if kind == tk_int_kw() {
@@ -190,6 +196,12 @@ func parse_primary(ps: int, src: str): int {
     if kind == tk_false() {
         p_advance(ps)
         return ast_bool_lit(0)
+    }
+
+    // `null` is the zero raw-pointer value (Issue #94).
+    if kind == tk_null() {
+        p_advance(ps)
+        return ast_int_lit(0)
     }
 
     if kind == tk_ident() | kind == tk_self() {
@@ -692,6 +704,11 @@ func parse_flux_stmt(ps: int, src: str): int {
     return ast_flux(vtok, iterable, body)
 }
 
+func parse_unsafe_block(ps: int, src: str): int {
+    p_advance(ps)
+    return ast_unsafe_block(parse_block(ps, src, 0))
+}
+
 func parse_return_stmt(ps: int, src: str): int {
     p_advance(ps)
     if p_cur(ps) == tk_rbrace() | p_cur(ps) == tk_semi() | p_cur(ps) == tk_eof() {
@@ -716,6 +733,9 @@ func parse_stmt(ps: int, src: str): int {
     }
     if kind == tk_return() {
         return parse_return_stmt(ps, src)
+    }
+    if kind == tk_unsafe() {
+        return parse_unsafe_block(ps, src)
     }
 
     var expr = parse_expr(ps, src)

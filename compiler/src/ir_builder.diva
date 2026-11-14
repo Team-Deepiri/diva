@@ -1225,6 +1225,16 @@ func lower_expr_method_call(ctx: int, src: str, node: int): int {
         ib_emit(ctx, mc)
         return mr
     }
+    // `ptr.is_null()` -> `ptr == 0` (Issue #94).
+    var mname0 = tok_text(src, bctx_toks(ctx), method_tok)
+    if str_eq(mname0, "is_null") == 1 {
+        var pv0 = lower_expr(ctx, src, recv)
+        var z0 = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), z0, 0, 0, 0))
+        var r0 = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_eq(), r0, pv0, z0, 0))
+        return r0
+    }
     var obj_reg = lower_expr(ctx, src, recv)
     var total = argc + 1
     var r = ib_fresh_vreg(ctx)
@@ -2553,6 +2563,11 @@ func lower_stmt(ctx: int, src: str, node: int): int {
 
     if kind == nd_expr_stmt() {
         lower_expr(ctx, src, ast_child(node, 0))
+        return 0
+    }
+
+    if kind == nd_unsafe_block() {
+        lower_block(ctx, src, ast_child(node, 0))
         return 0
     }
 

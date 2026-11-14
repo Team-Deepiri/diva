@@ -108,6 +108,12 @@ func classify_keyword(src: str, start: int, length: int): int {
     if str_eq(w, "as") == 1 {
         return tk_as()
     }
+    if str_eq(w, "unsafe") == 1 {
+        return tk_unsafe()
+    }
+    if str_eq(w, "null") == 1 {
+        return tk_null()
+    }
     if str_eq(w, "trait") == 1 {
         return tk_trait()
     }

@@ -77,6 +77,8 @@ func tk_module(): int   { return 72 }
 func tk_pub(): int      { return 73 }
 func tk_use(): int      { return 74 }
 func tk_as(): int       { return 75 }
+func tk_unsafe(): int   { return 76 }
+func tk_null(): int     { return 77 }
 
 // --- Token stream ---
 
@@ -390,5 +392,7 @@ func tk_name(kind: int): str {
     if kind == 73 { return "KW_PUB" }
     if kind == 74 { return "KW_USE" }
     if kind == 75 { return "KW_AS" }
+    if kind == 76 { return "KW_UNSAFE" }
+    if kind == 77 { return "KW_NULL" }
     return "???"
 }
