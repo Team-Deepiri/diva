@@ -2031,18 +2031,15 @@ func lower_assign_enum(ctx: int, src: str, base: int, enum_tok: int, value: int)
     return 1
 }
 
-// Lower nd_var_decl for struct types.
-func lower_stmt_var_struct(ctx: int, src: str, name_tok: int, type_name_tok: int, init: int): int {
+// Store a struct value into the consecutive slots at |dst_base|. |value| is
+// either a struct literal or another struct local (value copy semantics).
+// Returns 1 when the value was handled.
+func lower_struct_store_value(ctx: int, src: str, dst_base: int, type_name_tok: int, value: int): int {
     var sw = ib_type_struct_width(ctx, src, type_name_tok)
-    if (sw > 0) {
-        var fields_vec = ast_child(init, 1)
+    if (sw < 1) { return 0 }
+    if ast_kind(value) == nd_obj_lit() {
+        var fields_vec = ast_child(value, 1)
         var nf = int_vec_len(fields_vec)
-        var base2 = ib_define_struct_local(ctx, name_tok, sw, type_name_tok)
-        var si = 0
-        while (si < sw) {
-            ib_emit(ctx, ir_inst(ir_alloca(), base2 + si, 0, 0, 0))
-            si = si + 1
-        }
         var kf = 0
         while (kf < nf) {
             var finit = int_vec_get(fields_vec, kf)
@@ -2051,13 +2048,62 @@ func lower_stmt_var_struct(ctx: int, src: str, name_tok: int, type_name_tok: int
             var idx2 = ib_struct_field_index(ctx, src, type_name_tok, fname_tok)
             if ((idx2 < 0) == 0 & idx2 < sw) {
                 var ev2 = lower_expr(ctx, src, fexpr)
-                ib_emit(ctx, ir_inst(ir_store(), base2 + idx2, ev2, 0, 0))
+                ib_emit(ctx, ir_inst(ir_store(), dst_base + idx2, ev2, 0, 0))
             }
             kf = kf + 1
         }
         return 1
     }
-    return 0
+    // Copy from another struct local: `let q: Point = p` copies every field,
+    // so later mutations of one binding do not touch the other.
+    var src_name = ib_expr_ident_name(ctx, src, value)
+    if src_name == "" { return 0 }
+    var src_sty = ib_lookup_struct_ty(ctx, src, src_name)
+    if src_sty == ib_struct_ty_none() { return 0 }
+    if str_eq(ib_tok_text(ctx, src, src_sty), ib_tok_text(ctx, src, type_name_tok)) == 0 { return 0 }
+    var src_base = ib_lookup_local(ctx, src, src_name)
+    if src_base < 0 { return 0 }
+    var i = 0
+    while (i < sw) {
+        var v = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), v, src_base + i, 0, 0))
+        ib_emit(ctx, ir_inst(ir_store(), dst_base + i, v, 0, 0))
+        i = i + 1
+    }
+    return 1
+}
+
+// Lower nd_var_decl for struct types.
+func lower_stmt_var_struct(ctx: int, src: str, name_tok: int, type_name_tok: int, init: int): int {
+    var sw = ib_type_struct_width(ctx, src, type_name_tok)
+    if sw < 1 { return 0 }
+    // Only initialisers this path understands: a struct literal or a copy
+    // from another struct local of the same type.
+    var handled = 0
+    if (init >= 0) {
+        if ast_kind(init) == nd_obj_lit() {
+            handled = 1
+        } else {
+            var sn = ib_expr_ident_name(ctx, src, init)
+            if sn != "" {
+                var ssty = ib_lookup_struct_ty(ctx, src, sn)
+                if ssty != ib_struct_ty_none() {
+                    if str_eq(ib_tok_text(ctx, src, ssty), ib_tok_text(ctx, src, type_name_tok)) == 1 {
+                        handled = 1
+                    }
+                }
+            }
+        }
+    }
+    if handled == 0 { return 0 }
+    var base2 = ib_define_struct_local(ctx, name_tok, sw, type_name_tok)
+    var si = 0
+    while (si < sw) {
+        ib_emit(ctx, ir_inst(ir_alloca(), base2 + si, 0, 0, 0))
+        si = si + 1
+    }
+    lower_struct_store_value(ctx, src, base2, type_name_tok, init)
+    return 1
 }
 
 // --- Match expressions (Issue #91) ---
@@ -2288,6 +2334,11 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
         var name_tok = ast_child(target, 0)
         var slot = ib_lookup_by_name_tok(ctx, src, name_tok)
         if (slot < 0) == 0 {
+            // Struct local: `p = Point { ... }` / `q = p` copies every field.
+            var struct_tok = ib_lookup_struct_ty(ctx, src, ib_tok_text(ctx, src, name_tok))
+            if struct_tok != ib_struct_ty_none() {
+                if lower_struct_store_value(ctx, src, slot, struct_tok, value) == 1 { return 0 }
+            }
             // Enum local: `e = Opt::Some(7)` writes the tag and payload slots.
             var enum_tok = ib_lookup_enum_ty(ctx, src, ib_tok_text(ctx, src, name_tok))
             if enum_tok != ib_enum_ty_none() {
@@ -2451,10 +2502,8 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         if (type_node < 0) == 0 {
             if ast_kind(type_node) == nd_type_name() {
                 if (init < 0) == 0 {
-                    if ast_kind(init) == nd_obj_lit() {
-                        var type_name_tok = ast_child(type_node, 0)
-                        if lower_stmt_var_struct(ctx, src, name_tok, type_name_tok, init) == 1 { return 0 }
-                    }
+                    var type_name_tok = ast_child(type_node, 0)
+                    if lower_stmt_var_struct(ctx, src, name_tok, type_name_tok, init) == 1 { return 0 }
                 }
             }
         }
