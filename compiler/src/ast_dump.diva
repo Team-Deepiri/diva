@@ -38,6 +38,23 @@ func type_str(node: int, src: str, toks: int): str {
         str_builder_free(b)
         return s
     }
+    if (ast_kind(node) == nd_type_ptr()) {
+        var pb = str_builder_new()
+        str_builder_append(pb, "*")
+        str_builder_append(pb, type_str(ast_child(node, 0), src, toks))
+        var ps = str_builder_to_str(pb)
+        str_builder_free(pb)
+        return ps
+    }
+    if (ast_kind(node) == nd_type_ref()) {
+        var rb = str_builder_new()
+        str_builder_append(rb, "&")
+        if ast_child(node, 1) == 1 { str_builder_append(rb, "mut ") }
+        str_builder_append(rb, type_str(ast_child(node, 0), src, toks))
+        var rs = str_builder_to_str(rb)
+        str_builder_free(rb)
+        return rs
+    }
     return "?"
 }
 

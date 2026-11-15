@@ -1,0 +1,16 @@
+// Issue #90: reference parameters (`&int` / `&mut int`) and read-through.
+func inc_ref(r: &mut int): int {
+    *r = *r + 1;
+    return *r;
+}
+
+func read_ref(r: &int): int {
+    return r;
+}
+
+func main(): int {
+    let x: int = 39;
+    let a: int = inc_ref(&mut x);
+    let b: int = read_ref(&x);
+    return a + b - 38;
+}

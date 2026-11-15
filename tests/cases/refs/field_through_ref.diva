@@ -1,0 +1,11 @@
+// Issue #90: field access through a reference to a struct local.
+struct Point {
+    x: int
+    y: int
+}
+
+func main(): int {
+    var p = Point { x: 10, y: 32 };
+    let r: &Point = &p;
+    return r.x + r.y;
+}

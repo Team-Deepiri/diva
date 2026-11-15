@@ -129,6 +129,8 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, mut_new(int_vec_new())) // [17] enum type name tok per local (-1 = not an enum)
     int_vec_push(ctx, mut_new(int_vec_new())) // [18] slice flag per local (1 = `[T]` slice)
     int_vec_push(ctx, int_vec_new())          // [19] module name tokens (Issue #97)
+    int_vec_push(ctx, mut_new(int_vec_new())) // [20] reference flag per local (Issue #90)
+    int_vec_push(ctx, mut_new(int_vec_new())) // [21] reference pointee struct type tok per local
     return ctx
 }
 
@@ -194,6 +196,24 @@ func bctx_slice_flags(ctx: int): int {
 
 func bctx_set_slice_flags(ctx: int, v: int): int {
     return mut_set(int_vec_get(ctx, 18), v)
+}
+
+// Reference flag per local binding (1 = `&T` / `&mut T`, 0 = not a reference).
+func bctx_ref_flags(ctx: int): int {
+    return mut_get(int_vec_get(ctx, 20))
+}
+
+func bctx_set_ref_flags(ctx: int, v: int): int {
+    return mut_set(int_vec_get(ctx, 20), v)
+}
+
+// Pointee struct type token per reference local (-1 = unknown/non-struct).
+func bctx_ref_sty(ctx: int): int {
+    return mut_get(int_vec_get(ctx, 21))
+}
+
+func bctx_set_ref_sty(ctx: int, v: int): int {
+    return mut_set(int_vec_get(ctx, 21), v)
 }
 
 // Mark a vreg as holding a `text` value (for type-directed operator lowering).
@@ -501,6 +521,8 @@ func ib_scope_pop(ctx: int, mark: int): int {
     var strides = bctx_array_strides(ctx)
     var ety = bctx_enum_ty(ctx)
     var slc = bctx_slice_flags(ctx)
+    var rfl = bctx_ref_flags(ctx)
+    var rst = bctx_ref_sty(ctx)
     if (int_vec_len(names) > mark) {
         var fresh_n = int_vec_new()
         var fresh_s = int_vec_new()
@@ -509,6 +531,8 @@ func ib_scope_pop(ctx: int, mark: int): int {
         var fresh_st = int_vec_new()
         var fresh_ety = int_vec_new()
         var fresh_slc = int_vec_new()
+        var fresh_rfl = int_vec_new()
+        var fresh_rst = int_vec_new()
         var i = 0
         while (i < mark) {
             int_vec_push(fresh_n, int_vec_get(names, i))
@@ -518,6 +542,8 @@ func ib_scope_pop(ctx: int, mark: int): int {
             int_vec_push(fresh_st, int_vec_get(strides, i))
             int_vec_push(fresh_ety, int_vec_get(ety, i))
             int_vec_push(fresh_slc, int_vec_get(slc, i))
+            int_vec_push(fresh_rfl, int_vec_get(rfl, i))
+            int_vec_push(fresh_rst, int_vec_get(rst, i))
             i = i + 1
         }
         int_vec_free(names)
@@ -527,6 +553,8 @@ func ib_scope_pop(ctx: int, mark: int): int {
         int_vec_free(strides)
         int_vec_free(ety)
         int_vec_free(slc)
+        int_vec_free(rfl)
+        int_vec_free(rst)
         bctx_set_names(ctx, fresh_n)
         bctx_set_slots(ctx, fresh_s)
         bctx_set_array_lens(ctx, fresh_l)
@@ -534,6 +562,8 @@ func ib_scope_pop(ctx: int, mark: int): int {
         bctx_set_array_strides(ctx, fresh_st)
         bctx_set_enum_ty(ctx, fresh_ety)
         bctx_set_slice_flags(ctx, fresh_slc)
+        bctx_set_ref_flags(ctx, fresh_rfl)
+        bctx_set_ref_sty(ctx, fresh_rst)
     }
     return 0
 }
@@ -555,6 +585,24 @@ func ib_define_local(ctx: int, def_name_tok: int): int {
     int_vec_push(bctx_array_strides(ctx), 0)
     int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
     int_vec_push(bctx_slice_flags(ctx), 0)
+    int_vec_push(bctx_ref_flags(ctx), 0)
+    int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
+    return slot
+}
+
+// Reference local (`&T` / `&mut T`): a single word holding the pointee address.
+// |pointee_sty| records the referenced struct type when statically known.
+func ib_define_ref_local(ctx: int, def_name_tok: int, pointee_sty: int): int {
+    var slot = ib_fresh_vreg(ctx)
+    int_vec_push(bctx_names(ctx), def_name_tok)
+    int_vec_push(bctx_slots(ctx), slot)
+    int_vec_push(bctx_array_lens(ctx), 1)
+    int_vec_push(bctx_struct_ty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_array_strides(ctx), 0)
+    int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
+    int_vec_push(bctx_slice_flags(ctx), 0)
+    int_vec_push(bctx_ref_flags(ctx), 1)
+    int_vec_push(bctx_ref_sty(ctx), pointee_sty)
     return slot
 }
 
@@ -568,6 +616,8 @@ func ib_define_slice_local(ctx: int, def_name_tok: int): int {
     int_vec_push(bctx_array_strides(ctx), 0)
     int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
     int_vec_push(bctx_slice_flags(ctx), 1)
+    int_vec_push(bctx_ref_flags(ctx), 0)
+    int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
     return slot
 }
 
@@ -588,6 +638,8 @@ func ib_define_enum_local(ctx: int, def_name_tok: int, enum_name_tok: int, width
     int_vec_push(bctx_array_strides(ctx), 0)
     int_vec_push(bctx_enum_ty(ctx), enum_name_tok)
     int_vec_push(bctx_slice_flags(ctx), 0)
+    int_vec_push(bctx_ref_flags(ctx), 0)
+    int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
     return base
 }
 
@@ -609,6 +661,8 @@ func ib_define_array_local(ctx: int, def_name_tok: int, n: int, stride: int, ele
     int_vec_push(bctx_array_strides(ctx), stride)
     int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
     int_vec_push(bctx_slice_flags(ctx), 0)
+    int_vec_push(bctx_ref_flags(ctx), 0)
+    int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
     return base
 }
 
@@ -627,6 +681,8 @@ func ib_define_struct_local(ctx: int, def_name_tok: int, n: int, type_name_tok: 
     int_vec_push(bctx_array_strides(ctx), 0)
     int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
     int_vec_push(bctx_slice_flags(ctx), 0)
+    int_vec_push(bctx_ref_flags(ctx), 0)
+    int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
     return base
 }
 
@@ -713,6 +769,62 @@ func ib_type_node_is_slice(type_node: int): int {
     if type_node < 0 { return 0 }
     if ast_kind(type_node) == nd_type_slice() { return 1 }
     return 0
+}
+
+// True when a type node is a reference type `&T` / `&mut T` (Issue #90).
+func ib_type_node_is_ref(type_node: int): int {
+    if type_node < 0 { return 0 }
+    if ast_kind(type_node) == nd_type_ref() { return 1 }
+    return 0
+}
+
+func ib_lookup_is_ref(ctx: int, src: str, name: str): int {
+    var toks = bctx_toks(ctx)
+    var names = bctx_names(ctx)
+    var flags = bctx_ref_flags(ctx)
+    var n2 = int_vec_len(names)
+    var found = 0
+    var j = 0
+    while (j < n2) {
+        if str_eq_tok_spelling(name, src, toks, int_vec_get(names, j)) == 1 {
+            found = int_vec_get(flags, j)
+        }
+        j = j + 1
+    }
+    return found
+}
+
+func ib_lookup_is_ref_tok(ctx: int, src: str, use_tok: int): int {
+    var toks = bctx_toks(ctx)
+    var names = bctx_names(ctx)
+    var flags = bctx_ref_flags(ctx)
+    var n2 = int_vec_len(names)
+    var found = 0
+    var j = 0
+    while (j < n2) {
+        if tok_spelling_eq(src, toks, int_vec_get(names, j), use_tok) == 1 {
+            found = int_vec_get(flags, j)
+        }
+        j = j + 1
+    }
+    return found
+}
+
+// Pointee struct type token for a reference local, or -1.
+func ib_lookup_ref_sty(ctx: int, src: str, name: str): int {
+    var toks = bctx_toks(ctx)
+    var names = bctx_names(ctx)
+    var stys = bctx_ref_sty(ctx)
+    var n2 = int_vec_len(names)
+    var found = ib_struct_ty_none()
+    var j = 0
+    while (j < n2) {
+        if str_eq_tok_spelling(name, src, toks, int_vec_get(names, j)) == 1 {
+            found = int_vec_get(stys, j)
+        }
+        j = j + 1
+    }
+    return found
 }
 
 func ib_lookup_struct_ty(ctx: int, src: str, name: str): int {
@@ -857,7 +969,31 @@ func lower_expr_ident(ctx: int, src: str, node: int): int {
     }
     var r = ib_fresh_vreg(ctx)
     ib_emit(ctx, ir_inst(ir_load(), r, slot, 0, 0))
+    // Auto-deref on read: a reference expression yields the pointee value
+    // (Issue #90). Mutability is syntax-only in this slice.
+    if ib_lookup_is_ref(ctx, src, ib_tok_text(ctx, src, tok_idx)) == 1 {
+        var dr = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_ptr_load(), dr, r, 0, 0))
+        return dr
+    }
     return r
+}
+
+// Lower an operand used as a pointer (explicit `*r`, `*r = v`). For a
+// reference binding we need the stored address, not the auto-deref'd value.
+func ib_lower_ptr_operand(ctx: int, src: str, node: int): int {
+    if ast_kind(node) == nd_ident() {
+        var tok_idx = ast_child(node, 0)
+        if ib_lookup_is_ref(ctx, src, ib_tok_text(ctx, src, tok_idx)) == 1 {
+            var slot = ib_lookup_by_name_tok(ctx, src, tok_idx)
+            if slot >= 0 {
+                var pr = ib_fresh_vreg(ctx)
+                ib_emit(ctx, ir_inst(ir_load(), pr, slot, 0, 0))
+                return pr
+            }
+        }
+    }
+    return lower_expr(ctx, src, node)
 }
 
 // Lower nd_binop node.
@@ -1151,6 +1287,27 @@ func lower_expr_field(ctx: int, src: str, node: int): int {
         var alen = ib_lookup_array_len(ctx, src, obj_name)
         var stride = ib_lookup_array_stride(ctx, src, obj_name)
         var sty = ib_lookup_struct_ty(ctx, src, obj_name)
+        // Field access through a reference to a struct local (`r.x` where
+        // `r: &Point`). The ref slot holds the pointee address (Issue #90).
+        if ib_lookup_is_ref(ctx, src, obj_name) == 1 {
+            var rsty = ib_lookup_ref_sty(ctx, src, obj_name)
+            if (rsty != ib_struct_ty_none()) & (base >= 0) {
+                var rfidx = ib_struct_field_index(ctx, src, rsty, field_tok)
+                if (rfidx >= 0) {
+                    var paddr = ib_fresh_vreg(ctx)
+                    ib_emit(ctx, ir_inst(ir_load(), paddr, base, 0, 0))
+                    var roffc = ib_fresh_vreg(ctx)
+                    // Struct slots are consecutive vregs: higher field index
+                    // means a lower stack address relative to the base.
+                    ib_emit(ctx, ir_inst(ir_const(), roffc, (0 - rfidx) * 8, 0, 0))
+                    var raddr = ib_fresh_vreg(ctx)
+                    ib_emit(ctx, ir_inst(ir_add(), raddr, paddr, roffc, 0))
+                    var rfld = ib_fresh_vreg(ctx)
+                    ib_emit(ctx, ir_inst(ir_ptr_load(), rfld, raddr, 0, 0))
+                    return rfld
+                }
+            }
+        }
         // Enum locals: `.tag` reads the tag slot, `.data` the payload slot
         // (0 for unit-only enums, which carry no payload slot).
         var ety = ib_lookup_enum_ty(ctx, src, obj_name)
@@ -1381,9 +1538,10 @@ func lower_expr(ctx: int, src: str, node: int): int {
             ib_emit(ctx, ir_inst(ir_addr_of(), ar2, atmp, 0, 0))
             return ar2
         }
-        // `*p` (Issue #94): load through a pointer value.
+        // `*p` (Issue #94): load through a pointer value. Works for both raw
+        // pointers and reference bindings (Issue #90).
         if op == unop_deref() {
-            var pv = lower_expr(ctx, src, onode)
+            var pv = ib_lower_ptr_operand(ctx, src, onode)
             var dr = ib_fresh_vreg(ctx)
             ib_emit(ctx, ir_inst(ir_ptr_load(), dr, pv, 0, 0))
             return dr
@@ -2334,7 +2492,7 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
     // `*p = v` (Issue #94): store through a pointer.
     if ast_kind(target) == nd_unary() {
         if ast_child(target, 0) == unop_deref() {
-            var ptr = lower_expr(ctx, src, ast_child(target, 1))
+            var ptr = ib_lower_ptr_operand(ctx, src, ast_child(target, 1))
             var pval = lower_expr(ctx, src, value)
             ib_slice_store_word(ctx, ptr, pval)
             return 0
@@ -2530,6 +2688,31 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         // `var e = Opt::Some(5)`.
         if lower_stmt_var_enum(ctx, src, name_tok, type_node, init) == 1 { return 0 }
 
+        // Reference local `let r: &T = &x` (Issue #90). Record the pointee
+        // struct type when the initialiser takes the address of a struct local.
+        if (type_node < 0) == 0 {
+            if ast_kind(type_node) == nd_type_ref() {
+                var pst = ib_struct_ty_none()
+                if (init < 0) == 0 {
+                    if ast_kind(init) == nd_unary() {
+                        if ast_child(init, 0) == unop_addr() {
+                            var on = ast_child(init, 1)
+                            if ast_kind(on) == nd_ident() {
+                                pst = ib_lookup_struct_ty(ctx, src, ib_tok_text(ctx, src, ast_child(on, 0)))
+                            }
+                        }
+                    }
+                }
+                var rslot = ib_define_ref_local(ctx, name_tok, pst)
+                ib_emit(ctx, ir_inst(ir_alloca(), rslot, 0, 0, 0))
+                if (init < 0) == 0 {
+                    var rval = lower_expr(ctx, src, init)
+                    ib_emit(ctx, ir_inst(ir_store(), rslot, rval, 0, 0))
+                }
+                return 0
+            }
+        }
+
         var slot = ib_define_local(ctx, name_tok)
         ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
         if (init < 0) == 0 {
@@ -2662,7 +2845,16 @@ func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_
     while (i < pcount) {
         var p = int_vec_get(params_h, i)
         var ptype = ast_child(p, 1)
-        if ib_type_node_is_slice(ptype) == 1 {
+        if ib_type_node_is_ref(ptype) == 1 {
+            var pst = ib_struct_ty_none()
+            var inner = ast_child(ptype, 0)
+            if (inner >= 0) & (ast_kind(inner) == nd_type_name()) {
+                var itok = ast_child(inner, 0)
+                if ib_type_struct_width(ctx, src, itok) > 0 { pst = itok }
+            }
+            var rslot = ib_define_ref_local(ctx, ast_child(p, 0), pst)
+            ib_emit(ctx, ir_inst(ir_param(), rslot, pi, 0, 0))
+        } else if ib_type_node_is_slice(ptype) == 1 {
             var sslot = ib_define_slice_local(ctx, ast_child(p, 0))
             ib_emit(ctx, ir_inst(ir_param(), sslot, pi, 0, 0))
         } else {

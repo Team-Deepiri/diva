@@ -57,6 +57,7 @@ func nd_cast(): int        { return 48 }
 func nd_type_ptr(): int    { return 49 }
 func nd_extern_block(): int { return 50 }
 func nd_unsafe_block(): int { return 51 }
+func nd_type_ref(): int    { return 52 }
 
 // --- Pattern sub-kinds (stored in pattern payload) ---
 
@@ -455,6 +456,16 @@ func ast_type_ptr(elem: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_type_ptr())
     int_vec_push(n, elem)
+    return n
+}
+
+// Reference type `&T` / `&mut T` (Issue #90).
+// [kind, elem_type, is_mut]
+func ast_type_ref(elem: int, is_mut: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_type_ref())
+    int_vec_push(n, elem)
+    int_vec_push(n, is_mut)
     return n
 }
 
