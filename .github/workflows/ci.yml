@@ -97,6 +97,33 @@ jobs:
       - name: Run FFI gate (builds driver from seed)
         run: sh tests/ffi.sh
 
+  unsafe:
+    name: unsafe blocks (#94)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run unsafe gate (builds driver from seed)
+        run: sh tests/unsafe.sh
+
+  structs:
+    name: struct value types (#87)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run structs gate (builds driver from seed)
+        run: sh tests/structs.sh
+
+  refs:
+    name: references (#90)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run references gate (builds driver from seed)
+        run: sh tests/refs.sh
+
   selfhost-consistency:
     name: selfhost consistency (stage2 = stage3)
     runs-on: ubuntu-latest

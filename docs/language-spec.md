@@ -282,18 +282,63 @@ let flag: bool = a as bool
 ```diva
 func main(): int {
     let x: int = 41;
-    let p: *int = &x;
-    *p = 42;          // store through the pointer
-    return *p;        // 42
+    let p: *mut int = &x;
+    unsafe {
+        *p = 42;      // store through the pointer
+        return *p;    // 42
+    }
 }
 ```
 
-> Foundation status (#94): pointers address stack slots directly. There is no
-> pointer arithmetic, null checking, or lifetime tracking yet, and `*T` is
-> treated as the machine-word type by the type checker. Because the grammar is
-> newline-insensitive, a statement that *begins* with `*` or `&` must be
-> separated from the previous statement with `;` (otherwise the token binds as
-> multiplication / logical-and).
+Raw dereferences (`*p`, `*p = v`) must appear inside an `unsafe { ... }` block;
+taking an address (`&x`) does not. `*mut T` is an alias for `*T`, and `null`
+with `p.is_null()` are supported. Because the grammar is newline-insensitive, a
+statement that *begins* with `*` or `&` must be separated from the previous
+statement with `;` (otherwise the token binds as multiplication / logical-and).
+
+> Foundation status (#94): pointers address stack slots directly. Pointer
+> arithmetic, provenance/aliasing analysis, and lifetime tracking are follow-ups.
+> See `docs/unsafe-blocks.md`.
+
+### Structs
+
+`struct` declares a value type; locals live on the stack, fields are read/written
+with `.`, and assignment copies all fields:
+
+```diva
+struct Point {
+    var x: int
+    var y: int
+}
+
+func main(): int {
+    let a: Point = Point { x: 1, y: 2 }
+    let b: Point = a
+    b.x = 9
+    return a.x + b.x    // 10 (a is unchanged by mutating b)
+}
+```
+
+> Foundation status (#87): flat structs (no nested fields yet), no struct
+> parameters/returns, and `let`-field immutability is not enforced. See
+> `docs/structs.md`.
+
+### References
+
+`&T` and `&mut T` are reference types; `&x` / `&mut x` create a reference, and
+reading a reference auto-dereferences:
+
+```diva
+func main(): int {
+    let x: int = 41;
+    let r: &int = &x;
+    return r + 1        // 42
+}
+```
+
+> Foundation status (#90): creation and read-through only. Borrow checking,
+> lifetimes, `&mut` exclusivity, and field writes through references are
+> deferred. See `docs/references.md`.
 
 `match` is an expression: it picks an arm by pattern and yields that arm's
 value. The scrutinee is any expression; each arm is a pattern, an optional
