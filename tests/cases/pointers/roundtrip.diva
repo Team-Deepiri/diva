@@ -1,6 +1,8 @@
 func main(): int {
     let x: int = 10;
     let p: *int = &x;
-    *p = 40;
-    return *p + x;
+    unsafe {
+        *p = 40;
+        return *p + x;
+    }
 }
