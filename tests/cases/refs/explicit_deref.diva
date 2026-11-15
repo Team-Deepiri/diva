@@ -1,0 +1,6 @@
+// Issue #90: explicit deref through a reference (`*r`).
+func main(): int {
+    let x: int = 41;
+    let r: &int = &x;
+    return *r + 1;
+}

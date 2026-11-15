@@ -1,0 +1,6 @@
+// Issue #90: read through a reference in expression position (auto-deref).
+func main(): int {
+    let x: int = 42;
+    let r: &int = &x;
+    return r;
+}

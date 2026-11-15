@@ -127,6 +127,19 @@ func parse_type(ps: int, src: str): int {
         }
         return ast_type_ptr(parse_type(ps, src))
     }
+    // Reference type `&T` / `&mut T` (Issue #90). `mut` is currently an
+    // identifier token, so accept it by spelling.
+    if kind == tk_amp() {
+        p_advance(ps)
+        var is_mut = 0
+        if p_cur(ps) == tk_ident() {
+            if str_eq(p_text(ps, src, ps_pos(ps)), "mut") == 1 {
+                is_mut = 1
+                p_advance(ps)
+            }
+        }
+        return ast_type_ref(parse_type(ps, src), is_mut)
+    }
     if kind == tk_int_kw() {
         p_advance(ps)
         var t = ast_type_name(tok)
@@ -512,6 +525,12 @@ func parse_unary(ps: int, src: str): int {
     }
     if p_cur(ps) == tk_amp() {
         p_advance(ps)
+        // `&mut x` (Issue #90): mutability is syntax-only for now.
+        if p_cur(ps) == tk_ident() {
+            if str_eq(p_text(ps, src, ps_pos(ps)), "mut") == 1 {
+                p_advance(ps)
+            }
+        }
         return ast_unary(unop_addr(), parse_unary(ps, src))
     }
     var prim = parse_primary(ps, src)

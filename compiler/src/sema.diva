@@ -257,6 +257,7 @@ func sctx_new(): int {
     int_vec_push(c, int_vec_new())
     int_vec_push(c, int_vec_new())   // [18] module name tokens (Issue #97)
     int_vec_push(c, mut_new(0))      // [19] unsafe-block nesting depth (Issue #94)
+    int_vec_push(c, mut_new(int_vec_new())) // [20] reference binding flags (Issue #90)
     return c
 }
 
@@ -286,6 +287,10 @@ func sctx_match_types(c: int): int { return int_vec_get(c, 17) }
 func sctx_modules(c: int): int { return int_vec_get(c, 18) }
 func sctx_unsafe(c: int): int { return mut_get(int_vec_get(c, 19)) }
 func sctx_set_unsafe(c: int, v: int): int { return mut_set(int_vec_get(c, 19), v) }
+
+// Reference binding flags, parallel to sctx_names (Issue #90).
+func sctx_ref_flags(c: int): int { return mut_get(int_vec_get(c, 20)) }
+func sctx_set_ref_flags(c: int, v: int): int { return mut_set(int_vec_get(c, 20), v) }
 
 // Remember the result type of a checked match expression.
 func sema_cache_match_type(c: int, node: int, ty: int): int {
@@ -405,6 +410,10 @@ func sctx_scope_pop(c: int): int {
     if int_vec_len(lty) > mark {
         sctx_set_local_types(c, sctx_truncate_vec(lty, mark))
     }
+    var rfl = sctx_ref_flags(c)
+    if int_vec_len(rfl) > mark {
+        sctx_set_ref_flags(c, sctx_truncate_vec(rfl, mark))
+    }
     return 0
 }
 
@@ -427,6 +436,15 @@ func sctx_define(c: int, name_tok: int): int {
 func sctx_define_typed(c: int, name_tok: int, ty: int): int {
     int_vec_push(sctx_names(c), name_tok)
     int_vec_push(sctx_local_types(c), ty)
+    int_vec_push(sctx_ref_flags(c), 0)
+    return 0
+}
+
+// Define a reference binding (`&T` / `&mut T`) for deref-safety checks.
+func sctx_define_ref(c: int, name_tok: int, ty: int): int {
+    int_vec_push(sctx_names(c), name_tok)
+    int_vec_push(sctx_local_types(c), ty)
+    int_vec_push(sctx_ref_flags(c), 1)
     return 0
 }
 
@@ -788,12 +806,30 @@ func sema_unknown_at(src: str, toks: int, name_tok: int): int {
     return 1
 }
 
+// True when |use_tok| names a reference binding (Issue #90).
+func sctx_is_ref_binding(c: int, src: str, toks: int, use_tok: int): int {
+    var names = sctx_names(c)
+    var flags = sctx_ref_flags(c)
+    var want = tok_text(src, toks, use_tok)
+    var found = 0
+    var i = 0
+    while (i < int_vec_len(names)) {
+        if str_eq(tok_text(src, toks, int_vec_get(names, i)), want) == 1 {
+            found = int_vec_get(flags, i)
+        }
+        i = i + 1
+    }
+    return found
+}
+
 // Raw dereferences are only legal inside an `unsafe { ... }` block (Issue #94).
+// Dereferencing a reference binding is safe and does not require `unsafe`.
 func sema_require_unsafe_deref(c: int, src: str, toks: int, node: int): int {
     if sctx_unsafe(c) > 0 { return 0 }
     var operand = ast_child(node, 1)
     if ast_kind(operand) == nd_ident() {
         var otok = ast_child(operand, 0)
+        if sctx_is_ref_binding(c, src, toks, otok) == 1 { return 0 }
         diag_emit_loc(src, tok_start(toks, otok))
         stderr("sema: raw pointer dereference requires an unsafe block")
         stderr(char_to_str(10))
@@ -1148,6 +1184,12 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
                 }
             }
         }
+        if (type_node < 0) == 0 {
+            if ast_kind(type_node) == nd_type_ref() {
+                sctx_define_ref(c, name_tok, vty)
+                return 0
+            }
+        }
         sctx_define_typed(c, name_tok, vty)
         return 0
     }
@@ -1276,7 +1318,12 @@ func sema_check_func_node(c: int, src: str, toks: int, fn: int): int {
     while (pi < int_vec_len(params)) {
         var p = int_vec_get(params, pi)
         var pty = sema_type_from_node(c, ast_child(p, 1), src, toks)
-        sctx_define_typed(c, ast_child(p, 0), pty)
+        var ptnode = ast_child(p, 1)
+        if (ptnode >= 0) & (ast_kind(ptnode) == nd_type_ref()) {
+            sctx_define_ref(c, ast_child(p, 0), pty)
+        } else {
+            sctx_define_typed(c, ast_child(p, 0), pty)
+        }
         pi = pi + 1
     }
     var body = ast_child(fn, 3)

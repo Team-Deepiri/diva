@@ -1,0 +1,9 @@
+// Issue #90: `&T` and `&mut T` type syntax plus read-through (auto-deref).
+func main(): int {
+    let x: int = 40;
+    let r: &int = &x;
+    let m: &mut int = &mut x;
+    let a: int = r;
+    let b: int = m;
+    return a + b - 38;
+}
