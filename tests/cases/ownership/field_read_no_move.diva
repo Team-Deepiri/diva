@@ -1,0 +1,12 @@
+// Issue #88: reading fields does not move the struct; only whole-value
+// transfers do.
+struct Point {
+    var x: int
+    var y: int
+}
+
+func main(): int {
+    let p: Point = Point { x: 20, y: 22 }
+    let q: Point = Point { x: p.x, y: p.y }
+    return p.x + q.y
+}

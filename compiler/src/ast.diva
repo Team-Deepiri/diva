@@ -469,18 +469,33 @@ func ast_type_ref(elem: int, is_mut: int): int {
     return n
 }
 
-// Class: [kind, name_tok, members_handle, type_params_handle]
+// Class/struct: [kind, name_tok, members_handle, type_params_handle, is_struct]
+// `is_struct` is 1 for `struct` declarations and 0 for `class` declarations.
+// Both lower through nd_class so existing consumers keep working; only the
+// ownership checker needs to distinguish value types from reference types.
 func ast_class(name_tok: int, members: int): int {
     return ast_class_generic(name_tok, int_vec_new(), members)
 }
 
 func ast_class_generic(name_tok: int, type_params: int, members: int): int {
+    return ast_class_generic_kind(name_tok, type_params, members, 0)
+}
+
+func ast_class_generic_kind(name_tok: int, type_params: int, members: int, is_struct: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_class())
     int_vec_push(n, name_tok)
     int_vec_push(n, members)
     int_vec_push(n, type_params)
+    int_vec_push(n, is_struct)
     return n
+}
+
+func ast_class_is_struct(node: int): int {
+    if int_vec_len(node) < 5 {
+        return 0
+    }
+    return int_vec_get(node, 4)
 }
 
 func ast_class_type_params(node: int): int {

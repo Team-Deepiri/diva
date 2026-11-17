@@ -1,0 +1,15 @@
+// Issue #88: passing a struct local to a function moves it.
+struct Point {
+    var x: int
+    var y: int
+}
+
+func take(p: Point): int {
+    return p.x + p.y
+}
+
+func main(): int {
+    let p: Point = Point { x: 20, y: 22 }
+    let n: int = take(p)
+    return p.x + n
+}

@@ -1,0 +1,13 @@
+// Issue #88: int/bool/str/text are Copy and stay usable after assignment.
+func main(): int {
+    let a: int = 40
+    let b: int = a
+    let c: int = a
+    let s: str = "hi"
+    let t: str = s
+    let u: str = s
+    let f: bool = true
+    let g: bool = f
+    if g { return a + b - 38 }
+    return 0
+}

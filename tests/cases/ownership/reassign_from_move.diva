@@ -1,0 +1,13 @@
+// Issue #88: `q = p` moves p, then reassigning p revives it.
+struct Point {
+    var x: int
+    var y: int
+}
+
+func main(): int {
+    let p: Point = Point { x: 5, y: 7 }
+    var q: Point = Point { x: 1, y: 1 }
+    q = p
+    p = Point { x: 9, y: 7 }
+    return q.x * 8 + q.y + p.x - 9
+}

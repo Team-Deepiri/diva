@@ -258,6 +258,9 @@ func sctx_new(): int {
     int_vec_push(c, int_vec_new())   // [18] module name tokens (Issue #97)
     int_vec_push(c, mut_new(0))      // [19] unsafe-block nesting depth (Issue #94)
     int_vec_push(c, mut_new(int_vec_new())) // [20] reference binding flags (Issue #90)
+    int_vec_push(c, mut_new(int_vec_new())) // [21] struct type name tok per local (Issue #88)
+    int_vec_push(c, mut_new(int_vec_new())) // [22] moved-value cells per local (Issue #88)
+    int_vec_push(c, int_vec_new())          // [23] struct type name tokens (Issue #88)
     return c
 }
 
@@ -291,6 +294,17 @@ func sctx_set_unsafe(c: int, v: int): int { return mut_set(int_vec_get(c, 19), v
 // Reference binding flags, parallel to sctx_names (Issue #90).
 func sctx_ref_flags(c: int): int { return mut_get(int_vec_get(c, 20)) }
 func sctx_set_ref_flags(c: int, v: int): int { return mut_set(int_vec_get(c, 20), v) }
+
+// Ownership state (Issue #88), parallel to sctx_names:
+//   [21] declared struct type-name token for the local, or -1 for Copy types.
+//   [22] one mutable cell per local; nonzero means the value was moved.
+func sctx_local_struct_toks(c: int): int { return mut_get(int_vec_get(c, 21)) }
+func sctx_set_local_struct_toks(c: int, v: int): int { return mut_set(int_vec_get(c, 21), v) }
+func sctx_moved_cells(c: int): int { return mut_get(int_vec_get(c, 22)) }
+func sctx_set_moved_cells(c: int, v: int): int { return mut_set(int_vec_get(c, 22), v) }
+
+// Struct type-name tokens collected from `struct` declarations (Issue #88).
+func sctx_struct_type_toks(c: int): int { return int_vec_get(c, 23) }
 
 // Remember the result type of a checked match expression.
 func sema_cache_match_type(c: int, node: int, ty: int): int {
@@ -376,6 +390,9 @@ func sctx_free(c: int): int {
     int_vec_free(sctx_match_nodes(c))
     int_vec_free(sctx_match_types(c))
     int_vec_free(sctx_modules(c))
+    int_vec_free(sctx_local_struct_toks(c))
+    int_vec_free(sctx_moved_cells(c))
+    int_vec_free(sctx_struct_type_toks(c))
     int_vec_free(c)
     return 0
 }
@@ -414,6 +431,14 @@ func sctx_scope_pop(c: int): int {
     if int_vec_len(rfl) > mark {
         sctx_set_ref_flags(c, sctx_truncate_vec(rfl, mark))
     }
+    var lst = sctx_local_struct_toks(c)
+    if int_vec_len(lst) > mark {
+        sctx_set_local_struct_toks(c, sctx_truncate_vec(lst, mark))
+    }
+    var mvc = sctx_moved_cells(c)
+    if int_vec_len(mvc) > mark {
+        sctx_set_moved_cells(c, sctx_truncate_vec(mvc, mark))
+    }
     return 0
 }
 
@@ -437,6 +462,20 @@ func sctx_define_typed(c: int, name_tok: int, ty: int): int {
     int_vec_push(sctx_names(c), name_tok)
     int_vec_push(sctx_local_types(c), ty)
     int_vec_push(sctx_ref_flags(c), 0)
+    int_vec_push(sctx_local_struct_toks(c), 0 - 1)
+    int_vec_push(sctx_moved_cells(c), mut_new(0))
+    return 0
+}
+
+// Define a local whose declared type is a struct value type (Issue #88).
+// |struct_tok| is the struct type-name token. This makes the binding eligible
+// for move checking; Copy-typed locals go through sctx_define_typed.
+func sctx_define_struct(c: int, name_tok: int, ty: int, struct_tok: int): int {
+    int_vec_push(sctx_names(c), name_tok)
+    int_vec_push(sctx_local_types(c), ty)
+    int_vec_push(sctx_ref_flags(c), 0)
+    int_vec_push(sctx_local_struct_toks(c), struct_tok)
+    int_vec_push(sctx_moved_cells(c), mut_new(0))
     return 0
 }
 
@@ -445,6 +484,8 @@ func sctx_define_ref(c: int, name_tok: int, ty: int): int {
     int_vec_push(sctx_names(c), name_tok)
     int_vec_push(sctx_local_types(c), ty)
     int_vec_push(sctx_ref_flags(c), 1)
+    int_vec_push(sctx_local_struct_toks(c), 0 - 1)
+    int_vec_push(sctx_moved_cells(c), mut_new(0))
     return 0
 }
 
@@ -518,6 +559,96 @@ func sctx_lookup_var_type(c: int, src: str, toks: int, want: str): int {
         i = i + 1
     }
     return ir_ty_int()
+}
+
+// --- Ownership / move checking (Issue #88) ---
+//
+// Value types (structs) are moved when they are assigned, passed as an
+// argument, or used to initialise another binding. Copy types (int/bool/
+// str/text) are never tracked. This is deliberately a sema-only foundation:
+// codegen still copies struct fields, so a moved binding is invalid at the
+// source level even though the generated code would still copy it.
+
+// Last local binding named |want|, or -1. Later (shadowing) declarations win.
+func sctx_local_index(c: int, src: str, toks: int, want: str): int {
+    var names = sctx_names(c)
+    var i = int_vec_len(names) - 1
+    while (i >= 0) {
+        if str_eq(tok_text(src, toks, int_vec_get(names, i)), want) == 1 {
+            return i
+        }
+        i = i - 1
+    }
+    return 0 - 1
+}
+
+// Struct type-name token of local |want|, or -1 for Copy/untracked bindings.
+func sctx_lookup_var_struct(c: int, src: str, toks: int, want: str): int {
+    var idx = sctx_local_index(c, src, toks, want)
+    if idx < 0 { return 0 - 1 }
+    return int_vec_get(sctx_local_struct_toks(c), idx)
+}
+
+func sctx_var_is_moved(c: int, src: str, toks: int, want: str): int {
+    var idx = sctx_local_index(c, src, toks, want)
+    if idx < 0 { return 0 }
+    return mut_get(int_vec_get(sctx_moved_cells(c), idx))
+}
+
+func sctx_set_var_moved(c: int, src: str, toks: int, want: str, v: int): int {
+    var idx = sctx_local_index(c, src, toks, want)
+    if idx < 0 { return 0 }
+    return mut_set(int_vec_get(sctx_moved_cells(c), idx), v)
+}
+
+// Struct type token for a type annotation node, or -1 when it is not a struct.
+func sema_struct_tok_from_type(c: int, type_node: int, src: str, toks: int): int {
+    if type_node < 0 { return 0 - 1 }
+    if ast_kind(type_node) != nd_type_name() { return 0 - 1 }
+    var ttok = ast_child(type_node, 0)
+    if sctx_tok_list_has(sctx_struct_type_toks(c), src, toks, tok_text(src, toks, ttok)) == 1 {
+        return ttok
+    }
+    return 0 - 1
+}
+
+// Struct type token inferred from an initialiser (struct literal or another
+// struct local), or -1. Used for `let q = p` / `var p = Point { ... }`.
+func sema_struct_tok_from_init(c: int, src: str, toks: int, init: int): int {
+    if init < 0 { return 0 - 1 }
+    if ast_kind(init) == nd_obj_lit() {
+        var ttok = ast_child(init, 0)
+        if ttok >= 0 {
+            if sctx_tok_list_has(sctx_struct_type_toks(c), src, toks, tok_text(src, toks, ttok)) == 1 {
+                return ttok
+            }
+        }
+        return 0 - 1
+    }
+    if ast_kind(init) == nd_ident() {
+        return sctx_lookup_var_struct(c, src, toks, tok_text(src, toks, ast_child(init, 0)))
+    }
+    return 0 - 1
+}
+
+func sema_use_moved_at(src: str, toks: int, tok: int): int {
+    diag_emit_loc(src, tok_start(toks, tok))
+    stderr("sema: use of moved value '")
+    stderr(tok_text(src, toks, tok))
+    stderr("'")
+    stderr(char_to_str(10))
+    return 1
+}
+
+// Mark a move site: a bare struct-local identifier transfers ownership.
+func sema_move_expr(c: int, src: str, toks: int, node: int): int {
+    if node < 0 { return 0 }
+    if ast_kind(node) != nd_ident() { return 0 }
+    var itok = ast_child(node, 0)
+    var nm = tok_text(src, toks, itok)
+    if sctx_lookup_var_struct(c, src, toks, nm) < 0 { return 0 }
+    sctx_set_var_moved(c, src, toks, nm, 1)
+    return 0
 }
 
 func sema_type_mismatch_at(src: str, toks: int, at_tok: int, want: int, got: int): int {
@@ -860,6 +991,9 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
         if sctx_name_known(c, src, toks, nm) == 0 {
             return sema_unknown_at(src, toks, itok)
         }
+        if sctx_var_is_moved(c, src, toks, nm) == 1 {
+            return sema_use_moved_at(src, toks, itok)
+        }
         return 0
     }
     if kind == nd_binop() {
@@ -905,7 +1039,9 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
         var elems = ast_child(node, 0)
         var i = 0
         while (i < int_vec_len(elems)) {
-            if sema_check_expr(c, src, toks, int_vec_get(elems, i)) != 0 { return 1 }
+            var ev = int_vec_get(elems, i)
+            if sema_check_expr(c, src, toks, ev) != 0 { return 1 }
+            sema_move_expr(c, src, toks, ev)
             i = i + 1
         }
         return 0
@@ -976,7 +1112,9 @@ func sema_check_qualified_variant(c: int, src: str, toks: int, node: int): int {
     }
     var ai = 0
     while (ai < argc) {
-        if sema_check_expr(c, src, toks, int_vec_get(args, ai)) != 0 { return 1 }
+        var av = int_vec_get(args, ai)
+        if sema_check_expr(c, src, toks, av) != 0 { return 1 }
+        sema_move_expr(c, src, toks, av)
         ai = ai + 1
     }
     if (pty >= 0) & (argc == 1) {
@@ -1015,7 +1153,9 @@ func sema_check_variant_ctor(c: int, src: str, toks: int, node: int, callee: int
     }
     var ai = 0
     while (ai < argc) {
-        if sema_check_expr(c, src, toks, int_vec_get(args, ai)) != 0 { return 1 }
+        var av = int_vec_get(args, ai)
+        if sema_check_expr(c, src, toks, av) != 0 { return 1 }
+        sema_move_expr(c, src, toks, av)
         ai = ai + 1
     }
     if pty >= 0 {
@@ -1037,7 +1177,9 @@ func sema_check_call(c: int, src: str, toks: int, node: int): int {
     }
     var ai = 0
     while (ai < int_vec_len(args)) {
-        if sema_check_expr(c, src, toks, int_vec_get(args, ai)) != 0 { return 1 }
+        var av = int_vec_get(args, ai)
+        if sema_check_expr(c, src, toks, av) != 0 { return 1 }
+        sema_move_expr(c, src, toks, av)
         ai = ai + 1
     }
     if ast_kind(callee) != nd_ident() {
@@ -1068,7 +1210,9 @@ func sema_check_generic_call(c: int, src: str, toks: int, node: int): int {
     var args = ast_child(node, 2)
     var ai = 0
     while (ai < int_vec_len(args)) {
-        if sema_check_expr(c, src, toks, int_vec_get(args, ai)) != 0 { return 1 }
+        var av = int_vec_get(args, ai)
+        if sema_check_expr(c, src, toks, av) != 0 { return 1 }
+        sema_move_expr(c, src, toks, av)
         ai = ai + 1
     }
     if ast_kind(callee) != nd_ident() {
@@ -1110,7 +1254,9 @@ func sema_check_method_call(c: int, src: str, toks: int, node: int): int {
     var args = ast_child(node, 2)
     var ai = 0
     while (ai < int_vec_len(args)) {
-        if sema_check_expr(c, src, toks, int_vec_get(args, ai)) != 0 { return 1 }
+        var av = int_vec_get(args, ai)
+        if sema_check_expr(c, src, toks, av) != 0 { return 1 }
+        sema_move_expr(c, src, toks, av)
         ai = ai + 1
     }
     var mtok = ast_child(node, 1)
@@ -1156,7 +1302,9 @@ func sema_check_obj_lit(c: int, src: str, toks: int, node: int): int {
     while (i < int_vec_len(inits)) {
         var fi = int_vec_get(inits, i)
         // field_init: [kind, field_tok, value]
-        if sema_check_expr(c, src, toks, ast_child(fi, 1)) != 0 { return 1 }
+        var fv = ast_child(fi, 1)
+        if sema_check_expr(c, src, toks, fv) != 0 { return 1 }
+        sema_move_expr(c, src, toks, fv)
         i = i + 1
     }
     return 0
@@ -1170,6 +1318,7 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
         var type_node = ast_child(node, 1)
         var init = ast_child(node, 2)
         var vty = sema_type_from_node(c, type_node, src, toks)
+        var struct_tok = sema_struct_tok_from_type(c, type_node, src, toks)
         if (init < 0) == 0 {
             if sema_check_expr(c, src, toks, init) != 0 { return 1 }
             if (type_node < 0) {
@@ -1183,6 +1332,11 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
                     return sema_type_mismatch_at(src, toks, name_tok, vty, got)
                 }
             }
+            if struct_tok < 0 {
+                struct_tok = sema_struct_tok_from_init(c, src, toks, init)
+            }
+            // A bare struct local on the RHS is moved into the new binding.
+            sema_move_expr(c, src, toks, init)
         }
         if (type_node < 0) == 0 {
             if ast_kind(type_node) == nd_type_ref() {
@@ -1190,7 +1344,11 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
                 return 0
             }
         }
-        sctx_define_typed(c, name_tok, vty)
+        if struct_tok < 0 {
+            sctx_define_typed(c, name_tok, vty)
+        } else {
+            sctx_define_struct(c, name_tok, vty, struct_tok)
+        }
         return 0
     }
     if kind == nd_assign() {
@@ -1223,6 +1381,10 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
             if (slice_lit_ok2 == 0) & (got != want) {
                 return sema_type_mismatch_at(src, toks, ttok, want, got)
             }
+            // `q = p` moves p; the assignment then re-initialises q, so q
+            // becomes usable even if it had been moved earlier.
+            sema_move_expr(c, src, toks, value)
+            sctx_set_var_moved(c, src, toks, nm, 0)
         } else {
             if sema_check_expr(c, src, toks, target) != 0 { return 1 }
         }
@@ -1317,12 +1479,17 @@ func sema_check_func_node(c: int, src: str, toks: int, fn: int): int {
     var pi = 0
     while (pi < int_vec_len(params)) {
         var p = int_vec_get(params, pi)
-        var pty = sema_type_from_node(c, ast_child(p, 1), src, toks)
         var ptnode = ast_child(p, 1)
+        var pty = sema_type_from_node(c, ptnode, src, toks)
         if (ptnode >= 0) & (ast_kind(ptnode) == nd_type_ref()) {
             sctx_define_ref(c, ast_child(p, 0), pty)
         } else {
-            sctx_define_typed(c, ast_child(p, 0), pty)
+            var pstok = sema_struct_tok_from_type(c, ptnode, src, toks)
+            if pstok < 0 {
+                sctx_define_typed(c, ast_child(p, 0), pty)
+            } else {
+                sctx_define_struct(c, ast_child(p, 0), pty, pstok)
+            }
         }
         pi = pi + 1
     }
@@ -1486,7 +1653,28 @@ func sema_check_variant_collisions(c: int, src: str, toks: int, file_node: int):
     return 0
 }
 
+// Collect `struct` type names before anything resolves annotations (Issue #88).
+// Classes share nd_class but are not value types, so the parser's is_struct
+// marker decides whether a declaration participates in move checking.
+func sema_collect_structs(c: int, src: str, toks: int, file_node: int): int {
+    var children = ast_child(file_node, 0)
+    var i = 0
+    while (i < int_vec_len(children)) {
+        var ch = int_vec_get(children, i)
+        if ast_kind(ch) == nd_class() {
+            if ast_class_is_struct(ch) == 1 {
+                int_vec_push(sctx_struct_type_toks(c), ast_child(ch, 0))
+            }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
 func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
+    if sema_collect_structs(c, src, toks, file_node) != 0 {
+        return 1
+    }
     // Pass 1: register every enum type and variant first so any later
     // annotation or initializer can resolve them regardless of source order.
     if sema_collect_enums(c, src, toks, file_node) != 0 {
