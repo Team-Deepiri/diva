@@ -921,7 +921,7 @@ func parse_extern_decl(ps: int, src: str): int {
     return parse_extern_func_decl(ps, src)
 }
 
-func parse_class_decl(ps: int, src: str): int {
+func parse_class_decl(ps: int, src: str, is_struct: int): int {
     p_advance(ps)
     var name = p_expect(ps, src, tk_ident())
     var type_params = int_vec_new()
@@ -937,7 +937,7 @@ func parse_class_decl(ps: int, src: str): int {
     p_expect(ps, src, tk_lbrace())
     var members = int_vec_new()
     while p_cur(ps) != tk_rbrace() & p_cur(ps) != tk_eof() {
-        if ps_err(ps) != 0 { return ast_class(name, members) }
+        if ps_err(ps) != 0 { return ast_class_generic_kind(name, int_vec_new(), members, is_struct) }
         if p_cur(ps) == tk_var() {
             p_advance(ps)
             var fname = p_expect(ps, src, tk_ident())
@@ -962,7 +962,7 @@ func parse_class_decl(ps: int, src: str): int {
         }
     }
     p_expect(ps, src, tk_rbrace())
-    return ast_class_generic(name, type_params, members)
+    return ast_class_generic_kind(name, type_params, members, is_struct)
 }
 
 // enum Name { Variant, Variant(payload_type), ... }
@@ -1102,7 +1102,9 @@ func parse_top_level(ps: int, src: str): int {
             int_vec_push(children, parse_extern_decl(ps, src))
         } else {
         if kind == tk_class() | kind == tk_struct() {
-            int_vec_push(children, parse_class_decl(ps, src))
+            var decl_is_struct = 0
+            if kind == tk_struct() { decl_is_struct = 1 }
+            int_vec_push(children, parse_class_decl(ps, src, decl_is_struct))
         } else {
         if kind == tk_enum() {
             int_vec_push(children, parse_enum_decl(ps, src))

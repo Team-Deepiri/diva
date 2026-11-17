@@ -1,0 +1,11 @@
+// Issue #88: reading a moved struct local is a compile error.
+struct Point {
+    var x: int
+    var y: int
+}
+
+func main(): int {
+    let p: Point = Point { x: 20, y: 22 }
+    let q: Point = p
+    return p.x + q.y
+}

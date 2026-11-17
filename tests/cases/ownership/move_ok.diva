@@ -1,0 +1,11 @@
+// Issue #88: a moved value may be used through its new binding.
+struct Point {
+    var x: int
+    var y: int
+}
+
+func main(): int {
+    let p: Point = Point { x: 20, y: 22 }
+    let q: Point = p
+    return q.x + q.y
+}

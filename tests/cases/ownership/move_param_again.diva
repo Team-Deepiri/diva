@@ -1,0 +1,19 @@
+// Issue #88: a struct parameter is owned by the callee and moves onward.
+struct Point {
+    var x: int
+    var y: int
+}
+
+func consume(p: Point): int {
+    return p.x
+}
+
+func forward(p: Point): int {
+    let n: int = consume(p)
+    return p.y + n
+}
+
+func main(): int {
+    let p: Point = Point { x: 20, y: 22 }
+    return forward(p)
+}
