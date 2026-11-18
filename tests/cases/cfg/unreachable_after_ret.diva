@@ -1,0 +1,10 @@
+func early(x: int): int {
+    if (x > 0) {
+        return 1
+    }
+    return 0
+}
+
+func main(): int {
+    return early(1)
+}
