@@ -1,0 +1,7 @@
+func main(): int {
+    let x: int = 7;
+    let p: *mut int = &x;
+    unsafe {
+        return *(p.add(1).sub(1));
+    }
+}

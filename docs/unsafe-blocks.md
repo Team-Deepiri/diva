@@ -58,11 +58,9 @@ block.
 
 ## Deferred
 
-- `ptr.add(n)` / `ptr.sub(n)` typed pointer arithmetic is **not** implemented
-  in this slice. The current type model erases element widths (`u8`, `i32`, ...)
-  to the machine word and raw pointers carry no element-size metadata, so
-  element-scaled arithmetic cannot be lowered correctly yet. It should land
-  after pointer element types are tracked.
+- `ptr.add(n)` / `ptr.sub(n)` typed pointer arithmetic is covered separately in
+  `docs/pointer-arithmetic.md`. It scales by one machine word (8 bytes) and is
+  gated by the same `unsafe` rule as raw dereferences.
 - Provenance/aliasing analysis, pointer casts between pointee types, and
   non-zero-width type checking for `*mut T` are future work.
 - `docs/language-spec.md` and `tests/run.sh` are intentionally untouched to

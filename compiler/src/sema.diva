@@ -494,15 +494,29 @@ func sctx_ty_name(ty: int): str {
     if ty == ir_ty_int() { return "int" }
     if ty == ir_ty_bool() { return "bool" }
     if ty == ir_ty_str() { return "str" }
+    if ty == ir_ty_ptr() { return "ptr" }
     if ty == ir_ty_text() { return "text" }
     if ty == ir_ty_slice() { return "slice" }
     if ty > ir_ty_text() { return "enum" }
     return "?"
 }
 
+func sema_type_assignable(want: int, got: int, node: int): int {
+    if want == got { return 1 }
+    if (want == ir_ty_ptr()) & (got == ir_ty_int()) {
+        if ast_kind(node) == nd_int_lit() {
+            if ast_child(node, 0) == 0 { return 1 }
+        }
+    }
+    return 0
+}
+
 func sema_type_from_node(c: int, type_node: int, src: str, toks: int): int {
     if (type_node < 0) {
         return ir_ty_int()
+    }
+    if ast_kind(type_node) == nd_type_ptr() {
+        return ir_ty_ptr()
     }
     if ast_kind(type_node) == nd_type_slice() {
         return ir_ty_slice()
@@ -739,7 +753,14 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
         return ir_ty_int()
     }
     if kind == nd_unary() {
-        return sema_expr_type(c, src, toks, ast_child(node, 1))
+        var uop = ast_child(node, 0)
+        var uty = sema_expr_type(c, src, toks, ast_child(node, 1))
+        if uop == unop_addr() { return ir_ty_ptr() }
+        if uop == unop_deref() {
+            if uty == ir_ty_ptr() { return ir_ty_int() }
+            return uty
+        }
+        return uty
     }
     if kind == nd_cast() {
         return sema_type_from_node(c, ast_child(node, 1), src, toks)
@@ -775,7 +796,17 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
     if kind == nd_method_call() {
         // `ptr.is_null()` yields a bool (Issue #94).
         var mtok = ast_child(node, 1)
-        if str_eq(tok_text(src, toks, mtok), "is_null") == 1 { return ir_ty_bool() }
+        var mm = tok_text(src, toks, mtok)
+        var mrecv = ast_child(node, 0)
+        var is_mod_call = 0
+        if ast_kind(mrecv) == nd_ident() {
+            var mrn = tok_text(src, toks, ast_child(mrecv, 0))
+            if sctx_tok_list_has(sctx_modules(c), src, toks, mrn) == 1 { is_mod_call = 1 }
+        }
+        if is_mod_call == 0 {
+            if str_eq(mm, "is_null") == 1 { return ir_ty_bool() }
+            if (str_eq(mm, "add") | str_eq(mm, "sub")) == 1 { return ir_ty_ptr() }
+        }
         // Module-qualified and method calls inherit the declared return type
         // when the callee is registered (Issue #96).
         var mrty = sctx_fn_ret_type(c, src, toks, tok_text(src, toks, mtok))
@@ -1299,6 +1330,39 @@ func sema_check_method_call(c: int, src: str, toks: int, node: int): int {
     }
     var mtok = ast_child(node, 1)
     var mname = tok_text(src, toks, mtok)
+    if is_mod == 0 {
+        var is_ptr_add = str_eq(mname, "add")
+        var is_ptr_sub = str_eq(mname, "sub")
+        if (is_ptr_add | is_ptr_sub) == 1 {
+            var rty = sema_expr_type(c, src, toks, recv)
+            if rty != ir_ty_ptr() {
+                diag_emit_loc(src, tok_start(toks, mtok))
+                stderr("sema: pointer arithmetic requires a raw pointer receiver")
+                stderr(char_to_str(10))
+                return 1
+            }
+            if sctx_unsafe(c) == 0 {
+                diag_emit_loc(src, tok_start(toks, mtok))
+                stderr("sema: raw pointer arithmetic requires an unsafe block")
+                stderr(char_to_str(10))
+                return 1
+            }
+            if int_vec_len(args) != 1 {
+                diag_emit_loc(src, tok_start(toks, mtok))
+                stderr("sema: pointer arithmetic expects one integer argument")
+                stderr(char_to_str(10))
+                return 1
+            }
+            var aty = sema_expr_type(c, src, toks, int_vec_get(args, 0))
+            if aty != ir_ty_int() {
+                diag_emit_loc(src, tok_start(toks, mtok))
+                stderr("sema: pointer arithmetic offset must be an integer")
+                stderr(char_to_str(10))
+                return 1
+            }
+            return 0
+        }
+    }
     // Built-in raw-pointer methods (Issue #94).
     if str_eq(mname, "is_null") == 1 { return 0 }
     if sctx_tok_list_has(sctx_fn_names(c), src, toks, mname) == 1 { return 0 }
@@ -1366,7 +1430,7 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
                 // `[T]` slice annotation accepts an array literal as its backing.
                 var slice_lit_ok = 0
                 if (vty == ir_ty_slice()) & (ast_kind(init) == nd_array_lit()) { slice_lit_ok = 1 }
-                if (slice_lit_ok == 0) & (got != vty) {
+                if (slice_lit_ok == 0) & (sema_type_assignable(vty, got, init) == 0) {
                     return sema_type_mismatch_at(src, toks, name_tok, vty, got)
                 }
             }
@@ -1416,7 +1480,7 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
             var got = sema_expr_type(c, src, toks, value)
             var slice_lit_ok2 = 0
             if (want == ir_ty_slice()) & (ast_kind(value) == nd_array_lit()) { slice_lit_ok2 = 1 }
-            if (slice_lit_ok2 == 0) & (got != want) {
+            if (slice_lit_ok2 == 0) & (sema_type_assignable(want, got, value) == 0) {
                 return sema_type_mismatch_at(src, toks, ttok, want, got)
             }
             // `q = p` moves p; the assignment then re-initialises q, so q
@@ -1434,7 +1498,7 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
         if (e < 0) == 0 {
             if sema_check_expr(c, src, toks, e) != 0 { return 1 }
             var got = sema_expr_type(c, src, toks, e)
-            if ret_ty != got {
+            if sema_type_assignable(ret_ty, got, e) == 0 {
                 return sema_err("return type mismatch")
             }
         } else {
