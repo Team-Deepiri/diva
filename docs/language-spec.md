@@ -600,6 +600,16 @@ func main(): int {
 ## Implemented Today
 
 - `func` and `extern func`
+- **Optimization passes (Issue #105):** conservative constant folding,
+  algebraic simplification, and dead-code elimination run before codegen;
+  inspect with `diva opt <file>` (and `diva opt --no-opt <file>`). See
+  `docs/optimizations.md`.
+- **CFG analysis (Issue #136):** `diva analyze <file>` builds a per-function
+  control-flow graph, reports blocks/edges/unreachable instructions, and warns
+  about unreachable code. See `docs/cfg-analysis.md`.
+- **Atomics (Issue #98):** `atomic_load`, `atomic_store`, `atomic_add`,
+  `atomic_xchg`, `atomic_cas`, and `fence` lower to real x86-64 atomic
+  instructions and require an `unsafe` context. See `docs/atomics.md`.
 - explicit generic functions with call-site type arguments like `identity[int](7)`
 - class declarations with methods
 - `enum` declarations with unit and single-payload variants, bare-name and
