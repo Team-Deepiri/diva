@@ -1427,11 +1427,15 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
                 vty = sema_expr_type(c, src, toks, init)
             } else {
                 var got = sema_expr_type(c, src, toks, init)
+                // A reference annotation (`&T`) binds the pointee type but its
+                // initializer is an address (pointer-typed).
+                var want = vty
+                if ast_kind(type_node) == nd_type_ref() { want = ir_ty_ptr() }
                 // `[T]` slice annotation accepts an array literal as its backing.
                 var slice_lit_ok = 0
                 if (vty == ir_ty_slice()) & (ast_kind(init) == nd_array_lit()) { slice_lit_ok = 1 }
-                if (slice_lit_ok == 0) & (sema_type_assignable(vty, got, init) == 0) {
-                    return sema_type_mismatch_at(src, toks, name_tok, vty, got)
+                if (slice_lit_ok == 0) & (sema_type_assignable(want, got, init) == 0) {
+                    return sema_type_mismatch_at(src, toks, name_tok, want, got)
                 }
             }
             if struct_tok < 0 {
