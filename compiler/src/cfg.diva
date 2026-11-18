@@ -1,0 +1,380 @@
+import "std/io.diva"
+import "std/vec.diva"
+import "std/conv.diva"
+import "std/host.diva"
+import "cell.diva"
+import "tokens.diva"
+import "ir.diva"
+import "diag.diva"
+
+func cfg_cell_get(cells: int, i: int): int {
+    return mut_get(int_vec_get(cells, i))
+}
+
+func cfg_cell_set(cells: int, i: int, v: int): int {
+    mut_set(int_vec_get(cells, i), v)
+    return 0
+}
+
+func cfg_cells(n: int): int {
+    var cells = int_vec_new()
+    var i = 0
+    while i < n {
+        int_vec_push(cells, mut_new(0))
+        i = i + 1
+    }
+    return cells
+}
+
+func cfg_insts(c: int): int       { return int_vec_get(c, 0) }
+func cfg_succs(c: int): int       { return int_vec_get(c, 1) }
+func cfg_labels(c: int): int      { return int_vec_get(c, 2) }
+func cfg_bad(c: int): int         { return int_vec_get(c, 3) }
+func cfg_reach(c: int): int       { return int_vec_get(c, 4) }
+func cfg_targets(c: int): int     { return int_vec_get(c, 5) }
+func cfg_leaders(c: int): int     { return int_vec_get(c, 6) }
+func cfg_blocks(c: int): int      { return int_vec_get(c, 7) }
+func cfg_node_block(c: int): int  { return int_vec_get(c, 8) }
+func cfg_edges(c: int): int       { return int_vec_get(c, 9) }
+
+func cfg_new(n: int): int {
+    var c = int_vec_new()
+    int_vec_push(c, int_vec_new())
+    var succs = int_vec_new()
+    var i = 0
+    while i < n {
+        int_vec_push(succs, int_vec_new())
+        i = i + 1
+    }
+    int_vec_push(c, succs)
+    int_vec_push(c, int_vec_new())
+    int_vec_push(c, int_vec_new())
+    int_vec_push(c, cfg_cells(n))
+    int_vec_push(c, cfg_cells(n))
+    int_vec_push(c, cfg_cells(n))
+    int_vec_push(c, int_vec_new())
+    int_vec_push(c, cfg_cells(n))
+    int_vec_push(c, int_vec_new())
+    return c
+}
+
+func cfg_label_index(labels: int, label: int): int {
+    var n = int_vec_len(labels)
+    var i = 0
+    while i < n {
+        if int_vec_get(labels, i) == label {
+            return int_vec_get(labels, i + 1)
+        }
+        i = i + 2
+    }
+    return 0 - 1
+}
+
+func cfg_is_terminator(op: int): int {
+    if op == ir_br() { return 1 }
+    if op == ir_br_cond() { return 1 }
+    if op == ir_ret() { return 1 }
+    if op == ir_ret_void() { return 1 }
+    if op == ir_trap() { return 1 }
+    return 0
+}
+
+func cfg_warn_unreachable(fname: str, idx: int, op: int): int {
+    stderr("warn: ")
+    stderr(fname)
+    stderr(": unreachable instruction ")
+    stderr(int_to_str(idx))
+    stderr(" (")
+    stderr(ir_op_name(op))
+    stderr(") has no label target")
+    stderr(char_to_str(10))
+    return 0
+}
+
+func cfg_error_undefined_label(src: str, toks: int, name_tok: int, label: int, idx: int): int {
+    diag_emit_loc(src, tok_start(toks, name_tok))
+    stderr("cfg: error: undefined label ")
+    stderr(int_to_str(label))
+    stderr(" at instruction ")
+    stderr(int_to_str(idx))
+    stderr(char_to_str(10))
+    return 1
+}
+
+func cfg_push_bad(bad: int, label: int, node: int): int {
+    int_vec_push(bad, label)
+    int_vec_push(bad, node)
+    return 0
+}
+
+func cfg_resolve_target(c: int, label: int, node: int): int {
+    var idx = cfg_label_index(cfg_labels(c), label)
+    var n = int_vec_len(cfg_insts(c))
+    if idx < 0 {
+        cfg_push_bad(cfg_bad(c), label, node)
+        return 0 - 1
+    }
+    if idx >= n {
+        cfg_push_bad(cfg_bad(c), label, node)
+        return 0 - 1
+    }
+    return idx
+}
+
+func cfg_link(c: int, node: int, target: int): int {
+    int_vec_push(int_vec_get(cfg_succs(c), node), target)
+    cfg_cell_set(cfg_targets(c), target, 1)
+    return 0
+}
+
+func cfg_mark_leader(c: int, target: int): int {
+    cfg_cell_set(cfg_leaders(c), target, 1)
+    return 0
+}
+
+func cfg_linearize(f: int, c: int): int {
+    var insts = cfg_insts(c)
+    var labels = cfg_labels(c)
+    var bi = 0
+    while bi < func_block_count(f) {
+        var blk = func_get_block(f, bi)
+        var start = int_vec_len(insts)
+        int_vec_push(labels, block_label(blk))
+        int_vec_push(labels, start)
+        var ic = block_inst_count(blk)
+        var ii = 0
+        while ii < ic {
+            int_vec_push(insts, block_get_inst(blk, ii))
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    return 0
+}
+
+func cfg_build_edges(c: int): int {
+    var insts = cfg_insts(c)
+    var n = int_vec_len(insts)
+    var i = 0
+    while i < n {
+        var inst = int_vec_get(insts, i)
+        var op = inst_op(inst)
+        if op == ir_br() {
+            var t = cfg_resolve_target(c, inst_a(inst), i)
+            if t >= 0 {
+                cfg_link(c, i, t)
+                cfg_mark_leader(c, t)
+            }
+        } else {
+        if op == ir_br_cond() {
+            var bt = cfg_resolve_target(c, inst_a(inst), i)
+            if bt >= 0 {
+                cfg_link(c, i, bt)
+                cfg_mark_leader(c, bt)
+            }
+            var ft = cfg_resolve_target(c, inst_b(inst), i)
+            if ft >= 0 {
+                cfg_link(c, i, ft)
+                cfg_mark_leader(c, ft)
+            }
+        } else {
+        if cfg_is_terminator(op) == 0 {
+            if (i + 1) < n {
+                cfg_link(c, i, i + 1)
+            }
+        }
+        }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func cfg_compute_reach(c: int): int {
+    var n = int_vec_len(cfg_insts(c))
+    if n == 0 { return 0 }
+    var work = int_vec_new()
+    int_vec_push(work, 0)
+    cfg_cell_set(cfg_reach(c), 0, 1)
+    var cursor = 0
+    while cursor < int_vec_len(work) {
+        var node = int_vec_get(work, cursor)
+        cursor = cursor + 1
+        var succs = int_vec_get(cfg_succs(c), node)
+        var i = 0
+        while i < int_vec_len(succs) {
+            var t = int_vec_get(succs, i)
+            if cfg_cell_get(cfg_reach(c), t) == 0 {
+                cfg_cell_set(cfg_reach(c), t, 1)
+                int_vec_push(work, t)
+            }
+            i = i + 1
+        }
+    }
+    return 0
+}
+
+func cfg_compute_leaders(c: int): int {
+    var n = int_vec_len(cfg_insts(c))
+    if n == 0 { return 0 }
+    cfg_cell_set(cfg_leaders(c), 0, 1)
+    var i = 0
+    while i < (n - 1) {
+        var op = inst_op(int_vec_get(cfg_insts(c), i))
+        if cfg_is_terminator(op) == 1 {
+            cfg_cell_set(cfg_leaders(c), i + 1, 1)
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func cfg_push_block(blocks: int, start: int, end: int): int {
+    var rec = int_vec_new()
+    int_vec_push(rec, start)
+    int_vec_push(rec, end)
+    int_vec_push(blocks, rec)
+    return 0
+}
+
+func cfg_compute_blocks(c: int): int {
+    var n = int_vec_len(cfg_insts(c))
+    var blocks = cfg_blocks(c)
+    var start = 0 - 1
+    var end = 0 - 1
+    var i = 0
+    while i < n {
+        if cfg_cell_get(cfg_leaders(c), i) == 1 {
+            if start >= 0 {
+                cfg_push_block(blocks, start, end)
+            }
+            start = i
+            end = i
+        } else {
+        if start < 0 { start = i }
+        end = i
+        }
+        i = i + 1
+    }
+    if start >= 0 {
+        cfg_push_block(blocks, start, end)
+    }
+    return 0
+}
+
+func cfg_compute_node_blocks(c: int): int {
+    var blocks = cfg_blocks(c)
+    var nb = int_vec_len(blocks)
+    var b = 0
+    while b < nb {
+        var rec = int_vec_get(blocks, b)
+        var i = int_vec_get(rec, 0)
+        var end = int_vec_get(rec, 1)
+        while i <= end {
+            cfg_cell_set(cfg_node_block(c), i, b)
+            i = i + 1
+        }
+        b = b + 1
+    }
+    return 0
+}
+
+func cfg_compute_edges(c: int): int {
+    var n = int_vec_len(cfg_insts(c))
+    var i = 0
+    while i < n {
+        var succs = int_vec_get(cfg_succs(c), i)
+        var j = 0
+        while j < int_vec_len(succs) {
+            var t = int_vec_get(succs, j)
+            var from = cfg_cell_get(cfg_node_block(c), i)
+            var to = cfg_cell_get(cfg_node_block(c), t)
+            if from != to {
+                int_vec_push(cfg_edges(c), from)
+                int_vec_push(cfg_edges(c), to)
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func cfg_analyze_func(f: int, src: str, toks: int): int {
+    var fname = tok_text(src, toks, func_name_tok(f))
+    var fname_hold = fname
+    var n = 0
+    var bi = 0
+    while bi < func_block_count(f) {
+        n = n + block_inst_count(func_get_block(f, bi))
+        bi = bi + 1
+    }
+    var c = cfg_new(n)
+    cfg_linearize(f, c)
+    cfg_build_edges(c)
+    cfg_compute_reach(c)
+    cfg_compute_leaders(c)
+    cfg_compute_blocks(c)
+    cfg_compute_node_blocks(c)
+    cfg_compute_edges(c)
+
+    print_str("function ")
+    print_str(fname_hold)
+    print_str(": blocks=")
+    print_str(int_to_str(int_vec_len(cfg_blocks(c))))
+    print_str(" edges=")
+    print_str(int_to_str(int_vec_len(cfg_edges(c)) / 2))
+    print_str(" unreachable=")
+    var unreachable = 0
+    var i = 0
+    while i < n {
+        if cfg_cell_get(cfg_reach(c), i) == 0 {
+            unreachable = unreachable + 1
+        }
+        i = i + 1
+    }
+    print_str(int_to_str(unreachable))
+    print_str(char_to_str(10))
+
+    i = 0
+    while i < n {
+        if cfg_cell_get(cfg_reach(c), i) == 0 {
+            if cfg_cell_get(cfg_targets(c), i) == 0 {
+                cfg_warn_unreachable(fname_hold, i, inst_op(int_vec_get(cfg_insts(c), i)))
+            }
+        }
+        i = i + 1
+    }
+
+    var errors = 0
+    var bad = cfg_bad(c)
+    var bn = int_vec_len(bad)
+    i = 0
+    while i < bn {
+        errors = errors + cfg_error_undefined_label(src, toks, func_name_tok(f), int_vec_get(bad, i), int_vec_get(bad, i + 1))
+        i = i + 2
+    }
+    return errors
+}
+
+func cfg_analyze_module(m: int, src: str, toks: int): int {
+    var errors = 0
+    var i = 0
+    while i < mod_func_count(m) {
+        errors = errors + cfg_analyze_func(mod_get_func(m, i), src, toks)
+        i = i + 1
+    }
+    return errors
+}
+
+func cfg_selftest_undefined_label(src: str, toks: int): int {
+    var name_tok = 0
+    if tok_count(toks) > 1 { name_tok = 1 }
+    var m = ir_module_new()
+    var f = ir_func_new(name_tok, 0, ir_ty_int())
+    var blk = ir_block_new(0)
+    block_append(blk, ir_inst(ir_br(), 0, 99, 0, 0))
+    func_add_block(f, blk)
+    mod_add_func(m, f)
+    return cfg_analyze_module(m, src, toks)
+}

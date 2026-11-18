@@ -1,0 +1,12 @@
+func classify(n: int): int {
+    return match n {
+        0 => 10,
+        1 => 20,
+        2 => 30,
+        _ => 40,
+    }
+}
+
+func main(): int {
+    return classify(2)
+}

@@ -40,6 +40,7 @@ func dump_inst_opname(b: int, op: int, a: int, bv: int, src: str, toks: int): in
     if op == ir_ge()  { str_builder_append(b, "ge ") }
     if op == ir_and() { str_builder_append(b, "and ") }
     if op == ir_or()  { str_builder_append(b, "or ") }
+    if op == ir_xor() { str_builder_append(b, "xor ") }
     if op == ir_not() { str_builder_append(b, "not ") }
     if op == ir_neg() { str_builder_append(b, "neg ") }
     if op == ir_shl() { str_builder_append(b, "shl ") }

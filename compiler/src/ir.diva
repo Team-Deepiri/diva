@@ -76,12 +76,13 @@ func ir_addr_of(): int    { return 46 }
 // Arithmetic right shift (sign-preserving). ir_shr is logical (zero-filling);
 // casts to signed integer widths need sar to extend a narrowed value.
 func ir_sar(): int        { return 47 }
-func ir_atomic_load(): int  { return 48 }
-func ir_atomic_store(): int { return 49 }
-func ir_atomic_add(): int   { return 50 }
-func ir_atomic_xchg(): int  { return 51 }
-func ir_atomic_cas(): int   { return 52 }
-func ir_fence(): int        { return 53 }
+func ir_xor(): int        { return 48 }
+func ir_atomic_load(): int  { return 49 }
+func ir_atomic_store(): int { return 50 }
+func ir_atomic_add(): int   { return 51 }
+func ir_atomic_xchg(): int  { return 52 }
+func ir_atomic_cas(): int   { return 53 }
+func ir_fence(): int        { return 54 }
 
 
 func ir_op_name(op: int): str {
@@ -133,12 +134,13 @@ func ir_op_name(op: int): str {
     if op == 45 { return "trap" }
     if op == 46 { return "addr.of" }
     if op == 47 { return "sar" }
-    if op == 48 { return "atomic.load" }
-    if op == 49 { return "atomic.store" }
-    if op == 50 { return "atomic.add" }
-    if op == 51 { return "atomic.xchg" }
-    if op == 52 { return "atomic.cas" }
-    if op == 53 { return "fence" }
+    if op == 48 { return "xor" }
+    if op == 49 { return "atomic.load" }
+    if op == 50 { return "atomic.store" }
+    if op == 51 { return "atomic.add" }
+    if op == 52 { return "atomic.xchg" }
+    if op == 53 { return "atomic.cas" }
+    if op == 54 { return "fence" }
     return "???"
 }
 

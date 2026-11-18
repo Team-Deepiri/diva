@@ -1,0 +1,21 @@
+func nested(n: int): int {
+    var i = 0
+    var acc = 0
+    while (i < n) {
+        if (i == 2) {
+            acc = acc + match i {
+                0 => 1,
+                1 => 2,
+                _ => 10,
+            }
+        } else {
+            acc = acc + 1
+        }
+        i = i + 1
+    }
+    return acc
+}
+
+func main(): int {
+    return nested(4)
+}

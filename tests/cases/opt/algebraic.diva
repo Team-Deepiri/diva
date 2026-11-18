@@ -1,0 +1,8 @@
+func add_zero(x: int): int { return x + 0 }
+func sub_zero(x: int): int { return x - 0 }
+func mul_one(x: int): int { return x * 1 }
+func mul_zero(x: int): int { return x * 0 }
+func or_zero(x: int): int { return x | 0 }
+func xor_zero(x: int): int { return x ^ 0 }
+func shl_zero(x: int): int { return x << 0 }
+func shr_zero(x: int): int { return x >> 0 }

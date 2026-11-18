@@ -1,0 +1,7 @@
+func probe(): int {
+    return 0
+}
+
+func main(): int {
+    return probe()
+}

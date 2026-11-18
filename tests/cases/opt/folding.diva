@@ -1,0 +1,7 @@
+import "std/io.diva"
+
+func main(): int {
+    var a = 2 + 3 * 4
+    print_int(a)
+    return 0
+}

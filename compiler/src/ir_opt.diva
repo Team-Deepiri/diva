@@ -1,0 +1,524 @@
+import "std/vec.diva"
+import "std/mem.diva"
+import "cell.diva"
+import "ir.diva"
+
+func opt_clear_array(arr: int, limit: int): int {
+    var i = 0
+    while (i < limit) {
+        mem_set(arr, i, 0)
+        i = i + 1
+    }
+    return 0
+}
+
+func opt_mark_use(uses: int, vreg: int, limit: int): int {
+    if vreg < 0 { return 0 }
+    if vreg >= limit { return 0 }
+    mem_set(uses, vreg, mem_get(uses, vreg) + 1)
+    return 0
+}
+
+func opt_inst_max(inst: int, cur: int): int {
+    var op = inst_op(inst)
+    var r = inst_result(inst)
+    var a = inst_a(inst)
+    var b = inst_b(inst)
+    if r > cur { cur = r }
+    if a > cur { cur = a }
+    if b > cur { cur = b }
+    if op == ir_call() {
+        var ac = b
+        var args = inst_extra(inst)
+        var i = 0
+        while (i < ac) {
+            var v = int_vec_get(args, i)
+            if v > cur { cur = v }
+            i = i + 1
+        }
+    }
+    return cur
+}
+
+func opt_func_max(f: int): int {
+    var cur = 0
+    var blocks = func_blocks(f)
+    var bc = int_vec_len(blocks)
+    var bi = 0
+    while (bi < bc) {
+        var insts = block_insts(int_vec_get(blocks, bi))
+        var ic = int_vec_len(insts)
+        var ii = 0
+        while (ii < ic) {
+            cur = opt_inst_max(int_vec_get(insts, ii), cur)
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    return cur
+}
+
+func opt_module_max(m: int): int {
+    var cur = 0
+    var funcs = mod_funcs(m)
+    var fc = int_vec_len(funcs)
+    var i = 0
+    while (i < fc) {
+        var fm = opt_func_max(int_vec_get(funcs, i))
+        if fm > cur { cur = fm }
+        i = i + 1
+    }
+    return cur
+}
+
+func opt_known(cknown: int, vreg: int, limit: int): int {
+    if vreg < 0 { return 0 }
+    if vreg >= limit { return 0 }
+    return mem_get(cknown, vreg)
+}
+
+func opt_inst_same(x: int, y: int): int {
+    if inst_op(x) != inst_op(y) { return 0 }
+    if inst_result(x) != inst_result(y) { return 0 }
+    if inst_a(x) != inst_a(y) { return 0 }
+    if inst_b(x) != inst_b(y) { return 0 }
+    if inst_extra(x) != inst_extra(y) { return 0 }
+    return 1
+}
+
+func opt_as_const(inst: int, value: int, chng: int): int {
+    if inst_op(inst) == ir_const() {
+        if inst_a(inst) == value { return inst }
+    }
+    mut_set(chng, 1)
+    return ir_inst(ir_const(), inst_result(inst), value, 0, 0)
+}
+
+func opt_as_copy(inst: int, src: int, chng: int): int {
+    if inst_op(inst) == ir_copy() {
+        if inst_a(inst) == src { return inst }
+    }
+    mut_set(chng, 1)
+    return ir_inst(ir_copy(), inst_result(inst), src, 0 - 1, 0)
+}
+
+func opt_is_fold_binop(op: int): int {
+    if op == ir_add() { return 1 }
+    if op == ir_sub() { return 1 }
+    if op == ir_mul() { return 1 }
+    if op == ir_div() { return 1 }
+    if op == ir_mod() { return 1 }
+    if op == ir_eq() { return 1 }
+    if op == ir_ne() { return 1 }
+    if op == ir_lt() { return 1 }
+    if op == ir_le() { return 1 }
+    if op == ir_gt() { return 1 }
+    if op == ir_ge() { return 1 }
+    if op == ir_and() { return 1 }
+    if op == ir_or() { return 1 }
+    if op == ir_xor() { return 1 }
+    if op == ir_shl() { return 1 }
+    if op == ir_shr() { return 1 }
+    if op == ir_sar() { return 1 }
+    return 0
+}
+
+func opt_eval_bin(op: int, va: int, vb: int): int {
+    if op == ir_add() { return va + vb }
+    if op == ir_sub() { return va - vb }
+    if op == ir_mul() { return va * vb }
+    if op == ir_div() { return va / vb }
+    if op == ir_mod() { return va % vb }
+    if op == ir_eq() {
+        if va == vb { return 1 }
+        return 0
+    }
+    if op == ir_ne() {
+        if va != vb { return 1 }
+        return 0
+    }
+    if op == ir_lt() {
+        if va < vb { return 1 }
+        return 0
+    }
+    if op == ir_le() {
+        if va <= vb { return 1 }
+        return 0
+    }
+    if op == ir_gt() {
+        if va > vb { return 1 }
+        return 0
+    }
+    if op == ir_ge() {
+        if va >= vb { return 1 }
+        return 0
+    }
+    if op == ir_and() { return va & vb }
+    if op == ir_or() { return va | vb }
+    if op == ir_xor() { return (va + vb) - 2 * (va & vb) }
+    if op == ir_shl() {
+        var amt = vb & 63
+        var v = va
+        var i = 0
+        while (i < amt) {
+            v = v + v
+            i = i + 1
+        }
+        return v
+    }
+    if op == ir_shr() {
+        var amt = vb & 63
+        var v = va
+        var i = 0
+        while (i < amt) {
+            v = v / 2
+            i = i + 1
+        }
+        return v
+    }
+    if op == ir_sar() {
+        var amt = vb & 63
+        var v = va
+        var i = 0
+        while (i < amt) {
+            var q = v / 2
+            if (v < 0) & ((v % 2) != 0) { q = q - 1 }
+            v = q
+            i = i + 1
+        }
+        return v
+    }
+    return va
+}
+
+func opt_eval_un(op: int, va: int): int {
+    if op == ir_neg() { return 0 - va }
+    if op == ir_not() {
+        if va == 0 { return 1 }
+        return 0
+    }
+    return va
+}
+
+func opt_simplify_right(inst: int, vb: int, chng: int): int {
+    var op = inst_op(inst)
+    var a = inst_a(inst)
+    var copy = 0
+    if op == ir_add() { if vb == 0 { copy = 1 } }
+    if op == ir_sub() { if vb == 0 { copy = 1 } }
+    if op == ir_mul() {
+        if vb == 0 { return opt_as_const(inst, 0, chng) }
+        if vb == 1 { copy = 1 }
+    }
+    if op == ir_or() { if vb == 0 { copy = 1 } }
+    if op == ir_xor() { if vb == 0 { copy = 1 } }
+    if op == ir_shl() { if vb == 0 { copy = 1 } }
+    if op == ir_shr() { if vb == 0 { copy = 1 } }
+    if op == ir_sar() { if vb == 0 { copy = 1 } }
+    if copy == 1 { return opt_as_copy(inst, a, chng) }
+    return inst
+}
+
+func opt_simplify_left(inst: int, va: int, chng: int): int {
+    var op = inst_op(inst)
+    var b = inst_b(inst)
+    var copy = 0
+    if op == ir_add() { if va == 0 { copy = 1 } }
+    if op == ir_mul() {
+        if va == 0 { return opt_as_const(inst, 0, chng) }
+        if va == 1 { copy = 1 }
+    }
+    if op == ir_or() { if va == 0 { copy = 1 } }
+    if op == ir_xor() { if va == 0 { copy = 1 } }
+    if copy == 1 { return opt_as_copy(inst, b, chng) }
+    return inst
+}
+
+func opt_fold_inst(inst: int, consts: int, cknown: int, limit: int, chng: int): int {
+    var op = inst_op(inst)
+    if opt_is_fold_binop(op) == 1 {
+        var a = inst_a(inst)
+        var b = inst_b(inst)
+        var ka = opt_known(cknown, a, limit)
+        var kb = opt_known(cknown, b, limit)
+        if (ka == 1) & (kb == 1) {
+            var va = mem_get(consts, a)
+            var vb = mem_get(consts, b)
+            var skip = 0
+            if (op == ir_div()) | (op == ir_mod()) {
+                if vb == 0 { skip = 1 }
+            }
+            if op == ir_shr() {
+                if va < 0 { skip = 1 }
+            }
+            if skip == 0 {
+                return opt_as_const(inst, opt_eval_bin(op, va, vb), chng)
+            }
+        }
+        if kb == 1 {
+            var nx = opt_simplify_right(inst, mem_get(consts, b), chng)
+            if opt_inst_same(nx, inst) == 0 { return nx }
+        }
+        if ka == 1 {
+            var nx = opt_simplify_left(inst, mem_get(consts, a), chng)
+            if opt_inst_same(nx, inst) == 0 { return nx }
+        }
+    }
+    if (op == ir_neg()) | (op == ir_not()) {
+        var a = inst_a(inst)
+        if opt_known(cknown, a, limit) == 1 {
+            return opt_as_const(inst, opt_eval_un(op, mem_get(consts, a)), chng)
+        }
+    }
+    return inst
+}
+
+func opt_update_def(inst: int, consts: int, cknown: int, limit: int): int {
+    var r = inst_result(inst)
+    if r < 0 { return 0 }
+    if r >= limit { return 0 }
+    if inst_op(inst) == ir_const() {
+        mem_set(consts, r, inst_a(inst))
+        mem_set(cknown, r, 1)
+    } else {
+        mem_set(cknown, r, 0)
+    }
+    return 0
+}
+
+func opt_fold_block(blk: int, consts: int, cknown: int, limit: int, chng: int): int {
+    var insts = block_insts(blk)
+    var ic = int_vec_len(insts)
+    var out_insts = int_vec_new()
+    var i = 0
+    while (i < ic) {
+        var ni = opt_fold_inst(int_vec_get(insts, i), consts, cknown, limit, chng)
+        int_vec_push(out_insts, ni)
+        opt_update_def(ni, consts, cknown, limit)
+        i = i + 1
+    }
+    return opt_rebuild_block(blk, out_insts)
+}
+
+func opt_rebuild_block(blk: int, insts: int): int {
+    var out = int_vec_new()
+    var n = int_vec_len(blk)
+    var i = 0
+    while (i < n) {
+        if i == 1 {
+            int_vec_push(out, insts)
+        } else {
+            int_vec_push(out, int_vec_get(blk, i))
+        }
+        i = i + 1
+    }
+    return out
+}
+
+func opt_rebuild_func(f: int, blocks: int): int {
+    var out = int_vec_new()
+    var n = int_vec_len(f)
+    var i = 0
+    while (i < n) {
+        if i == 3 {
+            int_vec_push(out, blocks)
+        } else {
+            int_vec_push(out, int_vec_get(f, i))
+        }
+        i = i + 1
+    }
+    return out
+}
+
+func opt_rebuild_module(m: int, funcs: int): int {
+    var out = int_vec_new()
+    var n = int_vec_len(m)
+    var i = 0
+    while (i < n) {
+        if i == 1 {
+            int_vec_push(out, funcs)
+        } else {
+            int_vec_push(out, int_vec_get(m, i))
+        }
+        i = i + 1
+    }
+    return out
+}
+
+func opt_fold_func(f: int, consts: int, cknown: int, chng: int): int {
+    var limit = opt_func_max(f) + 1
+    opt_clear_array(cknown, limit)
+    var blocks = func_blocks(f)
+    var bc = int_vec_len(blocks)
+    var out_blocks = int_vec_new()
+    var i = 0
+    while (i < bc) {
+        int_vec_push(out_blocks, opt_fold_block(int_vec_get(blocks, i), consts, cknown, limit, chng))
+        i = i + 1
+    }
+    return opt_rebuild_func(f, out_blocks)
+}
+
+func opt_mark_inst_uses(inst: int, uses: int, limit: int): int {
+    var op = inst_op(inst)
+    var r = inst_result(inst)
+    var a = inst_a(inst)
+    var b = inst_b(inst)
+    if op == ir_call() {
+        var ac = b
+        var args = inst_extra(inst)
+        if ac == 1 {
+            opt_mark_use(uses, args, limit)
+        } else {
+            var i = 0
+            while (i < ac) {
+                opt_mark_use(uses, int_vec_get(args, i), limit)
+                i = i + 1
+            }
+        }
+        return 0
+    }
+    if (op == ir_const()) | (op == ir_const_str()) | (op == ir_const_text()) { return 0 }
+    if op == ir_br() { return 0 }
+    if op == ir_ret_void() { return 0 }
+    if op == ir_br_cond() {
+        opt_mark_use(uses, r, limit)
+        return 0
+    }
+    if (op == ir_store()) | (op == ir_array_load()) | (op == ir_array_store()) | (op == ir_global_store()) | (op == ir_ptr_load()) | (op == ir_ptr_store()) {
+        opt_mark_use(uses, r, limit)
+    }
+    opt_mark_use(uses, a, limit)
+    opt_mark_use(uses, b, limit)
+    if op == ir_text_slice() {
+        opt_mark_use(uses, inst_extra(inst), limit)
+    }
+    return 0
+}
+
+func opt_count_uses_func(f: int, uses: int, limit: int): int {
+    var blocks = func_blocks(f)
+    var bc = int_vec_len(blocks)
+    var bi = 0
+    while (bi < bc) {
+        var insts = block_insts(int_vec_get(blocks, bi))
+        var ic = int_vec_len(insts)
+        var ii = 0
+        while (ii < ic) {
+            opt_mark_inst_uses(int_vec_get(insts, ii), uses, limit)
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    return 0
+}
+
+func opt_is_dce_pure(op: int): int {
+    if op == ir_const() { return 1 }
+    if op == ir_add() { return 1 }
+    if op == ir_sub() { return 1 }
+    if op == ir_mul() { return 1 }
+    if op == ir_div() { return 1 }
+    if op == ir_mod() { return 1 }
+    if op == ir_neg() { return 1 }
+    if op == ir_eq() { return 1 }
+    if op == ir_ne() { return 1 }
+    if op == ir_lt() { return 1 }
+    if op == ir_le() { return 1 }
+    if op == ir_gt() { return 1 }
+    if op == ir_ge() { return 1 }
+    if op == ir_and() { return 1 }
+    if op == ir_or() { return 1 }
+    if op == ir_xor() { return 1 }
+    if op == ir_not() { return 1 }
+    if op == ir_shl() { return 1 }
+    if op == ir_shr() { return 1 }
+    if op == ir_sar() { return 1 }
+    if op == ir_copy() { return 1 }
+    return 0
+}
+
+func opt_dce_block(blk: int, uses: int, limit: int, chng: int): int {
+    var insts = block_insts(blk)
+    var ic = int_vec_len(insts)
+    var out_insts = int_vec_new()
+    var i = 0
+    while (i < ic) {
+        var inst = int_vec_get(insts, i)
+        var r = inst_result(inst)
+        var dead = 0
+        if opt_is_dce_pure(inst_op(inst)) == 1 {
+            if r >= 0 {
+                if r < limit {
+                    if mem_get(uses, r) == 0 { dead = 1 }
+                }
+            }
+        }
+        if dead == 1 {
+            mut_set(chng, 1)
+        } else {
+            int_vec_push(out_insts, inst)
+        }
+        i = i + 1
+    }
+    return opt_rebuild_block(blk, out_insts)
+}
+
+func opt_dce_func(f: int, uses: int, chng: int): int {
+    var limit = opt_func_max(f) + 1
+    opt_clear_array(uses, limit)
+    opt_count_uses_func(f, uses, limit)
+    var blocks = func_blocks(f)
+    var bc = int_vec_len(blocks)
+    var out_blocks = int_vec_new()
+    var i = 0
+    while (i < bc) {
+        int_vec_push(out_blocks, opt_dce_block(int_vec_get(blocks, i), uses, limit, chng))
+        i = i + 1
+    }
+    return opt_rebuild_func(f, out_blocks)
+}
+
+func opt_module_pass(m: int, consts: int, cknown: int, uses: int, chng: int): int {
+    var funcs = mod_funcs(m)
+    var fc = int_vec_len(funcs)
+    var out_funcs = int_vec_new()
+    var i = 0
+    while (i < fc) {
+        var f = int_vec_get(funcs, i)
+        var f1 = opt_fold_func(f, consts, cknown, chng)
+        var f2 = opt_dce_func(f1, uses, chng)
+        int_vec_push(out_funcs, f2)
+        i = i + 1
+    }
+    if mut_get(chng) == 0 { return m }
+    return opt_rebuild_module(m, out_funcs)
+}
+
+func optimize_module(m: int): int {
+    var limit = opt_module_max(m) + 1
+    var bytes = limit * 8
+    var consts = mem_alloc(bytes)
+    var cknown = mem_alloc(bytes)
+    var uses = mem_alloc(bytes)
+    if (consts == 0) | (cknown == 0) | (uses == 0) {
+        if consts != 0 { mem_free(consts) }
+        if cknown != 0 { mem_free(cknown) }
+        if uses != 0 { mem_free(uses) }
+        return m
+    }
+    var chng = mut_new(0)
+    var cur = m
+    var iter = 0
+    var done = 0
+    while (iter < 8) & (done == 0) {
+        mut_set(chng, 0)
+        cur = opt_module_pass(cur, consts, cknown, uses, chng)
+        iter = iter + 1
+        if mut_get(chng) == 0 { done = 1 }
+    }
+    mem_free(consts)
+    mem_free(cknown)
+    mem_free(uses)
+    return cur
+}

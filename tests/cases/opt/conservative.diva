@@ -1,0 +1,5 @@
+func unary_lit(): int { return 0 - 17 }
+func div_zero(): int {
+    var z = 0
+    return 8 / z
+}

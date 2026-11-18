@@ -697,6 +697,7 @@ func sema_binop_is_compare(op: int): int {
 func sema_binop_is_logic(op: int): int {
     if op == binop_and() { return 1 }
     if op == binop_or() { return 1 }
+    if op == binop_xor() { return 1 }
     return 0
 }
 

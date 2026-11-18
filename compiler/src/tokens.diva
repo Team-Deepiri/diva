@@ -80,6 +80,7 @@ func tk_as(): int       { return 75 }
 func tk_unsafe(): int   { return 76 }
 func tk_null(): int     { return 77 }
 func tk_hash(): int     { return 78 }
+func tk_caret(): int    { return 79 }
 
 // --- Token stream ---
 
