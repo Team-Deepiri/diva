@@ -37,6 +37,10 @@ func opt_inst_max(inst: int, cur: int): int {
             i = i + 1
         }
     }
+    if op == ir_atomic_cas() {
+        var ex = inst_extra(inst)
+        if ex > cur { cur = ex }
+    }
     return cur
 }
 
@@ -391,6 +395,9 @@ func opt_mark_inst_uses(inst: int, uses: int, limit: int): int {
     opt_mark_use(uses, a, limit)
     opt_mark_use(uses, b, limit)
     if op == ir_text_slice() {
+        opt_mark_use(uses, inst_extra(inst), limit)
+    }
+    if op == ir_atomic_cas() {
         opt_mark_use(uses, inst_extra(inst), limit)
     }
     return 0
