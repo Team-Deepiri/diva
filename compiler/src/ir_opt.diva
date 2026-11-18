@@ -22,13 +22,14 @@ func opt_mark_use(uses: int, vreg: int, limit: int): int {
 func opt_inst_max(inst: int, cur: int): int {
     var op = inst_op(inst)
     var r = inst_result(inst)
-    var a = inst_a(inst)
-    var b = inst_b(inst)
     if r > cur { cur = r }
-    if a > cur { cur = a }
-    if b > cur { cur = b }
+    // Constants carry a literal payload in `a`/`b`, not a vreg. Counting it
+    // would inflate the vreg bound (e.g. `const 65536`) and overflow the
+    // use-count buffer. Branch operands are block labels, not vregs.
+    if (op == ir_const()) | (op == ir_const_str()) | (op == ir_const_text()) { return cur }
+    if (op == ir_br()) | (op == ir_br_cond()) { return cur }
     if op == ir_call() {
-        var ac = b
+        var ac = inst_b(inst)
         var args = inst_extra(inst)
         var i = 0
         while (i < ac) {
@@ -36,7 +37,12 @@ func opt_inst_max(inst: int, cur: int): int {
             if v > cur { cur = v }
             i = i + 1
         }
+        return cur
     }
+    var a = inst_a(inst)
+    var b = inst_b(inst)
+    if a > cur { cur = a }
+    if b > cur { cur = b }
     if op == ir_atomic_cas() {
         var ex = inst_extra(inst)
         if ex > cur { cur = ex }
@@ -349,8 +355,7 @@ func opt_rebuild_module(m: int, funcs: int): int {
     return out
 }
 
-func opt_fold_func(f: int, consts: int, cknown: int, chng: int): int {
-    var limit = opt_func_max(f) + 1
+func opt_fold_func(f: int, consts: int, cknown: int, chng: int, limit: int): int {
     opt_clear_array(cknown, limit)
     var blocks = func_blocks(f)
     var bc = int_vec_len(blocks)
@@ -471,8 +476,7 @@ func opt_dce_block(blk: int, uses: int, limit: int, chng: int): int {
     return opt_rebuild_block(blk, out_insts)
 }
 
-func opt_dce_func(f: int, uses: int, chng: int): int {
-    var limit = opt_func_max(f) + 1
+func opt_dce_func(f: int, uses: int, chng: int, limit: int): int {
     opt_clear_array(uses, limit)
     opt_count_uses_func(f, uses, limit)
     var blocks = func_blocks(f)
@@ -486,15 +490,15 @@ func opt_dce_func(f: int, uses: int, chng: int): int {
     return opt_rebuild_func(f, out_blocks)
 }
 
-func opt_module_pass(m: int, consts: int, cknown: int, uses: int, chng: int): int {
+func opt_module_pass(m: int, consts: int, cknown: int, uses: int, chng: int, limit: int): int {
     var funcs = mod_funcs(m)
     var fc = int_vec_len(funcs)
     var out_funcs = int_vec_new()
     var i = 0
     while (i < fc) {
         var f = int_vec_get(funcs, i)
-        var f1 = opt_fold_func(f, consts, cknown, chng)
-        var f2 = opt_dce_func(f1, uses, chng)
+        var f1 = opt_fold_func(f, consts, cknown, chng, limit)
+        var f2 = opt_dce_func(f1, uses, chng, limit)
         int_vec_push(out_funcs, f2)
         i = i + 1
     }
@@ -520,7 +524,7 @@ func optimize_module(m: int): int {
     var done = 0
     while (iter < 8) & (done == 0) {
         mut_set(chng, 0)
-        cur = opt_module_pass(cur, consts, cknown, uses, chng)
+        cur = opt_module_pass(cur, consts, cknown, uses, chng, limit)
         iter = iter + 1
         if mut_get(chng) == 0 { done = 1 }
     }

@@ -245,7 +245,8 @@ func cg_inst_mem(ctx: int, src: str, nl: str, inst: int): int {
     var a = inst_a(inst)
     var bv = inst_b(inst)
     if op == ir_const() {
-        lp_add(lp, "    movq $") lp_add_int(lp, a) lp_add(lp, ", ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movabsq $") lp_add_int(lp, a) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 1
     }
     if op == ir_const_str() | op == ir_const_text() {
@@ -1289,6 +1290,15 @@ func emit_lea_stack_to_rax(out: int, slot: int): int {
     return 7
 }
 
+// movabsq $imm64, %rax ; movq %rax, slot — materialize a full 64-bit
+// constant (Issue #86/#105). The imm32 form only covers signed 32-bit values.
+func emit_mov_imm64_to_stack(out: int, slot: int, v: int): int {
+    int_vec_push(out, 72) int_vec_push(out, 184)
+    emit_qword(out, v)
+    emit_mov_rax_to_stack(out, slot)
+    return 0
+}
+
 func emit_mov_imm32_to_stack(out: int, slot: int, v: int): int {
     int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 133)
     emit_i32(out, stack_disp32(slot))
@@ -1360,7 +1370,10 @@ func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
     var op = inst_op(inst)
     var a = inst_a(inst)
     var bv = inst_b(inst)
-    if op == ir_const() { return 11 }
+    if op == ir_const() {
+        if (a >= 0 - 2147483648) & (a < 2147483648) { return 11 }
+        return 17
+    }
     if op == ir_const_str() { return 14 }
     if op == ir_const_text() { return 14 }
     if op == ir_text_cmp() { return 117 }
@@ -1597,7 +1610,13 @@ func cg_p2_bitops(out: int, op: int, res: int, a: int, bv: int, extra: int): int
 
 // Emit arithmetic / memory instructions (not param). Returns 0.
 func cg_p2_arith(out: int, op: int, res: int, a: int, bv: int, extra: int): int {
-    if op == ir_const() { emit_mov_imm32_to_stack(out, res, a) }
+    if op == ir_const() {
+        if (a >= 0 - 2147483648) & (a < 2147483648) {
+            emit_mov_imm32_to_stack(out, res, a)
+        } else {
+            emit_mov_imm64_to_stack(out, res, a)
+        }
+    }
     if op == ir_global_load() {
         emit_mov_gslot_to_rax(out, a)
         emit_mov_rax_to_stack(out, res)
