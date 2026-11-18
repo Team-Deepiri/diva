@@ -55,6 +55,14 @@ func type_str(node: int, src: str, toks: int): str {
         str_builder_free(rb)
         return rs
     }
+    if (ast_kind(node) == nd_type_dyn()) {
+        var db = str_builder_new()
+        str_builder_append(db, "dyn ")
+        str_builder_append(db, tok_text(src, toks, ast_child(node, 0)))
+        var ds = str_builder_to_str(db)
+        str_builder_free(db)
+        return ds
+    }
     return "?"
 }
 

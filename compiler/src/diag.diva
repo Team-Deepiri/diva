@@ -34,16 +34,16 @@ func diag_at_marker(src: str, i: int): int {
 // [line, col, path_start, path_len]  (line/col 1-based; path_len 0 => use "<input>")
 func diag_resolve(src: str, off: int): int {
     var n = str_len(src)
-    var use = off
-    if (use < 0) { use = 0 }
-    if (use > n) { use = n }
+    var uoff = off
+    if (uoff < 0) { uoff = 0 }
+    if (uoff > n) { uoff = n }
 
     var path_s = 0
     var path_len = 0
     var line = 1
     var line_start = 0
     var i = 0
-    while (i < use) {
+    while (i < uoff) {
         if diag_at_marker(src, i) == 1 {
             var ps = i + diag_marker_len()
             var pe = ps
@@ -67,7 +67,7 @@ func diag_resolve(src: str, off: int): int {
             i = i + 1
         }
     }
-    var col = use - line_start + 1
+    var col = uoff - line_start + 1
     if (col < 1) { col = 1 }
     var out = int_vec_new()
     int_vec_push(out, line)

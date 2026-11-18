@@ -166,6 +166,13 @@ func parse_type(ps: int, src: str): int {
     }
     if kind == tk_void()    { p_advance(ps) return ast_type_name(tok) }
     if kind == tk_ident() {
+        // `dyn Trait` trait-object type (Issue #135). `dyn` is a contextual
+        // identifier so the lexer stays unchanged.
+        if str_eq(p_text(ps, src, tok), "dyn") == 1 {
+            p_advance(ps)
+            var dyn_trait = p_expect(ps, src, tk_ident())
+            return ast_type_dyn(dyn_trait)
+        }
         p_advance(ps)
         var t = ast_type_name(tok)
         if p_cur(ps) == tk_lbrack() { p_advance(ps) p_expect(ps, src, tk_rbrack()) return ast_type_array(t) }

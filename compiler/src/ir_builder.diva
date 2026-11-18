@@ -131,6 +131,7 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, int_vec_new())          // [19] module name tokens (Issue #97)
     int_vec_push(ctx, mut_new(int_vec_new())) // [20] reference flag per local (Issue #90)
     int_vec_push(ctx, mut_new(int_vec_new())) // [21] reference pointee struct type tok per local
+    int_vec_push(ctx, int_vec_new())          // [22] trait-impl dispatch map (Issue #135)
     return ctx
 }
 
@@ -160,6 +161,12 @@ func bctx_set_global_vals(ctx: int, v: int): int { return mut_set(int_vec_get(ct
 // Module name tokens declared in this translation unit (Issue #97).
 func bctx_modules(ctx: int): int {
     return int_vec_get(ctx, 19)
+}
+
+// Trait-impl dispatch map (Issue #135): flat entries
+// [impl_node, method_index, trait_tok, type_tok, method_tok, func_tok].
+func bctx_dispatch_map(ctx: int): int {
+    return int_vec_get(ctx, 22)
 }
 
 func bctx_struct_ty(ctx: int): int {
@@ -686,6 +693,57 @@ func ib_define_struct_local(ctx: int, def_name_tok: int, n: int, type_name_tok: 
     return base
 }
 
+// Trait-object locals (Issue #135) reuse the struct_ty column with a negative
+// encoding: -(trait_name_tok + 2). ib_lookup_struct_ty hides these from the
+// ordinary struct paths; ib_lookup_dyn_trait decodes them.
+func ib_dyn_encode_trait(trait_tok: int): int {
+    return 0 - (trait_tok + 2)
+}
+
+func ib_dyn_decode_sty(sty: int): int {
+    if sty <= (0 - 2) {
+        return 0 - sty - 2
+    }
+    return 0 - 1
+}
+
+// A dyn local is [tag, payload slots...]. |width| total slots.
+func ib_define_dyn_local(ctx: int, def_name_tok: int, width: int, trait_tok: int): int {
+    var base = ib_fresh_vreg(ctx)
+    var j = 1
+    while (j < width) {
+        ib_fresh_vreg(ctx)
+        j = j + 1
+    }
+    int_vec_push(bctx_names(ctx), def_name_tok)
+    int_vec_push(bctx_slots(ctx), base)
+    int_vec_push(bctx_array_lens(ctx), width)
+    int_vec_push(bctx_struct_ty(ctx), ib_dyn_encode_trait(trait_tok))
+    int_vec_push(bctx_array_strides(ctx), 0)
+    int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
+    int_vec_push(bctx_slice_flags(ctx), 0)
+    int_vec_push(bctx_ref_flags(ctx), 0)
+    int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
+    return base
+}
+
+// Trait name token bound to a dyn local, or -1 when |name| is not a dyn local.
+func ib_lookup_dyn_trait(ctx: int, src: str, name: str): int {
+    var toks = bctx_toks(ctx)
+    var names = bctx_names(ctx)
+    var sty = bctx_struct_ty(ctx)
+    var n2 = int_vec_len(names)
+    var found = 0 - 1
+    var j = 0
+    while (j < n2) {
+        if str_eq_tok_spelling(name, src, toks, int_vec_get(names, j)) == 1 {
+            found = ib_dyn_decode_sty(int_vec_get(sty, j))
+        }
+        j = j + 1
+    }
+    return found
+}
+
 func ib_lookup_local(ctx: int, src: str, name: str): int {
     var toks = bctx_toks(ctx)
     var names = bctx_names(ctx)
@@ -836,7 +894,12 @@ func ib_lookup_struct_ty(ctx: int, src: str, name: str): int {
     var j = 0
     while (j < n2) {
         if str_eq_tok_spelling(name, src, toks, int_vec_get(names, j)) == 1 {
-            found = int_vec_get(sty, j)
+            var raw = int_vec_get(sty, j)
+            // Dyn trait-object locals use a negative encoding; they are not
+            // concrete structs for field/array lowering.
+            if (raw <= (0 - 2)) == 0 {
+                found = raw
+            }
         }
         j = j + 1
     }
@@ -1410,6 +1473,24 @@ func lower_expr_method_call(ctx: int, src: str, node: int): int {
         ib_emit(ctx, ir_inst(ir_eq(), r0, pv0, z0, 0))
         return r0
     }
+    // Trait-object receiver: tag-dispatched call (#135).
+    if ast_kind(recv) == nd_ident() {
+        var dnm = tok_text(src, bctx_toks(ctx), ast_child(recv, 0))
+        var dtrait = ib_lookup_dyn_trait(ctx, src, dnm)
+        if dtrait >= 0 {
+            var dbase = ib_lookup_local(ctx, src, dnm)
+            return lower_expr_dyn_method_call(ctx, src, dbase, dtrait, method_tok, args_h)
+        }
+    }
+    // Static method call on a concrete struct: use the impl's mangled name
+    // when duplicate trait-method spellings forced one (#135).
+    var call_tok = method_tok
+    if ast_kind(recv) == nd_ident() {
+        var csty = ib_lookup_struct_ty(ctx, src, tok_text(src, bctx_toks(ctx), ast_child(recv, 0)))
+        if csty != ib_struct_ty_none() {
+            call_tok = ib_impl_func_tok(ctx, src, csty, method_tok)
+        }
+    }
     var obj_reg = lower_expr(ctx, src, recv)
     var total = argc + 1
     var r = ib_fresh_vreg(ctx)
@@ -1417,7 +1498,7 @@ func lower_expr_method_call(ctx: int, src: str, node: int): int {
         var c1 = int_vec_new()
         int_vec_push(c1, ir_call())
         int_vec_push(c1, r)
-        int_vec_push(c1, method_tok)
+        int_vec_push(c1, call_tok)
         int_vec_push(c1, 1)
         int_vec_push(c1, obj_reg)
         ib_emit(ctx, c1)
@@ -1434,7 +1515,7 @@ func lower_expr_method_call(ctx: int, src: str, node: int): int {
     var minst = int_vec_new()
     int_vec_push(minst, ir_call())
     int_vec_push(minst, r)
-    int_vec_push(minst, method_tok)
+    int_vec_push(minst, call_tok)
     int_vec_push(minst, total)
     int_vec_push(minst, arg_regs)
     ib_emit(ctx, minst)
@@ -2260,6 +2341,148 @@ func lower_struct_store_value(ctx: int, src: str, dst_base: int, type_name_tok: 
     return 1
 }
 
+// Store a concrete value into a dyn local at |base|: tag in slot 0, payload
+// (the concrete struct's fields or a scalar word) in slots 1.. .
+func ib_lower_dyn_store(ctx: int, src: str, base: int, trait_tok: int, init: int): int {
+    var concrete_tok = 0 - 1
+    var ik = ast_kind(init)
+    if ik == nd_obj_lit() {
+        concrete_tok = ast_child(init, 0)
+    } else {
+        if ik == nd_ident() {
+            var inm = ib_tok_text(ctx, src, ast_child(init, 0))
+            // dyn -> dyn copy: copy every slot, tag included.
+            if ib_lookup_dyn_trait(ctx, src, inm) >= 0 {
+                var src_base = ib_lookup_local(ctx, src, inm)
+                var width = ib_lookup_array_len(ctx, src, inm)
+                var ci = 0
+                while ci < width {
+                    var cv = ib_fresh_vreg(ctx)
+                    ib_emit(ctx, ir_inst(ir_load(), cv, src_base + ci, 0, 0))
+                    ib_emit(ctx, ir_inst(ir_store(), base + ci, cv, 0, 0))
+                    ci = ci + 1
+                }
+                return 1
+            }
+            var sty = ib_lookup_struct_ty(ctx, src, inm)
+            if sty != ib_struct_ty_none() { concrete_tok = sty }
+        }
+    }
+    var tag = 0
+    if concrete_tok >= 0 {
+        var t = ib_dyn_tag_for_type(ctx, src, trait_tok, concrete_tok)
+        if t >= 0 { tag = t }
+    }
+    var tv = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), tv, tag, 0, 0))
+    ib_emit(ctx, ir_inst(ir_store(), base, tv, 0, 0))
+    if concrete_tok >= 0 {
+        if lower_struct_store_value(ctx, src, base + 1, concrete_tok, init) == 1 {
+            return 1
+        }
+    }
+    var pv = lower_expr(ctx, src, init)
+    ib_emit(ctx, ir_inst(ir_store(), base + 1, pv, 0, 0))
+    return 1
+}
+
+// Lower `let d: dyn Trait = <concrete>` / `var ...`.
+func lower_stmt_var_dyn(ctx: int, src: str, name_tok: int, trait_tok: int, init: int): int {
+    var width = ib_dyn_width(ctx, src, trait_tok)
+    var base = ib_define_dyn_local(ctx, name_tok, width, trait_tok)
+    var si = 0
+    while si < width {
+        ib_emit(ctx, ir_inst(ir_alloca(), base + si, 0, 0, 0))
+        si = si + 1
+    }
+    if init >= 0 {
+        ib_lower_dyn_store(ctx, src, base, trait_tok, init)
+    }
+    return 1
+}
+
+// Lower a trait-method call on a dyn local. Closed-set tag dispatch: compare
+// the stored tag against each impl in declaration order, then call that impl's
+// (possibly mangled) receiver-first function.
+func lower_expr_dyn_method_call(ctx: int, src: str, base: int, trait_tok: int, method_tok: int, args_h: int): int {
+    var argc = int_vec_len(args_h)
+    var payload = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_load(), payload, base + 1, 0, 0))
+    var arg_regs = int_vec_new()
+    int_vec_push(arg_regs, payload)
+    var ai = 0
+    while ai < argc {
+        int_vec_push(arg_regs, lower_expr(ctx, src, int_vec_get(args_h, ai)))
+        ai = ai + 1
+    }
+    var total = argc + 1
+    var res_slot = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_alloca(), res_slot, 0, 0, 0))
+    var rz = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), rz, 0, 0, 0))
+    ib_emit(ctx, ir_inst(ir_store(), res_slot, rz, 0, 0))
+    var entries = ib_dyn_impl_entries(ctx, src, trait_tok, method_tok)
+    var n = int_vec_len(entries) / 3
+    if n == 0 {
+        var rnone = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), rnone, res_slot, 0, 0))
+        return rnone
+    }
+    var end_lbl = ib_fresh_label(ctx)
+    var test_lbls = int_vec_new()
+    var body_lbls = int_vec_new()
+    var i = 0
+    while i < n {
+        int_vec_push(test_lbls, ib_fresh_label(ctx))
+        int_vec_push(body_lbls, ib_fresh_label(ctx))
+        i = i + 1
+    }
+    ib_emit(ctx, ir_inst(ir_br(), 0, int_vec_get(test_lbls, 0), 0, 0))
+    i = 0
+    while i < n {
+        var tag_val = int_vec_get(entries, i * 3 + 1)
+        var func_tok = int_vec_get(entries, i * 3 + 2)
+        var test_lbl = int_vec_get(test_lbls, i)
+        var body_lbl = int_vec_get(body_lbls, i)
+        var next_lbl = end_lbl
+        if ((i + 1) < n) == 1 { next_lbl = int_vec_get(test_lbls, i + 1) }
+        ib_add_blk(ctx, ir_block_new(test_lbl))
+        var th = ib_find_blk_by_label(ctx, test_lbl)
+        if (th < 0) == 0 { ib_set_blk(ctx, th) }
+        var gv = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), gv, base, 0, 0))
+        var cv = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_const(), cv, tag_val, 0, 0))
+        var eqv = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_eq(), eqv, gv, cv, 0))
+        ib_emit(ctx, ir_inst(ir_br_cond(), eqv, body_lbl, next_lbl, 0))
+        ib_add_blk(ctx, ir_block_new(body_lbl))
+        var bh = ib_find_blk_by_label(ctx, body_lbl)
+        if (bh < 0) == 0 { ib_set_blk(ctx, bh) }
+        var cr = ib_fresh_vreg(ctx)
+        var call = int_vec_new()
+        int_vec_push(call, ir_call())
+        int_vec_push(call, cr)
+        int_vec_push(call, func_tok)
+        int_vec_push(call, total)
+        if total == 1 {
+            int_vec_push(call, int_vec_get(arg_regs, 0))
+        } else {
+            int_vec_push(call, arg_regs)
+        }
+        ib_emit(ctx, call)
+        ib_emit(ctx, ir_inst(ir_store(), res_slot, cr, 0, 0))
+        ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
+        i = i + 1
+    }
+    ib_add_blk(ctx, ir_block_new(end_lbl))
+    var eh = ib_find_blk_by_label(ctx, end_lbl)
+    if (eh < 0) == 0 { ib_set_blk(ctx, eh) }
+    var r = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_load(), r, res_slot, 0, 0))
+    return r
+}
+
 // Lower nd_var_decl for struct types.
 func lower_stmt_var_struct(ctx: int, src: str, name_tok: int, type_name_tok: int, init: int): int {
     var sw = ib_type_struct_width(ctx, src, type_name_tok)
@@ -2559,6 +2782,12 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
         var name_tok = ast_child(target, 0)
         var slot = ib_lookup_by_name_tok(ctx, src, name_tok)
         if (slot < 0) == 0 {
+            // dyn local: `d = <concrete>` rewrites tag + payload (#135).
+            var dyn_trait_tok = ib_lookup_dyn_trait(ctx, src, ib_tok_text(ctx, src, name_tok))
+            if dyn_trait_tok >= 0 {
+                ib_lower_dyn_store(ctx, src, slot, dyn_trait_tok, value)
+                return 0
+            }
             // Struct local: `p = Point { ... }` / `q = p` copies every field.
             var struct_tok = ib_lookup_struct_ty(ctx, src, ib_tok_text(ctx, src, name_tok))
             if struct_tok != ib_struct_ty_none() {
@@ -2724,6 +2953,15 @@ func lower_stmt(ctx: int, src: str, node: int): int {
             }
         }
 
+        // `let d: dyn Trait = <concrete>` (Issue #135).
+        if (type_node < 0) == 0 {
+            if ast_kind(type_node) == nd_type_dyn() {
+                var dyn_trait_tok = ast_child(type_node, 0)
+                lower_stmt_var_dyn(ctx, src, name_tok, dyn_trait_tok, init)
+                return 0
+            }
+        }
+
         if (type_node < 0) == 0 {
             if ast_kind(type_node) == nd_type_name() {
                 if (init < 0) == 0 {
@@ -2853,13 +3091,16 @@ func lower_block(ctx: int, src: str, node: int): int {
 // --- Function lowering ---
 
 func lower_func(ctx: int, src: str, node: int): int {
-    return lower_func_opts(ctx, src, node, 0 - 1, 0)
+    return lower_func_opts(ctx, src, node, 0 - 1, 0, 0 - 1)
 }
 
 // Lower a function. If |class_type_tok| >= 0, inject implicit `self` as param 0
-// (struct receiver for class-body methods, Issue #57).
-func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_self: int): int {
-    var name_tok = ast_child(node, 0)
+// (struct receiver for class-body methods, Issue #57). |name_override| >= 0
+// replaces the AST name token (trait-impl name mangling, Issue #135).
+func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_self: int, name_override: int): int {
+    var ast_name_tok = ast_child(node, 0)
+    var name_tok = ast_name_tok
+    if name_override >= 0 { name_tok = name_override }
     var params_h = ast_child(node, 1)
     var ret_type = ast_child(node, 2)
     var body     = ast_child(node, 3)
@@ -2897,7 +3138,7 @@ func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_
     if inject_self == 1 {
         var self_tok = ib_find_self_tok(body, bctx_toks(ctx))
         if (self_tok < 0) {
-            self_tok = name_tok
+            self_tok = ast_name_tok
         }
         var sw = ib_type_struct_width(ctx, src, class_type_tok)
         if (sw > 0) {
@@ -3092,6 +3333,165 @@ func lower_global(ctx: int, src: str, node: int): int {
     return 0
 }
 
+// --- Trait objects (Issue #135) ---
+
+// How many impls in the file declare a method with this spelling. Duplicate
+// trait-method names are mangled per concrete type so both bodies can coexist.
+func ib_count_impl_method_spelling(ctx: int, file_node: int, src: str, want: str): int {
+    var children = ast_child(file_node, 0)
+    var count = 0
+    var i = 0
+    while (i < int_vec_len(children)) {
+        var ch = int_vec_get(children, i)
+        if ast_kind(ch) == nd_impl() {
+            var methods = ast_child(ch, 2)
+            var mi = 0
+            while (mi < int_vec_len(methods)) {
+                var m = int_vec_get(methods, mi)
+                if ast_kind(m) == nd_func() {
+                    if str_eq(ib_tok_text(ctx, src, ast_child(m, 0)), want) == 1 {
+                        count = count + 1
+                    }
+                }
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+    return count
+}
+
+// Pre-pass: assign an IR function-name token to every impl method. Methods
+// whose spelling appears on more than one impl are named with their concrete
+// type token; unique methods keep their source token.
+func ib_plan_impls(ctx: int, src: str, file_node: int): int {
+    var children = ast_child(file_node, 0)
+    var i = 0
+    while (i < int_vec_len(children)) {
+        var ch = int_vec_get(children, i)
+        if ast_kind(ch) == nd_impl() {
+            var trait_tok = ast_child(ch, 0)
+            var type_tok = ast_child(ch, 1)
+            var methods = ast_child(ch, 2)
+            var mi = 0
+            while (mi < int_vec_len(methods)) {
+                var m = int_vec_get(methods, mi)
+                if ast_kind(m) == nd_func() {
+                    var method_tok = ast_child(m, 0)
+                    var mnm = ib_tok_text(ctx, src, method_tok)
+                    var uses = ib_count_impl_method_spelling(ctx, file_node, src, mnm)
+                    var func_tok = method_tok
+                    // Duplicate trait-method spellings cannot share one IR
+                    // function name. Use the concrete type token as the
+                    // disambiguating real token (no synthetic token support in
+                    // the pure seed's name pool).
+                    if uses > 1 {
+                        func_tok = type_tok
+                    }
+                    var map = bctx_dispatch_map(ctx)
+                    int_vec_push(map, ch)
+                    int_vec_push(map, mi)
+                    int_vec_push(map, trait_tok)
+                    int_vec_push(map, type_tok)
+                    int_vec_push(map, method_tok)
+                    int_vec_push(map, func_tok)
+                }
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// IR function-name token for (concrete type, method) from the plan, or the
+// source method token when no impl plans it.
+func ib_impl_func_tok(ctx: int, src: str, type_tok: int, method_tok: int): int {
+    var map = bctx_dispatch_map(ctx)
+    var want_type = ib_tok_text(ctx, src, type_tok)
+    var want_meth = ib_tok_text(ctx, src, method_tok)
+    var i = 0
+    while ((i + 5) < int_vec_len(map)) {
+        var mt = int_vec_get(map, i + 3)
+        var mm = int_vec_get(map, i + 4)
+        if str_eq(ib_tok_text(ctx, src, mt), want_type) == 1 {
+            if str_eq(ib_tok_text(ctx, src, mm), want_meth) == 1 {
+                return int_vec_get(map, i + 5)
+            }
+        }
+        i = i + 6
+    }
+    return method_tok
+}
+
+// Flat [type_tok, tag, func_tok, ...] for every impl of |trait_tok| that
+// provides |method_tok|, in declaration order. Tags are 0-based per trait.
+func ib_dyn_impl_entries(ctx: int, src: str, trait_tok: int, method_tok: int): int {
+    var entries = int_vec_new()
+    var children = ast_child(mut_get(int_vec_get(ctx, 13)), 0)
+    var trait_nm = ib_tok_text(ctx, src, trait_tok)
+    var tag = 0
+    var i = 0
+    while (i < int_vec_len(children)) {
+        var ch = int_vec_get(children, i)
+        if ast_kind(ch) == nd_impl() {
+            var itrait = ast_child(ch, 0)
+            if str_eq(ib_tok_text(ctx, src, itrait), trait_nm) == 1 {
+                var type_tok = ast_child(ch, 1)
+                var func_tok = ib_impl_func_tok(ctx, src, type_tok, method_tok)
+                int_vec_push(entries, type_tok)
+                int_vec_push(entries, tag)
+                int_vec_push(entries, func_tok)
+                tag = tag + 1
+            }
+        }
+        i = i + 1
+    }
+    return entries
+}
+
+// Dispatch tag of a concrete type inside a closed trait impl set, or -1.
+func ib_dyn_tag_for_type(ctx: int, src: str, trait_tok: int, type_tok: int): int {
+    var children = ast_child(mut_get(int_vec_get(ctx, 13)), 0)
+    var trait_nm = ib_tok_text(ctx, src, trait_tok)
+    var type_nm = ib_tok_text(ctx, src, type_tok)
+    var tag = 0
+    var i = 0
+    while (i < int_vec_len(children)) {
+        var ch = int_vec_get(children, i)
+        if ast_kind(ch) == nd_impl() {
+            if str_eq(ib_tok_text(ctx, src, ast_child(ch, 0)), trait_nm) == 1 {
+                if str_eq(ib_tok_text(ctx, src, ast_child(ch, 1)), type_nm) == 1 {
+                    return tag
+                }
+                tag = tag + 1
+            }
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// Total slots for a dyn local of |trait_tok|: a tag plus enough payload slots
+// for the widest concrete struct that implements it (at least one).
+func ib_dyn_width(ctx: int, src: str, trait_tok: int): int {
+    var children = ast_child(mut_get(int_vec_get(ctx, 13)), 0)
+    var trait_nm = ib_tok_text(ctx, src, trait_tok)
+    var max_fields = 1
+    var i = 0
+    while (i < int_vec_len(children)) {
+        var ch = int_vec_get(children, i)
+        if ast_kind(ch) == nd_impl() {
+            if str_eq(ib_tok_text(ctx, src, ast_child(ch, 0)), trait_nm) == 1 {
+                var tw = ib_type_struct_width(ctx, src, ast_child(ch, 1))
+                if tw > max_fields { max_fields = tw }
+            }
+        }
+        i = i + 1
+    }
+    return max_fields + 1
+}
+
 // --- File lowering ---
 
 func lower_file(ctx: int, src: str, file_node: int): int {
@@ -3107,6 +3507,9 @@ func lower_file(ctx: int, src: str, file_node: int): int {
         }
         mi = mi + 1
     }
+    // Pre-pass: assign IR names to trait impl methods so dispatchers know the
+    // mangled tokens before any function body is lowered (#135).
+    ib_plan_impls(ctx, src, file_node)
     var i = 0
     while (i < n) {
         var child = int_vec_get(children, i)
@@ -3127,7 +3530,8 @@ func lower_file(ctx: int, src: str, file_node: int): int {
             while (mi < int_vec_len(methods)) {
                 var m = int_vec_get(methods, mi)
                 if ast_kind(m) == nd_func() {
-                    lower_func(ctx, src, m)
+                    var func_tok = ib_impl_func_tok(ctx, src, ast_child(child, 1), ast_child(m, 0))
+                    lower_func_opts(ctx, src, m, 0 - 1, 0, func_tok)
                 }
                 mi = mi + 1
             }
@@ -3139,7 +3543,7 @@ func lower_file(ctx: int, src: str, file_node: int): int {
             while (mj < int_vec_len(members)) {
                 var mem = int_vec_get(members, mj)
                 if ast_kind(mem) == nd_func() {
-                    lower_func_opts(ctx, src, mem, class_tok, 1)
+                    lower_func_opts(ctx, src, mem, class_tok, 1, 0 - 1)
                 }
                 mj = mj + 1
             }

@@ -1,0 +1,32 @@
+// Issue #135: reassign a dyn local to a different concrete impl.
+trait Kind {
+    func code(): int
+}
+
+struct One {
+    n: int
+}
+
+struct Two {
+    n: int
+}
+
+impl Kind for One {
+    func code(recv: int): int {
+        return recv + 1
+    }
+}
+
+impl Kind for Two {
+    func code(recv: int): int {
+        return recv + 10
+    }
+}
+
+func main(): int {
+    var k: dyn Kind = One { n: 4 }
+    let a: int = k.code()
+    k = Two { n: 30 }
+    let b: int = k.code()
+    return a + b - 3
+}
