@@ -268,11 +268,16 @@ let flag: bool = a as bool
 `as` binds tighter than binary operators and looser than unary operators, so
 `a as i32 * 2` parses as `(a as i32) * 2`.
 
-> Foundation status (#86): `i8`/`i16`/`i32`/`i64`/`u8`/`u16`/`u32`/`u64`/
-> `f32`/`f64` are accepted as type names and currently share the machine-word
-> representation, so casts lower to their operand. Per-width narrowing and
-> widening codegen, and float representations, are follow-ups. Assignment
-> remains strict: crossing numeric/bool types requires an explicit `as`.
+Integer widths narrow and extend with sign/zero semantics: `as i8`/`i16`/`i32`
+sign-extends from 8/16/32 bits, `as u8`/`u16`/`u32` zero-extends, and `i64`/
+`u64` are identity. For example `300 as i8` is `44`, `-1 as u8` is `255`, and
+`200 as i8` is `-56`.
+
+> Foundation status (#86): integer narrowing/extension is implemented on the
+> machine-word representation. `f32`/`f64` are accepted but still share the
+> machine-word representation, so float casts are identity; width-aware storage
+> and float representation are follow-ups. Assignment remains strict: crossing
+> numeric/bool types requires an explicit `as`. See `docs/integer-widths.md`.
 
 ### Raw pointers
 
@@ -296,9 +301,11 @@ with `p.is_null()` are supported. Because the grammar is newline-insensitive, a
 statement that *begins* with `*` or `&` must be separated from the previous
 statement with `;` (otherwise the token binds as multiplication / logical-and).
 
-> Foundation status (#94): pointers address stack slots directly. Pointer
-> arithmetic, provenance/aliasing analysis, and lifetime tracking are follow-ups.
-> See `docs/unsafe-blocks.md`.
+> Foundation status (#94): pointers address stack slots directly. `p.add(n)` and
+> `p.sub(n)` offset by `n` machine-word elements (8 bytes each) and require an
+> unsafe context. Element-width-aware scaling, provenance/aliasing analysis, and
+> lifetime tracking are follow-ups. See `docs/unsafe-blocks.md` and
+> `docs/pointer-arithmetic.md`.
 
 ### Structs
 
@@ -322,6 +329,22 @@ func main(): int {
 > Foundation status (#87): flat structs (no nested fields yet), no struct
 > parameters/returns, and `let`-field immutability is not enforced. See
 > `docs/structs.md`.
+
+Attributes may precede a top-level item. `#[repr(C)]` marks a C-compatible
+layout and `#[repr(iN)]` sets an enum's integer representation:
+
+```diva
+#[repr(C)]
+struct Header {
+    var kind: int
+    var len: int
+}
+```
+
+> Foundation status (#95): attributes are parsed and validated; `repr(C)` is
+> accepted (flat structs are already word layout) and `repr(iN)` is recorded
+> syntactically. Stored attribute metadata, layout enforcement, and fn-pointer/
+> variadic FFI are follow-ups. See `docs/repr-c.md`.
 
 ### References
 
