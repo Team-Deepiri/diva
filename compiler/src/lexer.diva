@@ -199,6 +199,9 @@ func lex_punct_kind(b: int): int {
     if b == 35 {
         return tk_hash()
     }
+    if b == 94 {
+        return tk_caret()
+    }
     return 0 - 1
 }
 

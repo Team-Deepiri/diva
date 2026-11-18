@@ -485,6 +485,12 @@ func cg_inst_cmp(ctx: int, nl: str, inst: int): int {
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 1
     }
+    if op == ir_xor() {
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    xorq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
     return cg_inst_shift_not(ctx, nl, inst)
 }
 
@@ -1087,6 +1093,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_res = 1 }
     if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_res = 1 }
     if (ik == ir_sar()) { has_res = 1 }
+    if (ik == ir_xor()) { has_res = 1 }
     if (op_is3(ik, ir_load(), ir_store(), ir_copy()) == 1) { has_res = 1 }
     if (ik == ir_global_load()) { has_res = 1 }
     if (op_is2(ik, ir_array_load(), ir_array_store()) == 1) { has_res = 1 }
@@ -1108,6 +1115,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_ia = 1 }
     if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_ia = 1 }
     if (ik == ir_sar()) { has_ia = 1 }
+    if (ik == ir_xor()) { has_ia = 1 }
     if (op_is3(ik, ir_load(), ir_store(), ir_copy()) == 1) { has_ia = 1 }
     if (op_is3(ik, ir_text_cmp(), ir_text_concat(), ir_text_slice()) == 1) { has_ia = 1 }
     if (ik == ir_str_eq()) { has_ia = 1 }
@@ -1130,6 +1138,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_ibk = 1 }
     if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_ibk = 1 }
     if (ik == ir_sar()) { has_ibk = 1 }
+    if (ik == ir_xor()) { has_ibk = 1 }
     if (op_is2(ik, ir_array_load(), ir_array_store()) == 1) { has_ibk = 1 }
     if (op_is3(ik, ir_text_cmp(), ir_text_concat(), ir_text_slice()) == 1) { has_ibk = 1 }
     if (ik == ir_str_eq()) { has_ibk = 1 }
@@ -1324,7 +1333,7 @@ func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
     if (op_is3(op, ir_eq(), ir_ne(), ir_lt()) == 1) { is_cmp = 1 }
     if (op_is3(op, ir_le(), ir_gt(), ir_ge()) == 1) { is_cmp = 1 }
     if (is_cmp == 1) { return 28 }
-    if op_is2(op, ir_and(), ir_or()) == 1 { return 21 }
+    if op_is3(op, ir_and(), ir_or(), ir_xor()) == 1 { return 21 }
     if op == ir_not() { return 24 }
     if op == ir_neg() { return 17 }
     if op_is3(op, ir_shl(), ir_shr(), ir_sar()) == 1 { return 24 }
@@ -1473,10 +1482,11 @@ func emit_array_bounds_check(out: int, idx_slot: int, alen: int): int {
 // Emit bitwise / shift / unary / memory / alloca instructions. Returns 0.
 // |extra| is array length for ir_array_load/store (0 = skip bounds check).
 func cg_p2_bitops(out: int, op: int, res: int, a: int, bv: int, extra: int): int {
-    if op_is2(op, ir_and(), ir_or()) == 1 {
+    if op_is3(op, ir_and(), ir_or(), ir_xor()) == 1 {
         emit_mov_stack_to_rax(out, a)
         if op == ir_and() { int_vec_push(out, 72) int_vec_push(out, 35) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
         if op == ir_or() { int_vec_push(out, 72) int_vec_push(out, 11) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
+        if op == ir_xor() { int_vec_push(out, 72) int_vec_push(out, 51) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
         emit_mov_rax_to_stack(out, res)
     }
     if op_is3(op, ir_shl(), ir_shr(), ir_sar()) == 1 {

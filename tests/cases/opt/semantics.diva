@@ -1,0 +1,26 @@
+import "std/io.diva"
+
+func add_zero(x: int): int { return x + 0 }
+func mul_one(x: int): int { return x * 1 }
+func mul_zero(x: int): int { return x * 0 }
+func xor_zero(x: int): int { return x ^ 0 }
+func shl_zero(x: int): int { return x << 0 }
+
+func main(): int {
+    print_int(add_zero(41))
+    print_int(mul_one(7))
+    print_int(mul_zero(9))
+    print_int(xor_zero(13))
+    print_int(shl_zero(3))
+    print_int(12 ^ 10)
+    print_int(7 & 3)
+    print_int(6 | 9)
+    print_int(1 << 5)
+    print_int(64 >> 3)
+    print_int(50 / 6)
+    print_int(50 % 6)
+    print_int(3 < 4)
+    print_int(3 == 4)
+    print_int(20 - 3 + 0)
+    return 0
+}
