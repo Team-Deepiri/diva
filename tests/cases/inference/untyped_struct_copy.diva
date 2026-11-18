@@ -1,5 +1,6 @@
-// #96: an unannotated struct copy keeps its struct type, so the copy has
-// value semantics rather than aliasing the source.
+// #96: an unannotated struct binding keeps its struct type, so field access
+// and mutation work without an explicit annotation. (Struct assignment is a
+// move under #88, so the source is not read after the move.)
 extern func print_int(x: int): void
 
 struct Point {
@@ -12,5 +13,5 @@ func main(): int {
     let q = p
     q.x = 1
     print_int(q.x)
-    return p.x + p.y
+    return q.x + q.y
 }
