@@ -178,6 +178,33 @@ jobs:
       - name: Run repr(C) gate (builds driver from seed)
         run: sh tests/reprc.sh
 
+  opt:
+    name: IR optimizations (#105)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run optimization gate (builds driver from seed)
+        run: sh tests/opt.sh
+
+  cfg:
+    name: CFG analysis (#136)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run CFG analysis gate (builds driver from seed)
+        run: sh tests/cfg.sh
+
+  atomics:
+    name: atomics (#98)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run atomics gate (builds driver from seed)
+        run: sh tests/atomics.sh
+
   selfhost-consistency:
     name: selfhost consistency (stage2 = stage3)
     runs-on: ubuntu-latest
