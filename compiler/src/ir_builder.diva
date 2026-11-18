@@ -1473,6 +1473,21 @@ func lower_expr_method_call(ctx: int, src: str, node: int): int {
         ib_emit(ctx, ir_inst(ir_eq(), r0, pv0, z0, 0))
         return r0
     }
+    if (str_eq(mname0, "add") | str_eq(mname0, "sub")) == 1 {
+        if argc == 1 {
+            var pbase = lower_expr(ctx, src, recv)
+            var poff = lower_expr(ctx, src, int_vec_get(args_h, 0))
+            var peight = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_const(), peight, 8, 0, 0))
+            var pscaled = ib_fresh_vreg(ctx)
+            ib_emit(ctx, ir_inst(ir_mul(), pscaled, poff, peight, 0))
+            var pres = ib_fresh_vreg(ctx)
+            var pirop = ir_add()
+            if str_eq(mname0, "sub") == 1 { pirop = ir_sub() }
+            ib_emit(ctx, ir_inst(pirop, pres, pbase, pscaled, 0))
+            return pres
+        }
+    }
     // Trait-object receiver: tag-dispatched call (#135).
     if ast_kind(recv) == nd_ident() {
         var dnm = tok_text(src, bctx_toks(ctx), ast_child(recv, 0))
