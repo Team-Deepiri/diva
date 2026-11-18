@@ -1,0 +1,13 @@
+func pick(x: int): int {
+    var r = 0
+    if (x > 0) {
+        r = 1
+    } else {
+        r = 2
+    }
+    return r
+}
+
+func main(): int {
+    return pick(1)
+}

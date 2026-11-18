@@ -15,6 +15,7 @@ import "ir.diva"
 import "ir_builder.diva"
 import "ir_dump.diva"
 import "ir_opt.diva"
+import "cfg.diva"
 import "codegen_x86.diva"
 import "ast_dump.diva"
 import "sema.diva"
@@ -32,6 +33,7 @@ func native_cmd_ir_debug(): int {
 func cmd_print_usage(): int {
     stderr("usage: diva <command> [args]\n")
     stderr("  lex <file.diva> | parse <file.diva> | ir <file.diva> | asm <file.diva>\n")
+    stderr("  analyze <file.diva>\n")
     stderr("  opt [--no-opt] <file.diva> (dump optimized / unoptimized IR)\n")
     stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g] | run <...>\n")
     stderr("  watch <file.diva|package-dir> | check <package-dir> | new <path> [--lib|--kernel]\n")
@@ -965,6 +967,49 @@ func cmd_opt(): int {
     return 0
 }
 
+func cmd_analyze(): int {
+    if host_argc() >= 3 {
+        var probe = host_argv(2)
+        if str_eq(probe, "--selftest-undefined-label") == 1 {
+            if host_argc() < 4 {
+                err_line("usage: diva analyze --selftest-undefined-label <file.diva>")
+                return 1
+            }
+            var probe_path = host_argv(3)
+            var probe_src = merge_file_sources(probe_path)
+            var probe_src_hold = probe_src
+            var probe_toks = lex_source(probe_src_hold)
+            if probe_toks == 0 { return 1 }
+            return cfg_selftest_undefined_label(probe_src_hold, probe_toks)
+        }
+    }
+    if host_argc() < 3 {
+        err_line("usage: diva analyze <file.diva>")
+        return 1
+    }
+    var path = host_argv(2)
+    if path_is_diva_file(path) == 0 {
+        err_line("analyze: expected a .diva file")
+        return 1
+    }
+    var src = merge_file_sources(path)
+    var src_hold = src
+    var src_len = str_len(src_hold)
+    if src_len == 0 { return 1 }
+    var stream = lex_source(src_hold)
+    if stream == 0 { return 1 }
+    var pr = parse_source(src_hold, stream, 0)
+    var ast = int_vec_get(pr, 0)
+    if int_vec_get(pr, 1) != 0 {
+        err_line("analyze: parse failed")
+        return 1
+    }
+    if sema_check_file(src_hold, stream, ast) != 0 { return 1 }
+    var ir_result = build_ir(src_hold, stream, ast)
+    var m = int_vec_get(ir_result, 0)
+    return cfg_analyze_module(m, src_hold, stream)
+}
+
 func cmd_asm(path: str): int {
     var path_p = path
     var src = merge_file_sources(path_p)
@@ -1481,6 +1526,10 @@ func main(): int {
             return 1
         }
         return cmd_opt()
+    }
+
+    if str_eq(a1, "analyze") == 1 {
+        return cmd_analyze()
     }
 
     if str_eq(a1, "asm") == 1 {

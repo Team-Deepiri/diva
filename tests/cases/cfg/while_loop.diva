@@ -1,0 +1,13 @@
+func sum(n: int): int {
+    var i = 0
+    var acc = 0
+    while (i < n) {
+        acc = acc + i
+        i = i + 1
+    }
+    return acc
+}
+
+func main(): int {
+    return sum(3)
+}
