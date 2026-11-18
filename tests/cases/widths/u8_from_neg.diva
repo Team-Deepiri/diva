@@ -1,0 +1,6 @@
+func main(): int {
+    if ((-1) as u8) == 255 {
+        return 0
+    }
+    return 1
+}

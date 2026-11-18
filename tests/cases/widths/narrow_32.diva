@@ -1,0 +1,5 @@
+func main(): int {
+    if ((-1) as i32) != (-1) { return 1 }
+    if ((-1) as u32) != (65536 * 65536 - 1) { return 2 }
+    return 0
+}

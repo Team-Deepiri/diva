@@ -1,0 +1,7 @@
+func main(): int {
+    if (70000 as i16) != 4464 { return 1 }
+    if (70000 as u16) != 4464 { return 2 }
+    if (40000 as i16) != (-25536) { return 3 }
+    if (40000 as u16) != 40000 { return 4 }
+    return 0
+}

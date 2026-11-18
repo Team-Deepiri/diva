@@ -42,6 +42,8 @@ func dump_inst_opname(b: int, op: int, a: int, bv: int, src: str, toks: int): in
     if op == ir_or()  { str_builder_append(b, "or ") }
     if op == ir_not() { str_builder_append(b, "not ") }
     if op == ir_neg() { str_builder_append(b, "neg ") }
+    if op == ir_shl() { str_builder_append(b, "shl ") }
+    if op == ir_shr() { str_builder_append(b, "shr ") }
     if op == ir_load()   { str_builder_append(b, "load ") }
     if op == ir_store()  { str_builder_append(b, "store ") }
     if op == ir_array_load()  { str_builder_append(b, "array.load ") }
@@ -50,6 +52,7 @@ func dump_inst_opname(b: int, op: int, a: int, bv: int, src: str, toks: int): in
     if op == ir_global_store() { str_builder_append(b, "global.store ") }
     if op == ir_alloca() { str_builder_append(b, "alloca") }
     if op == ir_addr_of() { str_builder_append(b, "addr.of ") }
+    if op == ir_sar() { str_builder_append(b, "sar ") }
     if op == ir_param() {
         str_builder_append(b, "param ")
         str_builder_append(b, int_to_str(a))

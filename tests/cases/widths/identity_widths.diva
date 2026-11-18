@@ -1,0 +1,7 @@
+func main(): int {
+    if (300 as i64) != 300 { return 1 }
+    if (300 as u64) != 300 { return 2 }
+    if (300 as f32) != 300 { return 3 }
+    if (300 as f64) != 300 { return 4 }
+    return 0
+}
