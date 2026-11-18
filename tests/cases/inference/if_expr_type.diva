@@ -1,0 +1,18 @@
+// #96: if-expressions infer a result type when both branches agree.
+extern func text_len(t: text): int
+
+func pick(c: bool, a: int, b: int): int {
+    return if c { a } else { b }
+}
+
+func main(): int {
+    let x = if 1 < 2 { 20 } else { 0 }
+    // `else if` chains are nested if-expressions.
+    let y = if 2 < 1 { 50 } else if 3 < 4 { 22 } else { 100 }
+    let t = if 1 < 2 { text"abcd" } else { text"z" }
+    let s = if 1 < 2 { "y" } else { "n" }
+
+    let chk_t: text = t
+    let chk_s: str = s
+    return x + y + pick(false, 9, 0)
+}

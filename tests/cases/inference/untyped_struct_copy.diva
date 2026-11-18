@@ -1,0 +1,16 @@
+// #96: an unannotated struct copy keeps its struct type, so the copy has
+// value semantics rather than aliasing the source.
+extern func print_int(x: int): void
+
+struct Point {
+    var x: int
+    var y: int
+}
+
+func main(): int {
+    let p = Point { x: 20, y: 22 }
+    let q = p
+    q.x = 1
+    print_int(q.x)
+    return p.x + p.y
+}

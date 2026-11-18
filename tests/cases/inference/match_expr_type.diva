@@ -1,0 +1,28 @@
+// #96: match-expressions infer a result type from their arm bodies.
+enum Color { Red, Green, Blue }
+
+func main(): int {
+    let c: Color = Color::Green
+    let v = match c {
+        Color::Red => 10,
+        Color::Green => 40,
+        Color::Blue => 50,
+    }
+    let s = match 1 {
+        1 => "a",
+        _ => "b",
+    }
+    let t = match true {
+        true => text"ok",
+        false => text"no",
+    }
+    let b = match 1 {
+        1 => true,
+        _ => false,
+    }
+
+    let chk_s: str = s
+    let chk_t: text = t
+    let chk_b: bool = b
+    return v + 2
+}

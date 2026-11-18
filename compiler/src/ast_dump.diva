@@ -147,6 +147,13 @@ func dump_expr(node: int, depth: int, src: str, toks: int, nl: str): int {
         }
         return 0
     }
+    if (k == nd_if_expr()) {
+        dump_line(depth, "IfExpr", nl)
+        dump_expr(ast_child(node, 0), depth + 1, src, toks, nl)
+        dump_expr(ast_child(node, 1), depth + 1, src, toks, nl)
+        dump_expr(ast_child(node, 2), depth + 1, src, toks, nl)
+        return 0
+    }
     return 0
 }
 

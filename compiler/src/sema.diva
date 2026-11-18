@@ -632,6 +632,12 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
             if gvi >= 0 {
                 return int_vec_get(sctx_variant_enum_ids(c), gvi)
             }
+            // Generic calls are erased to a plain call: inherit the callee's
+            // declared return type (Issue #96).
+            var grty = sctx_fn_ret_type(c, src, toks, gt)
+            if grty >= 0 {
+                return grty
+            }
         }
         return ir_ty_int()
     }
@@ -639,6 +645,12 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
         // `ptr.is_null()` yields a bool (Issue #94).
         var mtok = ast_child(node, 1)
         if str_eq(tok_text(src, toks, mtok), "is_null") == 1 { return ir_ty_bool() }
+        // Module-qualified and method calls inherit the declared return type
+        // when the callee is registered (Issue #96).
+        var mrty = sctx_fn_ret_type(c, src, toks, tok_text(src, toks, mtok))
+        if mrty >= 0 {
+            return mrty
+        }
         return ir_ty_int()
     }
     if kind == nd_field() {
@@ -646,6 +658,11 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
     }
     if kind == nd_index() {
         return ir_ty_int()
+    }
+    if kind == nd_if_expr() {
+        // sema_check_if_expr enforces branch agreement; both sides therefore
+        // describe the same concrete result type.
+        return sema_expr_type(c, src, toks, ast_child(node, 1))
     }
     if kind == nd_match() {
         var cached = sema_cached_match_type(c, node)
@@ -838,6 +855,24 @@ func sema_require_unsafe_deref(c: int, src: str, toks: int, node: int): int {
     return sema_err("raw pointer dereference requires an unsafe block")
 }
 
+// Check an if-expression: both branches must produce the same type.
+func sema_check_if_expr(c: int, src: str, toks: int, node: int): int {
+    if sema_check_expr(c, src, toks, ast_child(node, 0)) != 0 { return 1 }
+    if sema_check_expr(c, src, toks, ast_child(node, 1)) != 0 { return 1 }
+    if sema_check_expr(c, src, toks, ast_child(node, 2)) != 0 { return 1 }
+    var then_ty = sema_expr_type(c, src, toks, ast_child(node, 1))
+    var else_ty = sema_expr_type(c, src, toks, ast_child(node, 2))
+    if then_ty != else_ty {
+        stderr("sema: if branches have inconsistent types: then is ")
+        stderr(sctx_ty_name(then_ty))
+        stderr(", else is ")
+        stderr(sctx_ty_name(else_ty))
+        stderr(char_to_str(10))
+        return 1
+    }
+    return 0
+}
+
 func sema_check_expr(c: int, src: str, toks: int, node: int): int {
     if (node < 0) { return 0 }
     var kind = ast_kind(node)
@@ -916,6 +951,9 @@ func sema_check_expr(c: int, src: str, toks: int, node: int): int {
     }
     if kind == nd_match() {
         return sema_check_match(c, src, toks, node)
+    }
+    if kind == nd_if_expr() {
+        return sema_check_if_expr(c, src, toks, node)
     }
     return 0
 }

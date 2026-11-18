@@ -292,6 +292,10 @@ func parse_primary(ps: int, src: str): int {
         return parse_match_expr(ps, src)
     }
 
+    if kind == tk_if() {
+        return parse_if_expr(ps, src)
+    }
+
     if ps_quiet(ps) == 0 {
         p_diag(ps, src)
         stderr("parse error: unexpected token in expression: ")
@@ -699,6 +703,36 @@ func parse_if_stmt(ps: int, src: str): int {
         }
     }
     return ast_if(cond, then_body, else_body)
+}
+
+// Parse an if-expression branch: `{ <expr> }`. The branch is deliberately a
+// single expression (not a statement block) so it always has a value.
+func parse_if_expr_branch(ps: int, src: str): int {
+    p_expect(ps, src, tk_lbrace())
+    var body = parse_expr(ps, src)
+    p_expect(ps, src, tk_rbrace())
+    return body
+}
+
+// Parse `if <cond> { <expr> } else { <expr> }` in expression position.
+// `else if` chains reuse parse_if_expr recursively.
+func parse_if_expr(ps: int, src: str): int {
+    p_advance(ps)
+    // The condition is followed by `{`, so struct-literal parsing must be off
+    // (same rule the match scrutinee uses).
+    var saved_struct = ps_struct_ok(ps)
+    ps_set_struct_ok(ps, 0)
+    var cond = parse_expr(ps, src)
+    ps_set_struct_ok(ps, saved_struct)
+    var then_expr = parse_if_expr_branch(ps, src)
+    p_expect(ps, src, tk_else())
+    var else_expr = 0 - 1
+    if p_cur(ps) == tk_if() {
+        else_expr = parse_if_expr(ps, src)
+    } else {
+        else_expr = parse_if_expr_branch(ps, src)
+    }
+    return ast_if_expr(cond, then_expr, else_expr)
 }
 
 func parse_while_stmt(ps: int, src: str): int {

@@ -1,0 +1,29 @@
+// #96: untyped let/var bindings inherit the callee's declared return type,
+// for local functions and extern declarations alike.
+extern func print_int(x: int): void
+extern func int_to_str(n: int): str
+
+func make_bool(): bool { return true }
+func make_text(): text { return text"ok" }
+func make_str(): str { return "ok" }
+func make_int(): int { return 40 }
+
+func main(): int {
+    let b = make_bool()
+    let t = make_text()
+    let s = make_str()
+    let n = make_int()
+    let es = int_to_str(2)
+
+    // Typed re-bindings force the inferred types to be checked.
+    let chk_b: bool = b
+    let chk_t: text = t
+    let chk_s: str = s
+    let chk_n: int = n
+    let chk_es: str = es
+
+    if b {
+        print_int(n + 2)
+    }
+    return n + 2
+}
