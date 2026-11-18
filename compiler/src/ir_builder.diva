@@ -1194,6 +1194,42 @@ func lower_expr_binop(ctx: int, src: str, node: int): int {
     return r
 }
 
+// Builtin atomics (Issue #98): map the call name to a dedicated IR opcode.
+func ib_atomic_op(nm: str): int {
+    if str_eq(nm, "atomic_load") == 1 { return ir_atomic_load() }
+    if str_eq(nm, "atomic_store") == 1 { return ir_atomic_store() }
+    if str_eq(nm, "atomic_add") == 1 { return ir_atomic_add() }
+    if str_eq(nm, "atomic_xchg") == 1 { return ir_atomic_xchg() }
+    if str_eq(nm, "atomic_cas") == 1 { return ir_atomic_cas() }
+    if str_eq(nm, "fence") == 1 { return ir_fence() }
+    return 0 - 1
+}
+
+func lower_expr_builtin_call(ctx: int, src: str, args_h: int, op: int): int {
+    var r = ib_fresh_vreg(ctx)
+    if op == ir_fence() {
+        ib_emit(ctx, ir_inst(ir_fence(), r, 0, 0, 0))
+        return r
+    }
+    var pv = lower_expr(ctx, src, int_vec_get(args_h, 0))
+    if op == ir_atomic_load() {
+        ib_emit(ctx, ir_inst(ir_atomic_load(), r, pv, 0, 0))
+        return r
+    }
+    var vv = lower_expr(ctx, src, int_vec_get(args_h, 1))
+    if op == ir_atomic_store() {
+        ib_emit(ctx, ir_inst(ir_atomic_store(), r, pv, vv, 0))
+        return r
+    }
+    if op == ir_atomic_cas() {
+        var dv = lower_expr(ctx, src, int_vec_get(args_h, 2))
+        ib_emit(ctx, ir_inst(ir_atomic_cas(), r, pv, vv, dv))
+        return r
+    }
+    ib_emit(ctx, ir_inst(op, r, pv, vv, 0))
+    return r
+}
+
 // Lower nd_call node. Handles single-arg and multi-arg calls.
 func lower_expr_call(ctx: int, src: str, node: int): int {
     var callee = ast_child(node, 0)
@@ -1208,6 +1244,10 @@ func lower_expr_call(ctx: int, src: str, node: int): int {
                 lower_expr(ctx, src, int_vec_get(args_h, 0))
             }
             return ib_lower_variant_ctor(ctx, src, cnm)
+        }
+        var bop = ib_atomic_op(cnm)
+        if bop >= 0 {
+            return lower_expr_builtin_call(ctx, src, args_h, bop)
         }
     }
     var fname_idx = 0 - 1

@@ -1,0 +1,4 @@
+func main(): int {
+    fence();
+    return 0;
+}
