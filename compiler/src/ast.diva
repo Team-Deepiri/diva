@@ -58,6 +58,7 @@ func nd_type_ptr(): int    { return 49 }
 func nd_extern_block(): int { return 50 }
 func nd_unsafe_block(): int { return 51 }
 func nd_type_ref(): int    { return 52 }
+func nd_if_expr(): int     { return 53 }
 
 // --- Pattern sub-kinds (stored in pattern payload) ---
 
@@ -230,6 +231,16 @@ func ast_if(cond: int, then_body: int, else_body: int): int {
     int_vec_push(n, cond)
     int_vec_push(n, then_body)
     int_vec_push(n, else_body)
+    return n
+}
+
+// If expression: [kind, cond, then_expr, else_expr]
+func ast_if_expr(cond: int, then_expr: int, else_expr: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_if_expr())
+    int_vec_push(n, cond)
+    int_vec_push(n, then_expr)
+    int_vec_push(n, else_expr)
     return n
 }
 

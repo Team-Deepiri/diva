@@ -1049,6 +1049,24 @@ func ib_expr_is_text(ctx: int, src: str, node: int): int {
         return 0
     }
     if kind == nd_call() { return ib_call_ret_is_text(ctx, src, node) }
+    if kind == nd_if_expr() {
+        if (ib_expr_is_text(ctx, src, ast_child(node, 1)) == 1) & (ib_expr_is_text(ctx, src, ast_child(node, 2)) == 1) {
+            return 1
+        }
+        return 0
+    }
+    if kind == nd_match() {
+        var marms = ast_child(node, 1)
+        var mi = 0
+        var mtext = 1
+        if int_vec_len(marms) == 0 { mtext = 0 }
+        while (mi < int_vec_len(marms)) {
+            var arm = int_vec_get(marms, mi)
+            if ib_expr_is_text(ctx, src, ast_child(arm, 2)) == 0 { mtext = 0 }
+            mi = mi + 1
+        }
+        return mtext
+    }
     if kind == nd_binop() {
         if ast_child(node, 0) == binop_add() {
             if (ib_expr_is_text(ctx, src, ast_child(node, 1)) == 1) & (ib_expr_is_text(ctx, src, ast_child(node, 2)) == 1) {
@@ -1566,6 +1584,7 @@ func lower_expr(ctx: int, src: str, node: int): int {
     if kind == nd_index() { return lower_expr_index(ctx, src, node) }
     if kind == nd_field() { return lower_expr_field(ctx, src, node) }
     if kind == nd_match() { return lower_expr_match(ctx, src, node) }
+    if kind == nd_if_expr() { return lower_expr_if(ctx, src, node) }
 
     // Qualified variant in expression position (`Enum::Variant`) lowers to
     // its tag; the payload is evaluated for its side effects only. Payload
@@ -2441,6 +2460,44 @@ func lower_expr_match(ctx: int, src: str, node: int): int {
     return r
 }
 
+// Lower nd_if_expr; returns the vreg holding the chosen branch's value.
+// Both branches agree on a type (enforced by sema), so a single stack slot
+// carries the result across the join.
+func lower_expr_if(ctx: int, src: str, node: int): int {
+    var cond_reg = lower_expr(ctx, src, ast_child(node, 0))
+    var then_lbl = ib_fresh_label(ctx)
+    var else_lbl = ib_fresh_label(ctx)
+    var end_lbl = ib_fresh_label(ctx)
+    var res_slot = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_alloca(), res_slot, 0, 0, 0))
+    ib_emit(ctx, ir_inst(ir_br_cond(), cond_reg, then_lbl, else_lbl, 0))
+
+    ib_add_blk(ctx, ir_block_new(then_lbl))
+    var th = ib_find_blk_by_label(ctx, then_lbl)
+    if (th < 0) == 0 { ib_set_blk(ctx, th) }
+    var then_node = ast_child(node, 1)
+    var then_val = lower_expr(ctx, src, then_node)
+    ib_emit(ctx, ir_inst(ir_store(), res_slot, then_val, 0, 0))
+    if ib_expr_is_text(ctx, src, then_node) == 1 { ib_mark_text(ctx, res_slot) }
+    ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
+
+    ib_add_blk(ctx, ir_block_new(else_lbl))
+    var eh = ib_find_blk_by_label(ctx, else_lbl)
+    if (eh < 0) == 0 { ib_set_blk(ctx, eh) }
+    var else_node = ast_child(node, 2)
+    var else_val = lower_expr(ctx, src, else_node)
+    ib_emit(ctx, ir_inst(ir_store(), res_slot, else_val, 0, 0))
+    if ib_expr_is_text(ctx, src, else_node) == 1 { ib_mark_text(ctx, res_slot) }
+    ib_emit(ctx, ir_inst(ir_br(), 0, end_lbl, 0, 0))
+
+    ib_add_blk(ctx, ir_block_new(end_lbl))
+    var endh = ib_find_blk_by_label(ctx, end_lbl)
+    if (endh < 0) == 0 { ib_set_blk(ctx, endh) }
+    var r = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_load(), r, res_slot, 0, 0))
+    return r
+}
+
 // Lower nd_if statement.
 func lower_stmt_if(ctx: int, src: str, node: int): int {
     var cond_reg = lower_expr(ctx, src, ast_child(node, 0))
@@ -2710,6 +2767,18 @@ func lower_stmt(ctx: int, src: str, node: int): int {
                     ib_emit(ctx, ir_inst(ir_store(), rslot, rval, 0, 0))
                 }
                 return 0
+            }
+        }
+
+        // Infer a struct type for an unannotated copy: `let q = p` where p is
+        // a struct local (Issue #96). The literal case is handled above.
+        if (type_node < 0) & (init >= 0) {
+            if ast_kind(init) == nd_ident() {
+                var src_name = ib_tok_text(ctx, src, ast_child(init, 0))
+                var src_sty = ib_lookup_struct_ty(ctx, src, src_name)
+                if src_sty != ib_struct_ty_none() {
+                    if lower_stmt_var_struct(ctx, src, name_tok, src_sty, init) == 1 { return 0 }
+                }
             }
         }
 

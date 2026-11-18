@@ -1,0 +1,6 @@
+// #96: an if-expression whose branches disagree is rejected with a clear
+// diagnostic naming both branch types.
+func main(): int {
+    let x = if 1 > 0 { 1 } else { text"nope" }
+    return x
+}
