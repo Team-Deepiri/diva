@@ -340,6 +340,50 @@ func main(): int {
 > lifetimes, `&mut` exclusivity, and field writes through references are
 > deferred. See `docs/references.md`.
 
+### Ownership and moves
+
+Value types (structs) are moved on assignment; copy types (`int`, `bool`,
+`str`, `text`) are copied. Using a moved value is an error until it is
+reassigned:
+
+```diva
+let a: Point = Point { x: 1, y: 2 }
+let b: Point = a        // moves `a`
+b.x = 9                 // ok
+// a.x                  // error: use of moved value 'a'
+a = Point { x: 3, y: 4 } // reassignment revives `a`
+```
+
+> Foundation status (#88): local move checking only. Globals, returns-as-moves,
+> partial moves, and control-flow-sensitive joins are deferred. See
+> `docs/ownership.md`.
+
+### Type inference
+
+Untyped bindings and `if`/`match` expressions infer their type from context:
+
+```diva
+let n = add(2, 3)              // int, from the callee's return type
+let m = if n > 0 { 1 } else { 0 }
+```
+
+> Foundation status (#96): local inference; no unification variables,
+> generics, or polymorphic functions. Branch types must agree. See
+> `docs/type-inference.md`.
+
+### Trait objects
+
+`dyn Trait` values dispatch a trait method to the concrete implementation:
+
+```diva
+let d: dyn Shape = Circle { r: 2 }
+let a = d.area()
+```
+
+> Foundation status (#135): closed-set tag dispatch over known impls, single
+> receiver word, identifier receivers only. No vtable ABI, dyn params/returns,
+> or object-safety checking. See `docs/trait-objects.md`.
+
 `match` is an expression: it picks an arm by pattern and yields that arm's
 value. The scrutinee is any expression; each arm is a pattern, an optional
 guard, and an arm expression.

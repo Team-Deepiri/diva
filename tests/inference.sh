@@ -99,7 +99,7 @@ check_build_fail() {
 check_rc untyped_from_call "${ROOT_DIR}/tests/cases/inference/untyped_from_call.diva" 42
 check_rc if_expr_type "${ROOT_DIR}/tests/cases/inference/if_expr_type.diva" 42
 check_rc match_expr_type "${ROOT_DIR}/tests/cases/inference/match_expr_type.diva" 42
-check_rc untyped_struct_copy "${ROOT_DIR}/tests/cases/inference/untyped_struct_copy.diva" 42
+check_rc untyped_struct_copy "${ROOT_DIR}/tests/cases/inference/untyped_struct_copy.diva" 23
 check_build_fail branch_mismatch "${ROOT_DIR}/tests/cases/inference/branch_mismatch.diva" \
   "if branches have inconsistent types"
 

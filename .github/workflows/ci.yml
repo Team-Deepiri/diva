@@ -124,6 +124,33 @@ jobs:
       - name: Run references gate (builds driver from seed)
         run: sh tests/refs.sh
 
+  ownership:
+    name: ownership/moves (#88)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ownership gate (builds driver from seed)
+        run: sh tests/ownership.sh
+
+  inference:
+    name: type inference (#96)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run inference gate (builds driver from seed)
+        run: sh tests/inference.sh
+
+  traits:
+    name: trait objects (#135)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run traits gate (builds driver from seed)
+        run: sh tests/traits.sh
+
   selfhost-consistency:
     name: selfhost consistency (stage2 = stage3)
     runs-on: ubuntu-latest
