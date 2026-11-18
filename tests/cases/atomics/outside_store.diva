@@ -1,0 +1,5 @@
+func main(): int {
+    let x: int = 10;
+    atomic_store(&x, 1);
+    return 0;
+}

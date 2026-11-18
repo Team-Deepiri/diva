@@ -1,0 +1,11 @@
+func main(): int {
+    let x: int = 10;
+    unsafe {
+        atomic_store(&x, 25);
+        let v: int = atomic_load(&x);
+        if v == 25 {
+            return 42;
+        }
+    }
+    return 7;
+}

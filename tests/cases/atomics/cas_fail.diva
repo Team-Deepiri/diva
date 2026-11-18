@@ -1,0 +1,13 @@
+func main(): int {
+    let x: int = 10;
+    let ok: int = 0;
+    unsafe {
+        ok = atomic_cas(&x, 11, 20);
+    }
+    if ok == 0 {
+        if x == 10 {
+            return 42;
+        }
+    }
+    return 7;
+}

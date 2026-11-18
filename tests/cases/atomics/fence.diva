@@ -1,0 +1,12 @@
+func main(): int {
+    let x: int = 1;
+    unsafe {
+        fence();
+        atomic_store(&x, 2);
+        fence();
+        if atomic_load(&x) == 2 {
+            return 42;
+        }
+    }
+    return 7;
+}

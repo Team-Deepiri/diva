@@ -920,7 +920,7 @@ func sctx_fn_arity(c: int, src: str, toks: int, want: str): int {
         }
         i = i + 1
     }
-    return 0 - 1
+    return sema_builtin_arity(want)
 }
 
 func sctx_fn_ret_type(c: int, src: str, toks: int, want: str): int {
@@ -934,7 +934,32 @@ func sctx_fn_ret_type(c: int, src: str, toks: int, want: str): int {
         }
         i = i + 1
     }
+    return sema_builtin_ret(want)
+}
+
+// Language-level atomic builtins (Issue #98). They are lowered to real IR ops,
+// so they are recognised by name without an extern declaration.
+func sema_builtin_arity(nm: str): int {
+    if str_eq(nm, "atomic_load") == 1 { return 1 }
+    if str_eq(nm, "atomic_store") == 1 { return 2 }
+    if str_eq(nm, "atomic_add") == 1 { return 2 }
+    if str_eq(nm, "atomic_xchg") == 1 { return 2 }
+    if str_eq(nm, "atomic_cas") == 1 { return 3 }
+    if str_eq(nm, "fence") == 1 { return 0 }
     return 0 - 1
+}
+
+func sema_builtin_ret(nm: str): int {
+    if str_eq(nm, "atomic_store") == 1 { return ir_ty_void() }
+    if str_eq(nm, "fence") == 1 { return ir_ty_void() }
+    if sema_builtin_arity(nm) >= 0 { return ir_ty_int() }
+    return 0 - 1
+}
+
+func sema_builtin_expects_ptr(nm: str, arg_index: int): int {
+    if arg_index != 0 { return 0 }
+    if str_eq(nm, "fence") == 1 { return 0 }
+    return 1
 }
 
 func sctx_add_fn(c: int, src: str, toks: int, name_tok: int, arity: int, ret_ty: int): int {
@@ -1236,10 +1261,65 @@ func sema_check_variant_ctor(c: int, src: str, toks: int, node: int, callee: int
     return 0
 }
 
+func sema_check_builtin_call(c: int, src: str, toks: int, ctok: int, nm: str, args: int): int {
+    var arity = sema_builtin_arity(nm)
+    if sctx_unsafe(c) == 0 {
+        diag_emit_loc(src, tok_start(toks, ctok))
+        stderr("sema: atomic operation requires an unsafe block")
+        stderr(char_to_str(10))
+        return 1
+    }
+    if int_vec_len(args) != arity {
+        diag_emit_loc(src, tok_start(toks, ctok))
+        stderr("sema: wrong number of arguments for '")
+        stderr(nm)
+        stderr("': expected ")
+        stderr(int_to_str(arity))
+        stderr(", got ")
+        stderr(int_to_str(int_vec_len(args)))
+        stderr(char_to_str(10))
+        return 1
+    }
+    var i = 0
+    while (i < arity) {
+        var av = int_vec_get(args, i)
+        if sema_check_expr(c, src, toks, av) != 0 { return 1 }
+        var aty = sema_expr_type(c, src, toks, av)
+        if sema_builtin_expects_ptr(nm, i) == 1 {
+            if aty != ir_ty_ptr() {
+                diag_emit_loc(src, tok_start(toks, ctok))
+                stderr("sema: '")
+                stderr(nm)
+                stderr("' expects a raw pointer as its first argument")
+                stderr(char_to_str(10))
+                return 1
+            }
+        } else {
+            if aty != ir_ty_int() {
+                diag_emit_loc(src, tok_start(toks, ctok))
+                stderr("sema: '")
+                stderr(nm)
+                stderr("' expects integer arguments")
+                stderr(char_to_str(10))
+                return 1
+            }
+        }
+        sema_move_expr(c, src, toks, av)
+        i = i + 1
+    }
+    return 0
+}
+
 func sema_check_call(c: int, src: str, toks: int, node: int): int {
     var callee = ast_child(node, 0)
     var args = ast_child(node, 1)
     if ast_kind(callee) == nd_ident() {
+        var btok = ast_child(callee, 0)
+        var bnm = tok_text(src, toks, btok)
+        var barity = sema_builtin_arity(bnm)
+        if barity >= 0 {
+            return sema_check_builtin_call(c, src, toks, btok, bnm, args)
+        }
         if sctx_variant_index(c, src, toks, tok_text(src, toks, ast_child(callee, 0))) >= 0 {
             return sema_check_variant_ctor(c, src, toks, node, callee, args)
         }

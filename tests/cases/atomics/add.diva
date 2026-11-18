@@ -1,0 +1,13 @@
+func main(): int {
+    let x: int = 10;
+    let old: int = 0;
+    unsafe {
+        old = atomic_add(&x, 5);
+    }
+    if old == 10 {
+        if x == 15 {
+            return 42;
+        }
+    }
+    return 7;
+}

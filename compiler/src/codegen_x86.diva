@@ -364,6 +364,42 @@ func cg_inst_mem(ctx: int, src: str, nl: str, inst: int): int {
         if a == 5 { lp_add(lp, "    movq %r9, ")  lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl) }
         return 1
     }
+    if (op < ir_atomic_load()) | (op > ir_fence()) { return 0 }
+    if op == ir_fence() {
+        lp_add(lp, "    mfence") lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_atomic_cas() {
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rdx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(inst_extra(inst))) lp_add(lp, ", %rcx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    lock cmpxchgq %rcx, (%rdx)") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    sete %al") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movzbq %al, %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+    if op == ir_atomic_load() {
+        lp_add(lp, "    movq (%rax), %rdx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rdx") lp_flush_sb(lp, sb, nl)
+    if op == ir_atomic_store() {
+        lp_add(lp, "    movq %rdx, (%rax)") lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_atomic_add() {
+        lp_add(lp, "    lock xaddq %rdx, (%rax)") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_atomic_xchg() {
+        lp_add(lp, "    xchgq %rdx, (%rax)") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rdx, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
     return 0
 }
 
@@ -1096,6 +1132,8 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (ik == ir_ptr_store()) { has_res = 1 }
     if (ik == ir_addr_of()) { has_res = 1 }
     if (ik == ir_trap()) { has_res = 1 }
+    if (op_is3(ik, ir_atomic_load(), ir_atomic_store(), ir_atomic_add()) == 1) { has_res = 1 }
+    if (op_is3(ik, ir_atomic_xchg(), ir_atomic_cas(), ir_fence()) == 1) { has_res = 1 }
     if (ik == ir_call()) { has_res = 1 }
     if (has_res == 1) {
         if (res > maxv) { maxv = res }
@@ -1118,6 +1156,8 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (ik == ir_ptr_load()) { has_ia = 1 }
     if (ik == ir_ptr_store()) { has_ia = 1 }
     if (ik == ir_addr_of()) { has_ia = 1 }
+    if (op_is3(ik, ir_atomic_load(), ir_atomic_store(), ir_atomic_add()) == 1) { has_ia = 1 }
+    if (op_is2(ik, ir_atomic_xchg(), ir_atomic_cas()) == 1) { has_ia = 1 }
     if (ik == ir_ret()) { has_ia = 1 }
     if (has_ia == 1) {
         if (ia > maxv) { maxv = ia }
@@ -1134,6 +1174,8 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_text_cmp(), ir_text_concat(), ir_text_slice()) == 1) { has_ibk = 1 }
     if (ik == ir_str_eq()) { has_ibk = 1 }
     if (ik == ir_ptr_store()) { has_ibk = 1 }
+    if (op_is3(ik, ir_atomic_store(), ir_atomic_add(), ir_atomic_xchg()) == 1) { has_ibk = 1 }
+    if (ik == ir_atomic_cas()) { has_ibk = 1 }
     if (has_ibk == 1) {
         if (ibk > maxv) { maxv = ibk }
     }
@@ -1141,6 +1183,11 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (ik == ir_text_slice()) {
         var exts = inst_extra(inst)
         if (exts > maxv) { maxv = exts }
+    }
+    // ir_atomic_cas: extra holds the desired-value vreg.
+    if (ik == ir_atomic_cas()) {
+        var exa = inst_extra(inst)
+        if (exa > maxv) { maxv = exa }
     }
     // ir_call: scan args vector.
     if (ik == ir_call()) {
@@ -1317,6 +1364,12 @@ func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
     if op == ir_ptr_store() { return 17 }
     if op == ir_addr_of() { return 14 }
     if op == ir_trap() { return 12 }
+    if op == ir_atomic_load() { return 17 }
+    if op == ir_atomic_store() { return 17 }
+    if op == ir_atomic_add() { return 26 }
+    if op == ir_atomic_xchg() { return 24 }
+    if op == ir_atomic_cas() { return 40 }
+    if op == ir_fence() { return 3 }
     if op_is2(op, ir_add(), ir_sub()) == 1 { return 21 }
     if op == ir_mul() { return 22 }
     if op_is2(op, ir_div(), ir_mod()) == 1 { return 23 }
@@ -1741,6 +1794,58 @@ func cg_p2_ret(p2fctx: int, out: int, inst: int): int {
     return 0
 }
 
+// Emit atomic memory ops and fence (Issue #98). Only caller-saved scratch
+// registers are used: rax, rdx, rcx.
+func cg_p2_atomic(out: int, op: int, res: int, a: int, bv: int, extra: int): int {
+    if op == ir_fence() {
+        int_vec_push(out, 15) int_vec_push(out, 174) int_vec_push(out, 240)
+        return 0
+    }
+    if op == ir_atomic_cas() {
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 149)
+        emit_i32(out, stack_disp32(a))
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 133)
+        emit_i32(out, stack_disp32(bv))
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 141)
+        emit_i32(out, stack_disp32(extra))
+        int_vec_push(out, 240) int_vec_push(out, 72) int_vec_push(out, 15)
+        int_vec_push(out, 177) int_vec_push(out, 10)
+        int_vec_push(out, 15) int_vec_push(out, 148) int_vec_push(out, 192)
+        int_vec_push(out, 72) int_vec_push(out, 15) int_vec_push(out, 182)
+        int_vec_push(out, 192)
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 133)
+        emit_i32(out, stack_disp32(res))
+        return 0
+    }
+    emit_mov_stack_to_rax(out, a)
+    if op == ir_atomic_load() {
+        int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 16)
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 149)
+        emit_i32(out, stack_disp32(res))
+        return 0
+    }
+    int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 149)
+    emit_i32(out, stack_disp32(bv))
+    if op == ir_atomic_store() {
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 16)
+        return 0
+    }
+    if op == ir_atomic_add() {
+        int_vec_push(out, 240) int_vec_push(out, 72) int_vec_push(out, 15)
+        int_vec_push(out, 193) int_vec_push(out, 16)
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 149)
+        emit_i32(out, stack_disp32(res))
+        return 0
+    }
+    if op == ir_atomic_xchg() {
+        int_vec_push(out, 72) int_vec_push(out, 135) int_vec_push(out, 16)
+        int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 149)
+        emit_i32(out, stack_disp32(res))
+        return 0
+    }
+    return 0
+}
+
 // Emit one instruction. Returns 0 on success, -1 on bad branch.
 func cg_p2_inst(p2fctx: int, src: str, brtab: int, p2out_ctx: int, inst: int): int {
     var out = p2out_out(p2out_ctx)
@@ -1805,6 +1910,9 @@ func cg_p2_inst(p2fctx: int, src: str, brtab: int, p2out_ctx: int, inst: int): i
         int_vec_push(out, 191) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
         int_vec_push(out, 184) int_vec_push(out, 60) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0)
         int_vec_push(out, 15) int_vec_push(out, 5)
+    }
+    if (op >= ir_atomic_load()) & (op <= ir_fence()) {
+        cg_p2_atomic(out, op, res, a, bv, extra)
     }
     cg_p2_arith(out, op, res, a, bv, extra)
     cg_p2_cmp(out, op, res, a, bv)

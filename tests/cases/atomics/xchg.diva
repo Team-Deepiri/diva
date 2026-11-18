@@ -1,0 +1,13 @@
+func main(): int {
+    let x: int = 10;
+    let old: int = 0;
+    unsafe {
+        old = atomic_xchg(&x, 99);
+    }
+    if old == 10 {
+        if x == 99 {
+            return 42;
+        }
+    }
+    return 7;
+}

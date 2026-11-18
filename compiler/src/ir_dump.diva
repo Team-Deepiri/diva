@@ -53,6 +53,12 @@ func dump_inst_opname(b: int, op: int, a: int, bv: int, src: str, toks: int): in
     if op == ir_alloca() { str_builder_append(b, "alloca") }
     if op == ir_addr_of() { str_builder_append(b, "addr.of ") }
     if op == ir_sar() { str_builder_append(b, "sar ") }
+    if op == ir_atomic_load() { str_builder_append(b, "atomic.load ") }
+    if op == ir_atomic_store() { str_builder_append(b, "atomic.store ") }
+    if op == ir_atomic_add() { str_builder_append(b, "atomic.add ") }
+    if op == ir_atomic_xchg() { str_builder_append(b, "atomic.xchg ") }
+    if op == ir_atomic_cas() { str_builder_append(b, "atomic.cas ") }
+    if op == ir_fence() { str_builder_append(b, "fence") }
     if op == ir_param() {
         str_builder_append(b, "param ")
         str_builder_append(b, int_to_str(a))
@@ -109,6 +115,10 @@ func dump_inst(inst: int, src: str, toks: int): int {
         if (bv < 0) == 0 {
             str_builder_append(b, ", v")
             str_builder_append(b, dump_vreg_str(bv))
+        }
+        if op == ir_atomic_cas() {
+            str_builder_append(b, ", v")
+            str_builder_append(b, dump_vreg_str(inst_extra(inst)))
         }
     }
     }
