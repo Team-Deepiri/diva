@@ -196,6 +196,9 @@ func lex_punct_kind(b: int): int {
     if b == 124 {
         return tk_pipe()
     }
+    if b == 35 {
+        return tk_hash()
+    }
     return 0 - 1
 }
 

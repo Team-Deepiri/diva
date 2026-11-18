@@ -1,0 +1,13 @@
+// #95: zero or more attributes are accepted before a top-level item; unknown
+// names and their argument lists are parsed and ignored (forward compatible).
+#[doc("flat layout")]
+#[repr(C)]
+struct Pair {
+    var a: int
+    var b: int
+}
+
+func main(): int {
+    let p: Pair = Pair { a: 19, b: 23 }
+    return p.a + p.b
+}

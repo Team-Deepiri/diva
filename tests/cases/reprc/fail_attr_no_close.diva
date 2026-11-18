@@ -1,0 +1,5 @@
+// #95 negative: unterminated repr argument list.
+#[repr(C
+struct S { var x: int }
+
+func main(): int { return 0 }

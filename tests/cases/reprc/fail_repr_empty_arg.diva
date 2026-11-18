@@ -1,0 +1,5 @@
+// #95 negative: empty repr argument list.
+#[repr()]
+struct S { var x: int }
+
+func main(): int { return 0 }
