@@ -88,6 +88,7 @@ func binop_and(): int  { return 12 }
 func binop_or(): int   { return 13 }
 func binop_shl(): int  { return 14 }
 func binop_shr(): int  { return 15 }
+func binop_xor(): int  { return 16 }
 
 // --- Unary operator sub-kinds ---
 

@@ -623,8 +623,18 @@ func parse_eq(ps: int, src: str): int {
     return left
 }
 
-func parse_and(ps: int, src: str): int {
+func parse_xor(ps: int, src: str): int {
     var left = parse_eq(ps, src)
+    while p_cur(ps) == tk_caret() {
+        p_advance(ps)
+        var right = parse_eq(ps, src)
+        left = ast_binop(binop_xor(), left, right)
+    }
+    return left
+}
+
+func parse_and(ps: int, src: str): int {
+    var left = parse_xor(ps, src)
     while p_cur(ps) == tk_amp() {
         p_advance(ps)
         var right = parse_eq(ps, src)
