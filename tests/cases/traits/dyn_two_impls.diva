@@ -1,0 +1,32 @@
+// Issue #135: two concrete impls dispatch through `dyn Trait`.
+trait Shape {
+    func area(): int
+}
+
+struct Box {
+    value: int
+}
+
+struct Circle {
+    radius: int
+}
+
+impl Shape for Box {
+    func area(recv: int): int {
+        return recv + 1
+    }
+}
+
+impl Shape for Circle {
+    func area(recv: int): int {
+        return recv + 2
+    }
+}
+
+func main(): int {
+    let b: dyn Shape = Box { value: 40 }
+    let c: dyn Shape = Circle { radius: 1 }
+    let a: int = b.area()
+    let d: int = c.area()
+    return a + d - 2
+}

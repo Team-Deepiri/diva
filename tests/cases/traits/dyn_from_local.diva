@@ -1,0 +1,32 @@
+// Issue #135: store existing struct locals into dyn Trait values.
+trait Value {
+    func get(): int
+}
+
+struct Left {
+    n: int
+}
+
+struct Right {
+    n: int
+}
+
+impl Value for Left {
+    func get(recv: int): int {
+        return recv * 2
+    }
+}
+
+impl Value for Right {
+    func get(recv: int): int {
+        return recv + 5
+    }
+}
+
+func main(): int {
+    let l = Left { n: 10 }
+    let r = Right { n: 7 }
+    let a: dyn Value = l
+    let b: dyn Value = r
+    return a.get() + b.get()
+}
