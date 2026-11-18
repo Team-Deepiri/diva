@@ -1,0 +1,6 @@
+func main(): int {
+    if (200 as i8) == (-56) {
+        return 0
+    }
+    return 1
+}

@@ -443,6 +443,13 @@ func cg_inst_shift_not(ctx: int, nl: str, inst: int): int {
     if op == ir_shr() {
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rcx") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    shrq %cl, %rax") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
+        return 1
+    }
+    if op == ir_sar() {
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(bv)) lp_add(lp, ", %rcx") lp_flush_sb(lp, sb, nl)
+        lp_add(lp, "    movq ") lp_add(lp, stack_offset(a)) lp_add(lp, ", %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    sarq %cl, %rax") lp_flush_sb(lp, sb, nl)
         lp_add(lp, "    movq %rax, ") lp_add(lp, stack_offset(res)) lp_flush_sb(lp, sb, nl)
         return 1
@@ -1079,6 +1086,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_ne(), ir_lt(), ir_le()) == 1) { has_res = 1 }
     if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_res = 1 }
     if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_res = 1 }
+    if (ik == ir_sar()) { has_res = 1 }
     if (op_is3(ik, ir_load(), ir_store(), ir_copy()) == 1) { has_res = 1 }
     if (ik == ir_global_load()) { has_res = 1 }
     if (op_is2(ik, ir_array_load(), ir_array_store()) == 1) { has_res = 1 }
@@ -1099,6 +1107,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_ne(), ir_lt(), ir_le()) == 1) { has_ia = 1 }
     if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_ia = 1 }
     if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_ia = 1 }
+    if (ik == ir_sar()) { has_ia = 1 }
     if (op_is3(ik, ir_load(), ir_store(), ir_copy()) == 1) { has_ia = 1 }
     if (op_is3(ik, ir_text_cmp(), ir_text_concat(), ir_text_slice()) == 1) { has_ia = 1 }
     if (ik == ir_str_eq()) { has_ia = 1 }
@@ -1120,6 +1129,7 @@ func func_max_vreg_inst(inst: int, maxv: int): int {
     if (op_is3(ik, ir_ne(), ir_lt(), ir_le()) == 1) { has_ibk = 1 }
     if (op_is3(ik, ir_gt(), ir_ge(), ir_and()) == 1) { has_ibk = 1 }
     if (op_is3(ik, ir_or(), ir_shl(), ir_shr()) == 1) { has_ibk = 1 }
+    if (ik == ir_sar()) { has_ibk = 1 }
     if (op_is2(ik, ir_array_load(), ir_array_store()) == 1) { has_ibk = 1 }
     if (op_is3(ik, ir_text_cmp(), ir_text_concat(), ir_text_slice()) == 1) { has_ibk = 1 }
     if (ik == ir_str_eq()) { has_ibk = 1 }
@@ -1317,7 +1327,7 @@ func cg_p1_inst_sz(p2fctx: int, src: str, f: int, inst: int): int {
     if op_is2(op, ir_and(), ir_or()) == 1 { return 21 }
     if op == ir_not() { return 24 }
     if op == ir_neg() { return 17 }
-    if op_is2(op, ir_shl(), ir_shr()) == 1 { return 24 }
+    if op_is3(op, ir_shl(), ir_shr(), ir_sar()) == 1 { return 24 }
     if op_is3(op, ir_load(), ir_store(), ir_copy()) == 1 { return 14 }
     if op_is2(op, ir_global_load(), ir_global_store()) == 1 { return 14 }
     if op_is2(op, ir_array_load(), ir_array_store()) == 1 { return 61 }
@@ -1469,11 +1479,12 @@ func cg_p2_bitops(out: int, op: int, res: int, a: int, bv: int, extra: int): int
         if op == ir_or() { int_vec_push(out, 72) int_vec_push(out, 11) int_vec_push(out, 133) emit_i32(out, stack_disp32(bv)) }
         emit_mov_rax_to_stack(out, res)
     }
-    if op_is2(op, ir_shl(), ir_shr()) == 1 {
+    if op_is3(op, ir_shl(), ir_shr(), ir_sar()) == 1 {
         int_vec_push(out, 72) int_vec_push(out, 139) int_vec_push(out, 141) emit_i32(out, stack_disp32(bv))
         emit_mov_stack_to_rax(out, a)
         if op == ir_shl() { int_vec_push(out, 72) int_vec_push(out, 211) int_vec_push(out, 224) }
-        if op == ir_shr() { int_vec_push(out, 72) int_vec_push(out, 211) int_vec_push(out, 248) }
+        if op == ir_shr() { int_vec_push(out, 72) int_vec_push(out, 211) int_vec_push(out, 232) }
+        if op == ir_sar() { int_vec_push(out, 72) int_vec_push(out, 211) int_vec_push(out, 248) }
         emit_mov_rax_to_stack(out, res)
     }
     if op_is2(op, ir_not(), ir_neg()) == 1 {

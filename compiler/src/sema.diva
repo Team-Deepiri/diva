@@ -526,8 +526,8 @@ func sema_type_from_node(c: int, type_node: int, src: str, toks: int): int {
     }
     var tn = tok_text(src, toks, ast_child(type_node, 0))
     if str_eq(tn, "int") == 1 { return ir_ty_int() }
-    // Integer/float width type names (Issue #86). All share the machine-word
-    // representation for now; per-width semantics are a follow-up.
+    // Width types (Issue #86) map to the machine-word IR type. Narrowing and
+    // sign/zero extension happen in the cast lowering; f32/f64 stay identity.
     if str_eq(tn, "i8") == 1 { return ir_ty_int() }
     if str_eq(tn, "i16") == 1 { return ir_ty_int() }
     if str_eq(tn, "i32") == 1 { return ir_ty_int() }

@@ -1573,6 +1573,40 @@ func lower_expr_index(ctx: int, src: str, node: int): int {
     return r2
 }
 
+func ib_lower_width_cast(ctx: int, src: str, operand: int, tnm: str): int {
+    var shift = 0
+    var signed = 0
+    if str_eq(tnm, "i8") == 1 {
+        shift = 56
+        signed = 1
+    }
+    if str_eq(tnm, "i16") == 1 {
+        shift = 48
+        signed = 1
+    }
+    if str_eq(tnm, "i32") == 1 {
+        shift = 32
+        signed = 1
+    }
+    if str_eq(tnm, "u8") == 1 { shift = 56 }
+    if str_eq(tnm, "u16") == 1 { shift = 48 }
+    if str_eq(tnm, "u32") == 1 { shift = 32 }
+    if shift == 0 {
+        return operand
+    }
+    var samt = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), samt, shift, 0, 0))
+    var shifted = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_shl(), shifted, operand, samt, 0))
+    var r = ib_fresh_vreg(ctx)
+    if signed == 1 {
+        ib_emit(ctx, ir_inst(ir_sar(), r, shifted, samt, 0))
+    } else {
+        ib_emit(ctx, ir_inst(ir_shr(), r, shifted, samt, 0))
+    }
+    return r
+}
+
 func lower_expr(ctx: int, src: str, node: int): int {
     var kind = ast_kind(node)
 
@@ -1670,9 +1704,15 @@ func lower_expr(ctx: int, src: str, node: int): int {
         return r
     }
 
-    // `expr as Type` (Issue #86): all current numeric/bool types share the
-    // machine-word representation, so the cast lowers to its operand.
-    if kind == nd_cast() { return lower_expr(ctx, src, ast_child(node, 0)) }
+    if kind == nd_cast() {
+        var casted = lower_expr(ctx, src, ast_child(node, 0))
+        var target = ast_child(node, 1)
+        if ast_kind(target) == nd_type_name() {
+            var tnm = ib_tok_text(ctx, src, ast_child(target, 0))
+            return ib_lower_width_cast(ctx, src, casted, tnm)
+        }
+        return casted
+    }
 
     if kind == nd_call() { return lower_expr_call(ctx, src, node) }
     if kind == nd_generic_call() { return lower_expr_generic_call(ctx, src, node) }

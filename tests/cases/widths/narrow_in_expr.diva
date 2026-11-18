@@ -1,0 +1,6 @@
+func main(): int {
+    if ((300 as i8) + 100) != 144 { return 1 }
+    if ((200 as i8) + 1) != (-55) { return 2 }
+    if ((-1 as u8) + 1) != 256 { return 3 }
+    return 0
+}
