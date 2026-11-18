@@ -1,0 +1,5 @@
+// #95 negative: repr requires a layout argument.
+#[repr]
+struct S { var x: int }
+
+func main(): int { return 0 }

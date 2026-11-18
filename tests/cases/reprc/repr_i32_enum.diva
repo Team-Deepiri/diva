@@ -1,0 +1,9 @@
+// #95: #[repr(iN)] on an enum is accepted and documented as the intended tag
+// type; the existing enum lowering is unchanged.
+#[repr(i32)]
+enum Color { Red, Green, Blue }
+
+func main(): int {
+    var c: Color = Color::Green
+    return c.tag
+}

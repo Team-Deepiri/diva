@@ -1,0 +1,5 @@
+// #95 negative: unsupported repr layout.
+#[repr(Q)]
+struct S { var x: int }
+
+func main(): int { return 0 }

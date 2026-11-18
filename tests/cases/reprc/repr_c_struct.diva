@@ -1,0 +1,12 @@
+// #95: #[repr(C)] is a no-op layout marker; flat structs keep their existing
+// word layout and can still be constructed and read.
+#[repr(C)]
+struct Point {
+    var x: int
+    var y: int
+}
+
+func main(): int {
+    let p: Point = Point { x: 20, y: 22 }
+    return p.x + p.y
+}

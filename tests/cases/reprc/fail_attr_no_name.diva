@@ -1,0 +1,5 @@
+// #95 negative: attribute name must be an identifier.
+#[123]
+struct S { var x: int }
+
+func main(): int { return 0 }

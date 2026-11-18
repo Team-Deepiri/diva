@@ -1106,14 +1106,111 @@ func parse_use_decl(ps: int, src: str): int {
     return ast_use(path)
 }
 
+// --- Attributes (Issue #95) ---
+// Syntax: #[name] or #[name(args)]. Attributes on a top-level item are parsed
+// and validated but not yet stored on AST nodes: they are currently no-op
+// metadata. `repr` accepts the flat-layout marker C and the integer tag types
+// i8/i16/i32/i64/u8/u16/u32/u64/isize/usize (documented for enums).
+
+func p_attr_error(ps: int, src: str, msg: str): int {
+    if ps_quiet(ps) == 0 {
+        p_diag(ps, src)
+        stderr("parse error: ")
+        stderr(msg)
+        stderr("\n")
+    }
+    ps_set_err(ps)
+    return 0
+}
+
+func p_repr_layout_ok(name: str): int {
+    if str_eq(name, "C") == 1 { return 1 }
+    if str_eq(name, "i8") == 1 { return 1 }
+    if str_eq(name, "i16") == 1 { return 1 }
+    if str_eq(name, "i32") == 1 { return 1 }
+    if str_eq(name, "i64") == 1 { return 1 }
+    if str_eq(name, "u8") == 1 { return 1 }
+    if str_eq(name, "u16") == 1 { return 1 }
+    if str_eq(name, "u32") == 1 { return 1 }
+    if str_eq(name, "u64") == 1 { return 1 }
+    if str_eq(name, "isize") == 1 { return 1 }
+    if str_eq(name, "usize") == 1 { return 1 }
+    return 0
+}
+
+func p_repr_args(ps: int, src: str): int {
+    p_advance(ps)
+    if p_cur(ps) != tk_ident() {
+        return p_attr_error(ps, src, "repr expects a layout name (C or i8/i16/i32/i64/u8/u16/u32/u64/isize/usize)")
+    }
+    var tok = p_advance(ps)
+    var layout = p_text(ps, src, tok)
+    if p_repr_layout_ok(layout) == 0 {
+        return p_attr_error(ps, src, "unknown repr layout (expected C or i8/i16/i32/i64/u8/u16/u32/u64/isize/usize)")
+    }
+    if p_cur(ps) == tk_comma() {
+        return p_attr_error(ps, src, "repr accepts a single layout argument")
+    }
+    p_expect(ps, src, tk_rparen())
+    return ps_err(ps)
+}
+
+func p_skip_attr_args(ps: int, src: str): int {
+    p_advance(ps)
+    var depth = 1
+    while depth > 0 & p_cur(ps) != tk_eof() {
+        var k = p_cur(ps)
+        if k == tk_lparen() { depth = depth + 1 }
+        if k == tk_rparen() { depth = depth - 1 }
+        p_advance(ps)
+    }
+    if depth != 0 {
+        return p_attr_error(ps, src, "unterminated attribute arguments")
+    }
+    return 0
+}
+
+func p_parse_attributes(ps: int, src: str): int {
+    var count = 0
+    while p_cur(ps) == tk_hash() & ps_err(ps) == 0 {
+        count = count + 1
+        p_advance(ps)
+        p_expect(ps, src, tk_lbrack())
+        if ps_err(ps) != 0 { return count }
+        if p_cur(ps) != tk_ident() {
+            return p_attr_error(ps, src, "expected attribute name after '#['")
+        }
+        var name_tok = p_advance(ps)
+        var name = p_text(ps, src, name_tok)
+        if str_eq(name, "repr") == 1 {
+            if p_cur(ps) != tk_lparen() {
+                p_attr_error(ps, src, "repr expects a layout name (C or i8/i16/i32/i64/u8/u16/u32/u64/isize/usize)")
+                return count
+            }
+            p_repr_args(ps, src)
+        } else {
+            if p_cur(ps) == tk_lparen() {
+                p_skip_attr_args(ps, src)
+            }
+        }
+        if ps_err(ps) != 0 { return count }
+        p_expect(ps, src, tk_rbrack())
+    }
+    return count
+}
+
 func parse_top_level(ps: int, src: str): int {
     var children = int_vec_new()
     while p_cur(ps) != tk_eof() {
         if ps_err(ps) != 0 { return ast_file(children) }
         p_skip_semi(ps)
+        p_parse_attributes(ps, src)
+        if ps_err(ps) != 0 { return ast_file(children) }
         var kind = p_cur(ps)
         if kind == tk_pub() {
             p_advance(ps)
+            p_parse_attributes(ps, src)
+            if ps_err(ps) != 0 { return ast_file(children) }
             kind = p_cur(ps)
         }
 
