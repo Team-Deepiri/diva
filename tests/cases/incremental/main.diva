@@ -1,0 +1,8 @@
+extern func print_int(x: int): void
+
+import "dep.diva"
+
+func main(): int {
+    print_int(answer())
+    return 0
+}
