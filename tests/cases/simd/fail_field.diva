@@ -1,0 +1,7 @@
+struct Box {
+    v: vec4
+}
+
+func main(): int {
+    return 7;
+}

@@ -1,0 +1,4 @@
+func main(): int {
+    let xs: vec4[];
+    return 7;
+}

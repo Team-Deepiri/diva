@@ -1,0 +1,3 @@
+func answer(): int {
+    return 7
+}

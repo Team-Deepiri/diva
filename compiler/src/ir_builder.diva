@@ -132,6 +132,7 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, mut_new(int_vec_new())) // [20] reference flag per local (Issue #90)
     int_vec_push(ctx, mut_new(int_vec_new())) // [21] reference pointee struct type tok per local
     int_vec_push(ctx, int_vec_new())          // [22] trait-impl dispatch map (Issue #135)
+    int_vec_push(ctx, mut_new(int_vec_new()))
     return ctx
 }
 
@@ -167,6 +168,10 @@ func bctx_modules(ctx: int): int {
 // [impl_node, method_index, trait_tok, type_tok, method_tok, func_tok].
 func bctx_dispatch_map(ctx: int): int {
     return int_vec_get(ctx, 22)
+}
+
+func bctx_vec4_flags(ctx: int): int {
+    return mut_get(int_vec_get(ctx, 23))
 }
 
 func bctx_struct_ty(ctx: int): int {
@@ -594,6 +599,7 @@ func ib_define_local(ctx: int, def_name_tok: int): int {
     int_vec_push(bctx_slice_flags(ctx), 0)
     int_vec_push(bctx_ref_flags(ctx), 0)
     int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_vec4_flags(ctx), 0)
     return slot
 }
 
@@ -610,6 +616,7 @@ func ib_define_ref_local(ctx: int, def_name_tok: int, pointee_sty: int): int {
     int_vec_push(bctx_slice_flags(ctx), 0)
     int_vec_push(bctx_ref_flags(ctx), 1)
     int_vec_push(bctx_ref_sty(ctx), pointee_sty)
+    int_vec_push(bctx_vec4_flags(ctx), 0)
     return slot
 }
 
@@ -625,6 +632,7 @@ func ib_define_slice_local(ctx: int, def_name_tok: int): int {
     int_vec_push(bctx_slice_flags(ctx), 1)
     int_vec_push(bctx_ref_flags(ctx), 0)
     int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_vec4_flags(ctx), 0)
     return slot
 }
 
@@ -647,6 +655,7 @@ func ib_define_enum_local(ctx: int, def_name_tok: int, enum_name_tok: int, width
     int_vec_push(bctx_slice_flags(ctx), 0)
     int_vec_push(bctx_ref_flags(ctx), 0)
     int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_vec4_flags(ctx), 0)
     return base
 }
 
@@ -670,6 +679,7 @@ func ib_define_array_local(ctx: int, def_name_tok: int, n: int, stride: int, ele
     int_vec_push(bctx_slice_flags(ctx), 0)
     int_vec_push(bctx_ref_flags(ctx), 0)
     int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_vec4_flags(ctx), 0)
     return base
 }
 
@@ -690,6 +700,42 @@ func ib_define_struct_local(ctx: int, def_name_tok: int, n: int, type_name_tok: 
     int_vec_push(bctx_slice_flags(ctx), 0)
     int_vec_push(bctx_ref_flags(ctx), 0)
     int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_vec4_flags(ctx), 0)
+    return base
+}
+
+func ib_define_vec4_local(ctx: int, def_name_tok: int): int {
+    var base = ib_fresh_vreg(ctx)
+    var j = 1
+    while (j < 4) {
+        ib_fresh_vreg(ctx)
+        j = j + 1
+    }
+    int_vec_push(bctx_names(ctx), def_name_tok)
+    int_vec_push(bctx_slots(ctx), base)
+    int_vec_push(bctx_array_lens(ctx), 4)
+    int_vec_push(bctx_struct_ty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_array_strides(ctx), 0)
+    int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
+    int_vec_push(bctx_slice_flags(ctx), 0)
+    int_vec_push(bctx_ref_flags(ctx), 0)
+    int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_vec4_flags(ctx), 1)
+    return base
+}
+
+func ib_vec4_tmp(ctx: int): int {
+    var base = ib_fresh_vreg(ctx)
+    var j = 1
+    while (j < 4) {
+        ib_fresh_vreg(ctx)
+        j = j + 1
+    }
+    var i = 0
+    while (i < 4) {
+        ib_emit(ctx, ir_inst(ir_alloca(), base + i, 0, 0, 0))
+        i = i + 1
+    }
     return base
 }
 
@@ -724,6 +770,7 @@ func ib_define_dyn_local(ctx: int, def_name_tok: int, width: int, trait_tok: int
     int_vec_push(bctx_slice_flags(ctx), 0)
     int_vec_push(bctx_ref_flags(ctx), 0)
     int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_vec4_flags(ctx), 0)
     return base
 }
 
@@ -856,6 +903,38 @@ func ib_lookup_is_ref_tok(ctx: int, src: str, use_tok: int): int {
     var toks = bctx_toks(ctx)
     var names = bctx_names(ctx)
     var flags = bctx_ref_flags(ctx)
+    var n2 = int_vec_len(names)
+    var found = 0
+    var j = 0
+    while (j < n2) {
+        if tok_spelling_eq(src, toks, int_vec_get(names, j), use_tok) == 1 {
+            found = int_vec_get(flags, j)
+        }
+        j = j + 1
+    }
+    return found
+}
+
+func ib_lookup_is_vec4(ctx: int, src: str, name: str): int {
+    var toks = bctx_toks(ctx)
+    var names = bctx_names(ctx)
+    var flags = bctx_vec4_flags(ctx)
+    var n2 = int_vec_len(names)
+    var found = 0
+    var j = 0
+    while (j < n2) {
+        if str_eq_tok_spelling(name, src, toks, int_vec_get(names, j)) == 1 {
+            found = int_vec_get(flags, j)
+        }
+        j = j + 1
+    }
+    return found
+}
+
+func ib_lookup_is_vec4_tok(ctx: int, src: str, use_tok: int): int {
+    var toks = bctx_toks(ctx)
+    var names = bctx_names(ctx)
+    var flags = bctx_vec4_flags(ctx)
     var n2 = int_vec_len(names)
     var found = 0
     var j = 0
@@ -1030,6 +1109,7 @@ func lower_expr_ident(ctx: int, src: str, node: int): int {
         ib_emit(ctx, ir_inst(ir_const(), r, 0, 0, 0))
         return r
     }
+    if ib_lookup_is_vec4_tok(ctx, src, tok_idx) == 1 { return slot }
     var r = ib_fresh_vreg(ctx)
     ib_emit(ctx, ir_inst(ir_load(), r, slot, 0, 0))
     // Auto-deref on read: a reference expression yields the pointee value
@@ -1141,10 +1221,69 @@ func ib_expr_is_text(ctx: int, src: str, node: int): int {
     return 0
 }
 
+func ib_vec4_builtin(nm: str): int {
+    if str_eq(nm, "vec4_splat") == 1 { return 1 }
+    if str_eq(nm, "vec4_load") == 1 { return 2 }
+    if str_eq(nm, "vec4_get") == 1 { return 3 }
+    if str_eq(nm, "vec4_sum") == 1 { return 4 }
+    return 0
+}
+
+func ib_expr_is_vec4(ctx: int, src: str, node: int): int {
+    if node < 0 { return 0 }
+    var k = ast_kind(node)
+    if k == nd_ident() {
+        return ib_lookup_is_vec4_tok(ctx, src, ast_child(node, 0))
+    }
+    if k == nd_call() {
+        var callee = ast_child(node, 0)
+        if ast_kind(callee) == nd_ident() {
+            var bop = ib_vec4_builtin(ib_tok_text(ctx, src, ast_child(callee, 0)))
+            if bop == 1 { return 1 }
+            if bop == 2 { return 1 }
+        }
+        return 0
+    }
+    if k == nd_binop() {
+        return ib_expr_is_vec4(ctx, src, ast_child(node, 1))
+    }
+    if k == nd_if_expr() {
+        return ib_expr_is_vec4(ctx, src, ast_child(node, 1))
+    }
+    return 0
+}
+
+func ib_lower_vec4_binop(ctx: int, irop: int, lbase: int, rbase: int): int {
+    var dst = ib_vec4_tmp(ctx)
+    var i = 0
+    while (i < 4) {
+        var lv = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), lv, lbase + i, 0, 0))
+        var rv = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), rv, rbase + i, 0, 0))
+        var av = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(irop, av, lv, rv, 0))
+        ib_emit(ctx, ir_inst(ir_store(), dst + i, av, 0, 0))
+        i = i + 1
+    }
+    return dst
+}
+
 func lower_expr_binop(ctx: int, src: str, node: int): int {
     var op = ast_child(node, 0)
     var lnode = ast_child(node, 1)
     var rnode = ast_child(node, 2)
+    if (ib_expr_is_vec4(ctx, src, lnode) == 1) & (ib_expr_is_vec4(ctx, src, rnode) == 1) {
+        var vop = ir_nop()
+        if op == binop_add() { vop = ir_add() }
+        if op == binop_sub() { vop = ir_sub() }
+        if op == binop_mul() { vop = ir_mul() }
+        if vop != ir_nop() {
+            var lb = lower_expr(ctx, src, lnode)
+            var rb = lower_expr(ctx, src, rnode)
+            return ib_lower_vec4_binop(ctx, vop, lb, rb)
+        }
+    }
     if (ib_expr_is_text(ctx, src, lnode) == 1) & (ib_expr_is_text(ctx, src, rnode) == 1) {
         var tleft = lower_expr(ctx, src, lnode)
         var tright = lower_expr(ctx, src, rnode)
@@ -1205,6 +1344,50 @@ func ib_atomic_op(nm: str): int {
     return 0 - 1
 }
 
+func ib_lower_vec4_builtin(ctx: int, src: str, args_h: int, op: int): int {
+    if op == 1 {
+        var x = lower_expr(ctx, src, int_vec_get(args_h, 0))
+        var base = ib_vec4_tmp(ctx)
+        var i = 0
+        while (i < 4) {
+            ib_emit(ctx, ir_inst(ir_store(), base + i, x, 0, 0))
+            i = i + 1
+        }
+        return base
+    }
+    if op == 2 {
+        var v0 = lower_expr(ctx, src, int_vec_get(args_h, 0))
+        var v1 = lower_expr(ctx, src, int_vec_get(args_h, 1))
+        var v2 = lower_expr(ctx, src, int_vec_get(args_h, 2))
+        var v3 = lower_expr(ctx, src, int_vec_get(args_h, 3))
+        var lb = ib_vec4_tmp(ctx)
+        ib_emit(ctx, ir_inst(ir_store(), lb, v0, 0, 0))
+        ib_emit(ctx, ir_inst(ir_store(), lb + 1, v1, 0, 0))
+        ib_emit(ctx, ir_inst(ir_store(), lb + 2, v2, 0, 0))
+        ib_emit(ctx, ir_inst(ir_store(), lb + 3, v3, 0, 0))
+        return lb
+    }
+    var vbase = lower_expr(ctx, src, int_vec_get(args_h, 0))
+    if op == 3 {
+        var idx = lower_expr(ctx, src, int_vec_get(args_h, 1))
+        var got = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_array_load(), got, vbase, idx, 4))
+        return got
+    }
+    var acc = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), acc, 0, 0, 0))
+    var j = 0
+    while (j < 4) {
+        var lv = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), lv, vbase + j, 0, 0))
+        var nx = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_add(), nx, acc, lv, 0))
+        acc = nx
+        j = j + 1
+    }
+    return acc
+}
+
 func lower_expr_builtin_call(ctx: int, src: str, args_h: int, op: int): int {
     var r = ib_fresh_vreg(ctx)
     if op == ir_fence() {
@@ -1244,6 +1427,10 @@ func lower_expr_call(ctx: int, src: str, node: int): int {
                 lower_expr(ctx, src, int_vec_get(args_h, 0))
             }
             return ib_lower_variant_ctor(ctx, src, cnm)
+        }
+        var vop = ib_vec4_builtin(cnm)
+        if vop > 0 {
+            return ib_lower_vec4_builtin(ctx, src, args_h, vop)
         }
         var bop = ib_atomic_op(cnm)
         if bop >= 0 {
@@ -2580,6 +2767,25 @@ func lower_expr_dyn_method_call(ctx: int, src: str, base: int, trait_tok: int, m
 }
 
 // Lower nd_var_decl for struct types.
+func lower_stmt_var_vec4(ctx: int, src: str, name_tok: int, init: int): int {
+    var base = ib_define_vec4_local(ctx, name_tok)
+    var si = 0
+    while (si < 4) {
+        ib_emit(ctx, ir_inst(ir_alloca(), base + si, 0, 0, 0))
+        si = si + 1
+    }
+    if init < 0 { return 0 }
+    var src_base = lower_expr(ctx, src, init)
+    var i = 0
+    while (i < 4) {
+        var lv = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_load(), lv, src_base + i, 0, 0))
+        ib_emit(ctx, ir_inst(ir_store(), base + i, lv, 0, 0))
+        i = i + 1
+    }
+    return 0
+}
+
 func lower_stmt_var_struct(ctx: int, src: str, name_tok: int, type_name_tok: int, init: int): int {
     var sw = ib_type_struct_width(ctx, src, type_name_tok)
     if sw < 1 { return 0 }
@@ -2878,6 +3084,17 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
         var name_tok = ast_child(target, 0)
         var slot = ib_lookup_by_name_tok(ctx, src, name_tok)
         if (slot < 0) == 0 {
+            if ib_lookup_is_vec4(ctx, src, ib_tok_text(ctx, src, name_tok)) == 1 {
+                var vbase = lower_expr(ctx, src, value)
+                var vi = 0
+                while (vi < 4) {
+                    var vv = ib_fresh_vreg(ctx)
+                    ib_emit(ctx, ir_inst(ir_load(), vv, vbase + vi, 0, 0))
+                    ib_emit(ctx, ir_inst(ir_store(), slot + vi, vv, 0, 0))
+                    vi = vi + 1
+                }
+                return 0
+            }
             // dyn local: `d = <concrete>` rewrites tag + payload (#135).
             var dyn_trait_tok = ib_lookup_dyn_trait(ctx, src, ib_tok_text(ctx, src, name_tok))
             if dyn_trait_tok >= 0 {
@@ -3060,10 +3277,20 @@ func lower_stmt(ctx: int, src: str, node: int): int {
 
         if (type_node < 0) == 0 {
             if ast_kind(type_node) == nd_type_name() {
+                var type_name_tok = ast_child(type_node, 0)
+                if str_eq(ib_tok_text(ctx, src, type_name_tok), "vec4") == 1 {
+                    lower_stmt_var_vec4(ctx, src, name_tok, init)
+                    return 0
+                }
                 if (init < 0) == 0 {
-                    var type_name_tok = ast_child(type_node, 0)
                     if lower_stmt_var_struct(ctx, src, name_tok, type_name_tok, init) == 1 { return 0 }
                 }
+            }
+        }
+        if (type_node < 0) & (init >= 0) {
+            if ib_expr_is_vec4(ctx, src, init) == 1 {
+                lower_stmt_var_vec4(ctx, src, name_tok, init)
+                return 0
             }
         }
 

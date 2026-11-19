@@ -1,0 +1,7 @@
+func main(): int {
+    let v: vec4 = vec4_splat(1);
+    var i: int = 4;
+    let x: int = vec4_get(v, i);
+    if x == 0 { return 7; }
+    return 7;
+}
