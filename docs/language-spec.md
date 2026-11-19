@@ -610,6 +610,14 @@ func main(): int {
 - **Atomics (Issue #98):** `atomic_load`, `atomic_store`, `atomic_add`,
   `atomic_xchg`, `atomic_cas`, and `fence` lower to real x86-64 atomic
   instructions and require an `unsafe` context. See `docs/atomics.md`.
+- **SIMD vectors (Issue #99):** `vec4` with `vec4_splat`, `vec4_load`,
+  `vec4_get`, `vec4_sum`, and lane-wise `+ - *`, lowered to scalar lanes.
+  See `docs/simd.md`.
+- **Inlining/LTO (Issue #116):** conservative whole-program IR inlining of
+  small leaf functions; disable with `--no-inline`. See `docs/inlining.md`.
+- **Incremental builds (Issue #115):** content-addressed whole-program build
+  cache under `.diva-cache/`; disable with `--no-cache` or `DIVA_NO_CACHE=1`.
+  See `docs/incremental.md`.
 - explicit generic functions with call-site type arguments like `identity[int](7)`
 - class declarations with methods
 - `enum` declarations with unit and single-payload variants, bare-name and
