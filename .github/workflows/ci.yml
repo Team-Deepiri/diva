@@ -205,6 +205,33 @@ jobs:
       - name: Run atomics gate (builds driver from seed)
         run: sh tests/atomics.sh
 
+  simd:
+    name: SIMD vectors (#99)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run SIMD gate (builds driver from seed)
+        run: sh tests/simd.sh
+
+  lto:
+    name: IR inlining / LTO (#116)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run LTO gate (builds driver from seed)
+        run: sh tests/lto.sh
+
+  incremental:
+    name: incremental build cache (#115)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run incremental cache gate (builds driver from seed)
+        run: bash tests/incremental.sh
+
   selfhost-consistency:
     name: selfhost consistency (stage2 = stage3)
     runs-on: ubuntu-latest
