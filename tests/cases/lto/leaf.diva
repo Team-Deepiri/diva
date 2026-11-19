@@ -1,0 +1,25 @@
+import "std/io.diva"
+
+var g: int = 0
+
+func inc(x: int): int {
+    return x + 1
+}
+
+func sum3(a: int, b: int, c: int): int {
+    return a + b + c
+}
+
+func store_g(x: int): void {
+    g = x
+    return
+}
+
+func main(): int {
+    print_int(inc(41))
+    print_int(sum3(2, 3, 4))
+    store_g(7)
+    print_int(g)
+    print_int(inc(inc(0)))
+    return 0
+}
