@@ -1,0 +1,8 @@
+func main(): int {
+    let a: vec4 = vec4_load(1, 2, 3, 4);
+    let b: vec4 = vec4_load(10, 20, 30, 40);
+    let c: vec4 = a + b;
+    let total: int = vec4_sum(c);
+    if total == 110 { return 42; }
+    return 7;
+}

@@ -23,6 +23,7 @@ func ir_ty_text(): int { return 5 }
 // Slices are a distinct type but, unlike enums (which occupy 6,7,...), use a
 // high fixed id so it can never collide with a user enum's assigned type.
 func ir_ty_slice(): int { return 1099 }
+func ir_ty_vec4(): int  { return 1100 }
 
 // --- IR opcodes ---
 

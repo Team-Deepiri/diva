@@ -1,0 +1,8 @@
+func main(): int {
+    let a: vec4 = vec4_splat(2);
+    let b: vec4 = vec4_splat(3);
+    let c: vec4 = a * b;
+    let s: int = vec4_sum(c);
+    if s == 24 { return 42; }
+    return 7;
+}

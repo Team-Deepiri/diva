@@ -1,0 +1,12 @@
+func main(): int {
+    let v: vec4 = vec4_load(10, 20, 30, 40);
+    let t0: int = vec4_get(v, 0);
+    let t1: int = vec4_get(v, 1);
+    let t2: int = vec4_get(v, 2);
+    let t3: int = vec4_get(v, 3);
+    let total: int = ((t0 + t1) + t2) + t3;
+    if total == 100 {
+        if t3 == 40 { return 42; }
+    }
+    return 7;
+}
