@@ -1,0 +1,35 @@
+import "std/io.diva"
+
+func big(x: int): int {
+    var y = x
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    y = y + 1
+    return y
+}
+
+func main(): int {
+    print_int(big(0))
+    return 0
+}

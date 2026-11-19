@@ -1,6 +1,9 @@
 import "std/vec.diva"
 import "std/mem.diva"
+import "std/host.diva"
 import "cell.diva"
+import "tokens.diva"
+import "name_pool.diva"
 import "ir.diva"
 
 func opt_clear_array(arr: int, limit: int): int {
@@ -506,8 +509,457 @@ func opt_module_pass(m: int, consts: int, cknown: int, uses: int, chng: int, lim
     return opt_rebuild_module(m, out_funcs)
 }
 
-func optimize_module(m: int): int {
-    var limit = opt_module_max(m) + 1
+func il_op_supported(op: int): int {
+    if op == ir_const() { return 1 }
+    if op == ir_const_str() { return 1 }
+    if op == ir_add() { return 1 }
+    if op == ir_sub() { return 1 }
+    if op == ir_mul() { return 1 }
+    if op == ir_div() { return 1 }
+    if op == ir_mod() { return 1 }
+    if op == ir_neg() { return 1 }
+    if op == ir_eq() { return 1 }
+    if op == ir_ne() { return 1 }
+    if op == ir_lt() { return 1 }
+    if op == ir_le() { return 1 }
+    if op == ir_gt() { return 1 }
+    if op == ir_ge() { return 1 }
+    if op == ir_and() { return 1 }
+    if op == ir_or() { return 1 }
+    if op == ir_not() { return 1 }
+    if op == ir_shl() { return 1 }
+    if op == ir_shr() { return 1 }
+    if op == ir_sar() { return 1 }
+    if op == ir_xor() { return 1 }
+    if op == ir_load() { return 1 }
+    if op == ir_store() { return 1 }
+    if op == ir_copy() { return 1 }
+    if op == ir_alloca() { return 1 }
+    if op == ir_param() { return 1 }
+    if op == ir_global_load() { return 1 }
+    if op == ir_global_store() { return 1 }
+    if op == ir_array_load() { return 1 }
+    if op == ir_array_store() { return 1 }
+    if op == ir_const_text() { return 1 }
+    if op == ir_text_cmp() { return 1 }
+    if op == ir_text_concat() { return 1 }
+    if op == ir_text_slice() { return 1 }
+    if op == ir_str_eq() { return 1 }
+    if op == ir_ptr_load() { return 1 }
+    if op == ir_ptr_store() { return 1 }
+    if op == ir_addr_of() { return 1 }
+    if op == ir_atomic_load() { return 1 }
+    if op == ir_atomic_store() { return 1 }
+    if op == ir_atomic_add() { return 1 }
+    if op == ir_atomic_xchg() { return 1 }
+    if op == ir_atomic_cas() { return 1 }
+    if op == ir_fence() { return 1 }
+    return 0
+}
+
+func il_func_eligible(f: int): int {
+    if func_block_count(f) != 1 { return 0 }
+    if func_param_count(f) > 6 { return 0 }
+    var blk = func_get_block(f, 0)
+    var n = block_inst_count(blk)
+    if n < 1 { return 0 }
+    if n > 24 { return 0 }
+    var rets = 0
+    var i = 0
+    while i < n {
+        var inst = block_get_inst(blk, i)
+        var op = inst_op(inst)
+        if (op == ir_ret()) | (op == ir_ret_void()) {
+            rets = rets + 1
+            if i != n - 1 { return 0 }
+        } else {
+            if il_op_supported(op) == 0 { return 0 }
+        }
+        i = i + 1
+    }
+    if rets != 1 { return 0 }
+    return 1
+}
+
+func il_params_ok(f: int, argc: int): int {
+    var blk = func_get_block(f, 0)
+    var n = block_inst_count(blk)
+    var seen = 0
+    var i = 0
+    while i < n {
+        var inst = block_get_inst(blk, i)
+        if inst_op(inst) == ir_param() {
+            var pi = inst_a(inst)
+            if (pi < 0) | (pi >= argc) { return 0 }
+            seen = seen + 1
+        }
+        i = i + 1
+    }
+    if seen != func_param_count(f) { return 0 }
+    return 1
+}
+
+func il_func_name(m: int, src: str, toks: int, tok: int): str {
+    if name_pool_is_synthetic(tok) == 1 {
+        var pool = mod_name_pool(m)
+        if pool >= 0 {
+            var nm = name_pool_text(pool, tok)
+            if str_len(nm) > 0 { return nm }
+        }
+        return ""
+    }
+    return tok_text(src, toks, tok)
+}
+
+func il_resolve_func(m: int, src: str, toks: int, call_tok: int): int {
+    if name_pool_is_synthetic(call_tok) == 1 {
+        var ali = mod_alias_lookup(m, call_tok)
+        if (ali >= 0) & (ali < mod_func_count(m)) { return ali }
+    }
+    var want = il_func_name(m, src, toks, call_tok)
+    if str_len(want) == 0 { return 0 - 1 }
+    var fc = mod_func_count(m)
+    var i = 0
+    while i < fc {
+        var f = mod_get_func(m, i)
+        var have = il_func_name(m, src, toks, func_name_tok(f))
+        if str_len(have) > 0 {
+            if str_eq(have, want) == 1 { return i }
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func il_is_entry(m: int, src: str, toks: int, idx: int): int {
+    var nm = il_func_name(m, src, toks, func_name_tok(mod_get_func(m, idx)))
+    if str_eq(nm, "main") == 1 { return 1 }
+    if str_eq(nm, "kmain") == 1 { return 1 }
+    return 0
+}
+
+func il_map_get(map: int, v: int): int {
+    if v < 0 { return 0 - 1 }
+    var n = int_vec_len(map)
+    var i = 0
+    while (i + 1) < n {
+        if int_vec_get(map, i) == v { return int_vec_get(map, i + 1) }
+        i = i + 2
+    }
+    return 0 - 1
+}
+
+func il_map_put(map: int, old_v: int, new_v: int): int {
+    if old_v < 0 { return 0 }
+    if il_map_get(map, old_v) >= 0 { return 0 }
+    int_vec_push(map, old_v)
+    int_vec_push(map, new_v)
+    return 0
+}
+
+func il_map_val(map: int, v: int): int {
+    if v < 0 { return v }
+    var mapped = il_map_get(map, v)
+    if mapped >= 0 { return mapped }
+    return v
+}
+
+func il_arg_at(call: int, idx: int): int {
+    var argc = inst_b(call)
+    var extra = inst_extra(call)
+    if (idx < 0) | (idx >= argc) { return 0 - 1 }
+    if argc == 1 { return extra }
+    if extra < 0 { return 0 - 1 }
+    return int_vec_get(extra, idx)
+}
+
+func il_ctx_new(m: int, toks: int, caller: int, touched: int, chng: int, next: int): int {
+    var c = int_vec_new()
+    int_vec_push(c, m)
+    int_vec_push(c, toks)
+    int_vec_push(c, caller)
+    int_vec_push(c, touched)
+    int_vec_push(c, chng)
+    int_vec_push(c, next)
+    return c
+}
+
+func il_ctx_module(c: int): int     { return int_vec_get(c, 0) }
+func il_ctx_caller(c: int): int     { return int_vec_get(c, 2) }
+func il_ctx_touched(c: int): int    { return int_vec_get(c, 3) }
+func il_ctx_chng(c: int): int       { return int_vec_get(c, 4) }
+func il_ctx_next(c: int): int       { return int_vec_get(c, 5) }
+
+func il_fresh_cell(cell: int): int {
+    var v = mut_get(cell)
+    mut_set(cell, v + 1)
+    return v
+}
+
+func il_fresh(st: int): int {
+    return il_fresh_cell(int_vec_get(st, 1))
+}
+
+func il_clone_inst(inst: int, st: int): int {
+    var op = inst_op(inst)
+    var r = inst_result(inst)
+    var a = inst_a(inst)
+    var b = inst_b(inst)
+    var ex = inst_extra(inst)
+    var map = int_vec_get(st, 0)
+    var nr = r
+    if op == ir_global_store() {
+        nr = r
+    } else {
+        if (op == ir_store()) | (op == ir_array_store()) {
+            nr = il_map_val(map, r)
+        } else {
+            if r >= 0 {
+                nr = il_fresh(st)
+                il_map_put(map, r, nr)
+            }
+        }
+    }
+    var na = a
+    if (op == ir_const()) | (op == ir_const_str()) | (op == ir_const_text()) | (op == ir_global_load()) {
+        na = a
+    } else {
+        na = il_map_val(map, a)
+    }
+    var nb = il_map_val(map, b)
+    var nex = ex
+    if (op == ir_atomic_cas()) | (op == ir_text_slice()) {
+        nex = il_map_val(map, ex)
+    }
+    return ir_inst(op, nr, na, nb, nex)
+}
+
+func il_splice(ctx: int, out: int, callee: int, call: int): int {
+    var map = int_vec_new()
+    var st = int_vec_new()
+    int_vec_push(st, map)
+    int_vec_push(st, il_ctx_next(ctx))
+    var blk = func_get_block(callee, 0)
+    var n = block_inst_count(blk)
+    var i = 0
+    while i < n {
+        var inst = block_get_inst(blk, i)
+        if inst_op(inst) == ir_param() {
+            var slot = inst_result(inst)
+            var av = il_arg_at(call, inst_a(inst))
+            if av >= 0 {
+                var dst = il_fresh(st)
+                il_map_put(map, slot, dst)
+                int_vec_push(out, ir_inst(ir_alloca(), dst, 0, 0, 0))
+                int_vec_push(out, ir_inst(ir_store(), dst, av, 0, 0))
+            }
+        }
+        i = i + 1
+    }
+    i = 0
+    while i < (n - 1) {
+        var body_inst = block_get_inst(blk, i)
+        if inst_op(body_inst) != ir_param() {
+            int_vec_push(out, il_clone_inst(body_inst, st))
+        }
+        i = i + 1
+    }
+    var last = block_get_inst(blk, n - 1)
+    if inst_op(last) == ir_ret() {
+        var value = il_map_val(map, inst_a(last))
+        int_vec_push(out, ir_inst(ir_copy(), inst_result(call), value, 0 - 1, 0))
+    }
+    return 0
+}
+
+func il_can_inline(ctx: int, src: str, call: int, callee_idx: int): int {
+    if callee_idx < 0 { return 0 }
+    if callee_idx == il_ctx_caller(ctx) { return 0 }
+    var m = il_ctx_module(ctx)
+    var toks = int_vec_get(ctx, 1)
+    if il_is_entry(m, src, toks, callee_idx) == 1 { return 0 }
+    var callee = mod_get_func(m, callee_idx)
+    if il_func_eligible(callee) == 0 { return 0 }
+    var argc = inst_b(call)
+    if argc != func_param_count(callee) { return 0 }
+    if il_params_ok(callee, argc) == 0 { return 0 }
+    return 1
+}
+
+func il_block(ctx: int, src: str, blk: int): int {
+    var insts = block_insts(blk)
+    var n = int_vec_len(insts)
+    var out = int_vec_new()
+    var i = 0
+    while i < n {
+        var inst = int_vec_get(insts, i)
+        var spliced = 0
+        if inst_op(inst) == ir_call() {
+            var m = il_ctx_module(ctx)
+            var toks = int_vec_get(ctx, 1)
+            var ci = il_resolve_func(m, src, toks, inst_a(inst))
+            if il_can_inline(ctx, src, inst, ci) == 1 {
+                il_splice(ctx, out, mod_get_func(m, ci), inst)
+                int_vec_push(il_ctx_touched(ctx), ci)
+                mut_set(il_ctx_chng(ctx), 1)
+                spliced = 1
+            }
+        }
+        if spliced == 0 { int_vec_push(out, inst) }
+        i = i + 1
+    }
+    return opt_rebuild_block(blk, out)
+}
+
+func il_module_once(m: int, src: str, toks: int, chng: int, touched: int): int {
+    var funcs = mod_funcs(m)
+    var fc = int_vec_len(funcs)
+    var out = int_vec_new()
+    var i = 0
+    while i < fc {
+        var f = int_vec_get(funcs, i)
+        var next = mut_new(opt_func_max(f) + 1)
+        var ctx = il_ctx_new(m, toks, i, touched, chng, next)
+        var blocks = func_blocks(f)
+        var bc = int_vec_len(blocks)
+        var ob = int_vec_new()
+        var bi = 0
+        while bi < bc {
+            int_vec_push(ob, il_block(ctx, src, int_vec_get(blocks, bi)))
+            bi = bi + 1
+        }
+        int_vec_push(out, opt_rebuild_func(f, ob))
+        i = i + 1
+    }
+    if mut_get(chng) == 0 { return m }
+    return opt_rebuild_module(m, out)
+}
+
+func il_mark_targets(m: int, src: str, toks: int, targets: int): int {
+    var fc = mod_func_count(m)
+    var i = 0
+    while i < fc {
+        var f = mod_get_func(m, i)
+        var blocks = func_blocks(f)
+        var bi = 0
+        while bi < int_vec_len(blocks) {
+            var insts = block_insts(int_vec_get(blocks, bi))
+            var j = 0
+            while j < int_vec_len(insts) {
+                var inst = int_vec_get(insts, j)
+                if inst_op(inst) == ir_call() {
+                    var ci = il_resolve_func(m, src, toks, inst_a(inst))
+                    if (ci >= 0) & (ci < fc) { mem_set(targets, ci, 1) }
+                }
+                j = j + 1
+            }
+            bi = bi + 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func il_touched(touched: int, idx: int): int {
+    var n = int_vec_len(touched)
+    var i = 0
+    while i < n {
+        if int_vec_get(touched, i) == idx { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+func opt_rebuild_module_aliases(m: int, aliases: int): int {
+    var out = int_vec_new()
+    var n = int_vec_len(m)
+    var i = 0
+    while i < n {
+        if i == 5 {
+            int_vec_push(out, aliases)
+        } else {
+            int_vec_push(out, int_vec_get(m, i))
+        }
+        i = i + 1
+    }
+    if n < 6 { int_vec_push(out, aliases) }
+    return out
+}
+
+func il_prune(m: int, src: str, toks: int, touched: int): int {
+    var n = mod_func_count(m)
+    if n == 0 { return m }
+    var targets = mem_alloc(n * 8)
+    if targets == 0 { return m }
+    var oldmap = mem_alloc(n * 8)
+    if oldmap == 0 {
+        mem_free(targets)
+        return m
+    }
+    var i = 0
+    while i < n {
+        mem_set(targets, i, 0)
+        i = i + 1
+    }
+    il_mark_targets(m, src, toks, targets)
+    var keep = int_vec_new()
+    i = 0
+    while i < n {
+        var drop = 0
+        if (mem_get(targets, i) == 0) & (il_touched(touched, i) == 1) {
+            if il_is_entry(m, src, toks, i) == 0 { drop = 1 }
+        }
+        if drop == 1 {
+            mem_set(oldmap, i, 0 - 1)
+        } else {
+            mem_set(oldmap, i, int_vec_len(keep))
+            int_vec_push(keep, int_vec_get(mod_funcs(m), i))
+        }
+        i = i + 1
+    }
+    if int_vec_len(keep) == n {
+        mem_free(oldmap)
+        mem_free(targets)
+        return m
+    }
+    var m2 = opt_rebuild_module(m, keep)
+    var al = mod_aliases(m2)
+    if al >= 0 {
+        var newal = int_vec_new()
+        var an = int_vec_len(al)
+        var j = 0
+        while (j + 1) < an {
+            var old_idx = int_vec_get(al, j + 1)
+            if (old_idx >= 0) & (old_idx < n) {
+                var ni = mem_get(oldmap, old_idx)
+                if ni >= 0 {
+                    int_vec_push(newal, int_vec_get(al, j))
+                    int_vec_push(newal, ni)
+                }
+            }
+            j = j + 2
+        }
+        m2 = opt_rebuild_module_aliases(m2, newal)
+    }
+    mem_free(oldmap)
+    mem_free(targets)
+    return m2
+}
+
+func optimize_module(m: int, src: str, toks: int, do_inline: int): int {
+    var cur = m
+    if do_inline == 1 {
+        var touched = int_vec_new()
+        var round = 0
+        while round < 6 {
+            var ichng = mut_new(0)
+            cur = il_module_once(cur, src, toks, ichng, touched)
+            round = round + 1
+            if mut_get(ichng) == 0 { round = 6 }
+        }
+        cur = il_prune(cur, src, toks, touched)
+    }
+    var limit = opt_module_max(cur) + 1
     var bytes = limit * 8
     var consts = mem_alloc(bytes)
     var cknown = mem_alloc(bytes)
@@ -516,10 +968,9 @@ func optimize_module(m: int): int {
         if consts != 0 { mem_free(consts) }
         if cknown != 0 { mem_free(cknown) }
         if uses != 0 { mem_free(uses) }
-        return m
+        return cur
     }
     var chng = mut_new(0)
-    var cur = m
     var iter = 0
     var done = 0
     while (iter < 8) & (done == 0) {

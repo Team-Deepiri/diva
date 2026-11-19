@@ -34,8 +34,9 @@ func cmd_print_usage(): int {
     stderr("usage: diva <command> [args]\n")
     stderr("  lex <file.diva> | parse <file.diva> | ir <file.diva> | asm <file.diva>\n")
     stderr("  analyze <file.diva>\n")
-    stderr("  opt [--no-opt] <file.diva> (dump optimized / unoptimized IR)\n")
-    stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g] | run <...>\n")
+    stderr("  opt [--no-opt] [--no-inline] <file.diva> (dump optimized / unoptimized IR)\n")
+    stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g|--no-inline]\n")
+    stderr("  run [--no-inline] <file.diva|package-dir>\n")
     stderr("  watch <file.diva|package-dir> | check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline\n")
     stderr("  text <inspect|count|upper|lower|width|lines|words|contains> <file>\n")
@@ -479,7 +480,9 @@ func native_compile_and_link(merged_src: str, quiet: int, exe_out: str): int {
     var ir_result = build_ir(merged_src, stream, ast)
     var m = int_vec_get(ir_result, 0)
     var strv = int_vec_get(ir_result, 1)
-    m = optimize_module(m)
+    var inline_on = 1
+    if opt_wants_no_inline() == 1 { inline_on = 0 }
+    m = optimize_module(m, merged_src, stream, inline_on)
     if native_require_no_externs(m, merged_src, stream) != 0 { return 1 }
     var code = int_vec_new()
     var main_ent = cg_module_to_bin(m, merged_src, stream, strv, code)
@@ -927,6 +930,17 @@ func opt_wants_no_opt(): int {
     return 0
 }
 
+func opt_wants_no_inline(): int {
+    var i = 2
+    while i < host_argc() {
+        if str_eq(host_argv(i), "--no-inline") == 1 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
 func opt_pick_path(): str {
     var path = ""
     var i = 2
@@ -945,7 +959,7 @@ func opt_pick_path(): str {
 func cmd_opt(): int {
     var path = opt_pick_path()
     if str_len(path) == 0 {
-        err_line("usage: diva opt [--no-opt] <file.diva>")
+        err_line("usage: diva opt [--no-opt] [--no-inline] <file.diva>")
         return 1
     }
     var src = merge_file_sources(path)
@@ -960,8 +974,10 @@ func cmd_opt(): int {
     if sema_check_file(src_hold, stream, ast) != 0 { return 1 }
     var ir_result = build_ir(src_hold, stream, ast)
     var m = int_vec_get(ir_result, 0)
+    var inline_on = 1
+    if opt_wants_no_inline() == 1 { inline_on = 0 }
     if opt_wants_no_opt() == 0 {
-        m = optimize_module(m)
+        m = optimize_module(m, src_hold, stream, inline_on)
     }
     dump_module(m, src_hold, stream)
     return 0
@@ -1812,7 +1828,7 @@ func main(): int {
 
     if str_eq(a1, "opt") == 1 {
         if host_argc() < 3 {
-            err_line("usage: diva opt [--no-opt] <file.diva>")
+            err_line("usage: diva opt [--no-opt] [--no-inline] <file.diva>")
             return 1
         }
         return cmd_opt()
@@ -1848,11 +1864,12 @@ func main(): int {
     }
 
     if str_eq(a1, "run") == 1 {
-        if (host_argc() < 3) {
-            err_line("usage: diva run <file.diva|package-dir>")
+        var rpath = opt_pick_path()
+        if str_len(rpath) == 0 {
+            err_line("usage: diva run [--no-inline] <file.diva|package-dir>")
             return 1
         }
-        return cmd_run_file(host_argv(2))
+        return cmd_run_file(rpath)
     }
 
     if str_eq(a1, "compiler-version") == 1 {
