@@ -1225,6 +1225,261 @@ func cmd_check(): int {
     return 0
 }
 
+func cache_disabled(): int {
+    var env = host_getenv("DIVA_NO_CACHE")
+    var env_hold = env
+    if str_eq(env_hold, "1") == 1 {
+        return 1
+    }
+    var i = 2
+    while (i < host_argc()) {
+        var a = host_argv(i)
+        var a_hold = a
+        if str_eq(a_hold, "--no-cache") == 1 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func cache_version_id(): str {
+    var build_id = host_getenv("DIVA_BUILD_ID")
+    var build_hold = build_id
+    if str_len(build_hold) > 0 {
+        return build_hold
+    }
+    var version = host_getenv("DIVA_COMPILER_VERSION")
+    var version_hold = version
+    if str_len(version_hold) > 0 {
+        return version_hold
+    }
+    return "diva-v0.5.0"
+}
+
+func fnv_offset_basis(): int {
+    var two32 = 65536 * 65536
+    var low = 131072 * 16384 + 69346085
+    var high = -873292572
+    return high * two32 + low
+}
+
+func fnv_prime(): int {
+    var two40 = 1048576 * 1048576
+    return two40 + 435
+}
+
+func fnv_xor_byte(a: int, b: int): int {
+    return (a | b) & ((0 - (a & b)) - 1)
+}
+
+func fnv_mix(h: int, byte_value: int, prime: int): int {
+    var low = h & 255
+    return (h - low + fnv_xor_byte(low, byte_value)) * prime
+}
+
+func fnv_add_str(h: int, s: str, prime: int): int {
+    var acc = h
+    var text = s
+    var text_hold = text
+    var n = str_len(text_hold)
+    var i = 0
+    while (i < n) {
+        acc = fnv_mix(acc, str_byte(text_hold, i), prime)
+        i = i + 1
+    }
+    return acc
+}
+
+func fnv_hex16(h: int): str {
+    var digits = "0123456789abcdef"
+    var b = str_builder_new()
+    var i = 15
+    while (i >= 0) {
+        var d = (h >> (i * 4)) & 15
+        str_builder_append(b, str_slice(digits, d, 1))
+        i = i - 1
+    }
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+func cache_hash_sources(files: str, version: str, debug_build: int): int {
+    var file_list = files
+    var list_hold = file_list
+    var version_text = version
+    var version_hold = version_text
+    var prime = fnv_prime()
+    var acc = fnv_offset_basis()
+    var n = str_len(list_hold)
+    var pos = 0
+    while (pos < n) {
+        var line_end = pos
+        while ((line_end < n) & (str_byte(list_hold, line_end) != 10)) {
+            line_end = line_end + 1
+        }
+        var path = str_slice(list_hold, pos, line_end - pos)
+        var path_hold = path
+        if str_len(path_hold) > 0 {
+            var sz = file_size(path_hold)
+            if sz < 0 {
+                return 0
+            }
+            var data = read_file(path_hold)
+            var data_hold = data
+            var i = 0
+            while (i < sz) {
+                acc = fnv_mix(acc, str_byte(data_hold, i), prime)
+                i = i + 1
+            }
+        }
+        pos = line_end + 1
+    }
+    acc = fnv_add_str(acc, version_hold, prime)
+    var cfg = "g0"
+    if debug_build == 1 {
+        cfg = "g1"
+    }
+    return fnv_add_str(acc, cfg, prime)
+}
+
+func build_cache_dir(exe_out: str): str {
+    return path_join_dir(dirname_of_file(exe_out), ".diva-cache")
+}
+
+func build_cache_bin_path(dir: str, hash: str): str {
+    return path_join_dir(dir, str_concat(hash, ".bin"))
+}
+
+func build_cache_meta_path(dir: str, hash: str): str {
+    return path_join_dir(dir, str_concat(hash, ".meta"))
+}
+
+func cache_meta_text(hash: str, version: str, files: str): str {
+    var b = str_builder_new()
+    str_builder_append(b, "hash ")
+    str_builder_append(b, hash)
+    str_builder_append(b, "\n")
+    str_builder_append(b, "version ")
+    str_builder_append(b, version)
+    str_builder_append(b, "\n")
+    var list = files
+    var list_hold = list
+    var n = str_len(list_hold)
+    var pos = 0
+    while (pos < n) {
+        var line_end = pos
+        while ((line_end < n) & (str_byte(list_hold, line_end) != 10)) {
+            line_end = line_end + 1
+        }
+        var path = str_slice(list_hold, pos, line_end - pos)
+        if str_len(path) > 0 {
+            str_builder_append(b, "source ")
+            str_builder_append(b, path)
+            str_builder_append(b, "\n")
+        }
+        pos = line_end + 1
+    }
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+func cache_write_bytes(path: str, data: str, size: int): int {
+    var target = path
+    var target_hold = target
+    var payload = data
+    var payload_hold = payload
+    var bytes = int_vec_new()
+    if bytes == 0 {
+        return 1
+    }
+    var i = 0
+    while (i < size) {
+        int_vec_push(bytes, str_byte(payload_hold, i))
+        i = i + 1
+    }
+    var pos = 0
+    var first = 1
+    while (pos < size) {
+        var take = 64000
+        if pos + take > size {
+            take = size - pos
+        }
+        if write_elf_chunk(target_hold, bytes, pos, take, first) != 0 {
+            int_vec_free(bytes)
+            return 1
+        }
+        pos = pos + take
+        first = 0
+    }
+    int_vec_free(bytes)
+    if chmod_executable(target_hold) != 0 {
+        return 1
+    }
+    return 0
+}
+
+func cache_copy_file(src: str, dst: str): int {
+    var source = src
+    var source_hold = source
+    var target = dst
+    var target_hold = target
+    var n = file_size(source_hold)
+    if n < 0 {
+        return 1
+    }
+    var data = read_file(source_hold)
+    var data_hold = data
+    return cache_write_bytes(target_hold, data_hold, n)
+}
+
+func cache_try_restore(hash: str, exe_out: str): int {
+    var out = exe_out
+    var out_hold = out
+    var dir = build_cache_dir(out_hold)
+    var bin = build_cache_bin_path(dir, hash)
+    var bin_hold = bin
+    if file_size(bin_hold) < 0 {
+        return 0
+    }
+    if cache_copy_file(bin_hold, out_hold) != 0 {
+        return 0
+    }
+    stderr("[cache] hit ")
+    stderr(hash)
+    stderr("\n")
+    return 1
+}
+
+func cache_store(hash: str, exe_out: str, files: str, version: str): int {
+    var out = exe_out
+    var out_hold = out
+    var dir = build_cache_dir(out_hold)
+    if loader_mkdir_p(dir) != 0 {
+        return 1
+    }
+    var bin = build_cache_bin_path(dir, hash)
+    if cache_copy_file(out_hold, bin) != 0 {
+        return 1
+    }
+    var meta = build_cache_meta_path(dir, hash)
+    var text = cache_meta_text(hash, version, files)
+    var text_hold = text
+    if write_text_file(meta, text_hold) != 0 {
+        return 1
+    }
+    return 0
+}
+
+func cache_print_miss(hash: str): int {
+    stderr("[cache] miss ")
+    stderr(hash)
+    stderr("\n")
+    return 0
+}
+
 func cmd_build(): int {
     var path = pick_build_path()
     if str_len(path) == 0 {
@@ -1242,11 +1497,11 @@ func cmd_build(): int {
         }
         return cmd_build_ast(path)
     }
-    return native_build_path(path, 0)
+    return native_build_path(path, 0, 1)
 }
 
 // Shared by `build` and `watch`. quiet=1 suppresses the success line (watch prints its own).
-func native_build_path(path: str, quiet: int): int {
+func native_build_path(path: str, quiet: int, use_cache: int): int {
     var merged = ""
     if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
@@ -1279,19 +1534,54 @@ func native_build_path(path: str, quiet: int): int {
         return 1
     }
     var exe_out = pick_build_out_path()
-    if native_compile_and_link(merged_out_hold, quiet, exe_out) != 0 {
-        return 1
-    }
-    if build_wants_g() == 1 {
-        var dbg_src = dwarf_debug_src_path(path)
-        if native_embed_dwarf(exe_out, dbg_src) != 0 {
-            if quiet == 0 {
-                err_line("build -g: embed-dwarf-debug.py failed (need python3 + scripts/embed-dwarf-debug.py)")
+    var exe_hold = exe_out
+    var cache_active = 0
+    var cache_key = ""
+    var cache_files = ""
+    var cache_version = ""
+    if use_cache == 1 {
+        if cache_disabled() == 0 {
+            var files = collect_watch_files(path)
+            var files_hold = files
+            if str_len(files_hold) > 0 {
+                var version = cache_version_id()
+                var version_hold = version
+                var key = cache_hash_sources(files_hold, version_hold, build_wants_g())
+                if key != 0 {
+                    cache_key = fnv_hex16(key)
+                    cache_files = files_hold
+                    cache_version = version_hold
+                    cache_active = 1
+                }
             }
+        }
+    }
+    var cache_hit = 0
+    if cache_active == 1 {
+        var key_hold = cache_key
+        cache_hit = cache_try_restore(key_hold, exe_hold)
+    }
+    if cache_hit == 0 {
+        if cache_active == 1 {
+            cache_print_miss(cache_key)
+        }
+        if native_compile_and_link(merged_out_hold, quiet, exe_hold) != 0 {
             return 1
         }
-        if quiet == 0 {
-            err_line("[native] DWARF -g sections embedded (addr2line)")
+        if build_wants_g() == 1 {
+            var dbg_src = dwarf_debug_src_path(path)
+            if native_embed_dwarf(exe_hold, dbg_src) != 0 {
+                if quiet == 0 {
+                    err_line("build -g: embed-dwarf-debug.py failed (need python3 + scripts/embed-dwarf-debug.py)")
+                }
+                return 1
+            }
+            if quiet == 0 {
+                err_line("[native] DWARF -g sections embedded (addr2line)")
+            }
+        }
+        if cache_active == 1 {
+            cache_store(cache_key, exe_hold, cache_files, cache_version)
         }
     }
     if quiet == 0 {
@@ -1399,7 +1689,7 @@ func cmd_watch(): int {
     var nfiles = watch_count_lines(files_h)
     err_line(str_concat("[watch] watching ", str_concat(int_to_str(nfiles), " files (poll 1s; DIVA_WATCH_MAX_ITERS to exit)")))
     err_line("[watch] building...")
-    if native_build_path(path_h, 1) != 0 {
+    if native_build_path(path_h, 1, 0) != 0 {
         err_line("[watch] build failed (continuing)")
     } else {
         err_line(str_concat("[watch] ok -> ", pick_build_out_path()))
@@ -1429,7 +1719,7 @@ func cmd_watch(): int {
                 files_h = files
                 snap2 = watch_make_snapshot(files_h)
                 err_line("[watch] rebuilding...")
-                if native_build_path(path_h, 1) != 0 {
+                if native_build_path(path_h, 1, 0) != 0 {
                     err_line("[watch] build failed (continuing)")
                 } else {
                     err_line(str_concat("[watch] ok -> ", pick_build_out_path()))
