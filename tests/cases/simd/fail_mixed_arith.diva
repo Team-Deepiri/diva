@@ -1,0 +1,5 @@
+func main(): int {
+    let v: vec4 = vec4_splat(1);
+    let c: vec4 = v + 2;
+    return vec4_sum(c);
+}

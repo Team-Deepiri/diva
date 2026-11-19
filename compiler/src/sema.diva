@@ -497,8 +497,16 @@ func sctx_ty_name(ty: int): str {
     if ty == ir_ty_ptr() { return "ptr" }
     if ty == ir_ty_text() { return "text" }
     if ty == ir_ty_slice() { return "slice" }
+    if ty == ir_ty_vec4() { return "vec4" }
     if ty > ir_ty_text() { return "enum" }
     return "?"
+}
+
+func sema_ty_is_enum(ty: int): int {
+    if ty <= ir_ty_text() { return 0 }
+    if ty == ir_ty_slice() { return 0 }
+    if ty == ir_ty_vec4() { return 0 }
+    return 1
 }
 
 func sema_type_assignable(want: int, got: int, node: int): int {
@@ -541,6 +549,7 @@ func sema_type_from_node(c: int, type_node: int, src: str, toks: int): int {
     if str_eq(tn, "bool") == 1 { return ir_ty_bool() }
     if str_eq(tn, "str") == 1 { return ir_ty_str() }
     if str_eq(tn, "text") == 1 { return ir_ty_text() }
+    if str_eq(tn, "vec4") == 1 { return ir_ty_vec4() }
     if str_eq(tn, "void") == 1 { return ir_ty_void() }
     var ei = 0
     var en = int_vec_len(sctx_enum_type_toks(c))
@@ -684,6 +693,13 @@ func sema_binop_is_arith(op: int): int {
     return 0
 }
 
+func sema_binop_is_vec4(op: int): int {
+    if op == binop_add() { return 1 }
+    if op == binop_sub() { return 1 }
+    if op == binop_mul() { return 1 }
+    return 0
+}
+
 func sema_binop_is_compare(op: int): int {
     if op == binop_eq() { return 1 }
     if op == binop_ne() { return 1 }
@@ -741,6 +757,9 @@ func sema_expr_type(c: int, src: str, toks: int, node: int): int {
         var lt = sema_expr_type(c, src, toks, ast_child(node, 1))
         var rt = sema_expr_type(c, src, toks, ast_child(node, 2))
         if (op == binop_add()) & (lt == ir_ty_text()) & (rt == ir_ty_text()) { return ir_ty_text() }
+        if sema_binop_is_vec4(op) == 1 {
+            if (lt == ir_ty_vec4()) & (rt == ir_ty_vec4()) { return ir_ty_vec4() }
+        }
         if sema_binop_is_arith(op) == 1 { return ir_ty_int() }
         if sema_binop_is_compare(op) == 1 { return ir_ty_bool() }
         if sema_binop_is_logic(op) == 1 {
@@ -857,6 +876,31 @@ func sema_compare_operand_ok(lt: int, rt: int): int {
     return 0
 }
 
+func sema_vec4_unsupported(src: str, toks: int, tok: int, what: str): int {
+    diag_emit_loc(src, tok_start(toks, tok))
+    stderr("sema: vec4 ")
+    stderr(what)
+    stderr(" are not supported\n")
+    return 1
+}
+
+func sema_type_node_is_vec4_array(src: str, toks: int, node: int): int {
+    if (node < 0) { return 0 }
+    if ast_kind(node) != nd_type_array() { return 0 }
+    var elem = ast_child(node, 0)
+    if ast_kind(elem) != nd_type_name() { return 0 }
+    if str_eq(tok_text(src, toks, ast_child(elem, 0)), "vec4") == 1 { return 1 }
+    return 0
+}
+
+func sema_vec4_binop_error(src: str, toks: int, node: int): int {
+    var left = ast_child(node, 1)
+    var at = ast_child(left, 0)
+    if ast_kind(left) == nd_ident() { diag_emit_loc(src, tok_start(toks, at)) }
+    stderr("sema: vec4 arithmetic requires two vec4 operands\n")
+    return 1
+}
+
 func sema_check_binop_types(c: int, src: str, toks: int, node: int): int {
     var op = ast_child(node, 0)
     var left = ast_child(node, 1)
@@ -865,6 +909,10 @@ func sema_check_binop_types(c: int, src: str, toks: int, node: int): int {
     if sema_check_expr(c, src, toks, right) != 0 { return 1 }
     var lt = sema_expr_type(c, src, toks, left)
     var rt = sema_expr_type(c, src, toks, right)
+    if (lt == ir_ty_vec4()) | (rt == ir_ty_vec4()) {
+        if (sema_binop_is_vec4(op) == 1) & (lt == ir_ty_vec4()) & (rt == ir_ty_vec4()) { return 0 }
+        return sema_vec4_binop_error(src, toks, node)
+    }
     if (op == binop_add()) & (lt == ir_ty_text()) & (rt == ir_ty_text()) { return 0 }
     var want = ir_ty_int()
     if sema_binop_is_logic(op) == 1 {
@@ -947,14 +995,49 @@ func sema_builtin_arity(nm: str): int {
     if str_eq(nm, "atomic_xchg") == 1 { return 2 }
     if str_eq(nm, "atomic_cas") == 1 { return 3 }
     if str_eq(nm, "fence") == 1 { return 0 }
+    if str_eq(nm, "vec4_splat") == 1 { return 1 }
+    if str_eq(nm, "vec4_load") == 1 { return 4 }
+    if str_eq(nm, "vec4_get") == 1 { return 2 }
+    if str_eq(nm, "vec4_sum") == 1 { return 1 }
     return 0 - 1
 }
 
 func sema_builtin_ret(nm: str): int {
     if str_eq(nm, "atomic_store") == 1 { return ir_ty_void() }
     if str_eq(nm, "fence") == 1 { return ir_ty_void() }
+    if str_eq(nm, "vec4_splat") == 1 { return ir_ty_vec4() }
+    if str_eq(nm, "vec4_load") == 1 { return ir_ty_vec4() }
     if sema_builtin_arity(nm) >= 0 { return ir_ty_int() }
     return 0 - 1
+}
+
+func sema_builtin_requires_unsafe(nm: str): int {
+    if str_eq(nm, "atomic_load") == 1 { return 1 }
+    if str_eq(nm, "atomic_store") == 1 { return 1 }
+    if str_eq(nm, "atomic_add") == 1 { return 1 }
+    if str_eq(nm, "atomic_xchg") == 1 { return 1 }
+    if str_eq(nm, "atomic_cas") == 1 { return 1 }
+    if str_eq(nm, "fence") == 1 { return 1 }
+    return 0
+}
+
+func sema_is_simd_builtin(nm: str): int {
+    if str_eq(nm, "vec4_splat") == 1 { return 1 }
+    if str_eq(nm, "vec4_load") == 1 { return 1 }
+    if str_eq(nm, "vec4_get") == 1 { return 1 }
+    if str_eq(nm, "vec4_sum") == 1 { return 1 }
+    return 0
+}
+
+func sema_simd_arg_ty(nm: str, i: int): int {
+    if str_eq(nm, "vec4_get") == 1 {
+        if i == 0 { return ir_ty_vec4() }
+        return ir_ty_int()
+    }
+    if str_eq(nm, "vec4_sum") == 1 { return ir_ty_vec4() }
+    if str_eq(nm, "vec4_load") == 1 { return ir_ty_int() }
+    if str_eq(nm, "vec4_splat") == 1 { return ir_ty_int() }
+    return ir_ty_int()
 }
 
 func sema_builtin_expects_ptr(nm: str, arg_index: int): int {
@@ -1262,9 +1345,35 @@ func sema_check_variant_ctor(c: int, src: str, toks: int, node: int, callee: int
     return 0
 }
 
+func sema_check_vec4_lane(src: str, toks: int, ctok: int, node: int): int {
+    var lane = 0
+    var is_const = 0
+    if ast_kind(node) == nd_int_lit() {
+        lane = ast_child(node, 0)
+        is_const = 1
+    }
+    if ast_kind(node) == nd_unary() {
+        if ast_child(node, 0) == unop_neg() {
+            var inner = ast_child(node, 1)
+            if ast_kind(inner) == nd_int_lit() {
+                lane = 0 - ast_child(inner, 0)
+                is_const = 1
+            }
+        }
+    }
+    if is_const == 1 {
+        if (lane < 0) | (lane > 3) {
+            diag_emit_loc(src, tok_start(toks, ctok))
+            stderr("sema: vec4 lane index out of range (0..3)\n")
+            return 1
+        }
+    }
+    return 0
+}
+
 func sema_check_builtin_call(c: int, src: str, toks: int, ctok: int, nm: str, args: int): int {
     var arity = sema_builtin_arity(nm)
-    if sctx_unsafe(c) == 0 {
+    if (sema_builtin_requires_unsafe(nm) == 1) & (sctx_unsafe(c) == 0) {
         diag_emit_loc(src, tok_start(toks, ctok))
         stderr("sema: atomic operation requires an unsafe block")
         stderr(char_to_str(10))
@@ -1286,24 +1395,34 @@ func sema_check_builtin_call(c: int, src: str, toks: int, ctok: int, nm: str, ar
         var av = int_vec_get(args, i)
         if sema_check_expr(c, src, toks, av) != 0 { return 1 }
         var aty = sema_expr_type(c, src, toks, av)
-        if sema_builtin_expects_ptr(nm, i) == 1 {
-            if aty != ir_ty_ptr() {
-                diag_emit_loc(src, tok_start(toks, ctok))
-                stderr("sema: '")
-                stderr(nm)
-                stderr("' expects a raw pointer as its first argument")
-                stderr(char_to_str(10))
-                return 1
+        if sema_is_simd_builtin(nm) == 1 {
+            var want = sema_simd_arg_ty(nm, i)
+            if aty != want {
+                return sema_type_mismatch_at(src, toks, ctok, want, aty)
             }
         } else {
-            if aty != ir_ty_int() {
-                diag_emit_loc(src, tok_start(toks, ctok))
-                stderr("sema: '")
-                stderr(nm)
-                stderr("' expects integer arguments")
-                stderr(char_to_str(10))
-                return 1
+            if sema_builtin_expects_ptr(nm, i) == 1 {
+                if aty != ir_ty_ptr() {
+                    diag_emit_loc(src, tok_start(toks, ctok))
+                    stderr("sema: '")
+                    stderr(nm)
+                    stderr("' expects a raw pointer as its first argument")
+                    stderr(char_to_str(10))
+                    return 1
+                }
+            } else {
+                if aty != ir_ty_int() {
+                    diag_emit_loc(src, tok_start(toks, ctok))
+                    stderr("sema: '")
+                    stderr(nm)
+                    stderr("' expects integer arguments")
+                    stderr(char_to_str(10))
+                    return 1
+                }
             }
+        }
+        if (str_eq(nm, "vec4_get") == 1) & (i == 1) {
+            if sema_check_vec4_lane(src, toks, ctok, av) != 0 { return 1 }
         }
         sema_move_expr(c, src, toks, av)
         i = i + 1
@@ -1500,6 +1619,9 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
         var name_tok = ast_child(node, 0)
         var type_node = ast_child(node, 1)
         var init = ast_child(node, 2)
+        if sema_type_node_is_vec4_array(src, toks, type_node) == 1 {
+            return sema_vec4_unsupported(src, toks, name_tok, "arrays")
+        }
         var vty = sema_type_from_node(c, type_node, src, toks)
         var struct_tok = sema_struct_tok_from_type(c, type_node, src, toks)
         if (init < 0) == 0 {
@@ -1661,13 +1783,24 @@ func sema_check_func_node(c: int, src: str, toks: int, fn: int): int {
     sctx_scope_push(c)
     sctx_set_unsafe(c, 0)
     var ret_node = ast_child(fn, 2)
-    sctx_set_cur_ret_ty(c, sema_type_from_node(c, ret_node, src, toks))
+    var rty = sema_type_from_node(c, ret_node, src, toks)
+    if rty == ir_ty_vec4() {
+        diag_emit_loc(src, tok_start(toks, ast_child(fn, 0)))
+        stderr("sema: vec4 function return types are not supported\n")
+        return 1
+    }
+    sctx_set_cur_ret_ty(c, rty)
     var params = ast_child(fn, 1)
     var pi = 0
     while (pi < int_vec_len(params)) {
         var p = int_vec_get(params, pi)
         var ptnode = ast_child(p, 1)
         var pty = sema_type_from_node(c, ptnode, src, toks)
+        if pty == ir_ty_vec4() {
+            diag_emit_loc(src, tok_start(toks, ast_child(p, 0)))
+            stderr("sema: vec4 function parameters are not supported\n")
+            return 1
+        }
         if (ptnode >= 0) & (ast_kind(ptnode) == nd_type_ref()) {
             sctx_define_ref(c, ast_child(p, 0), pty)
         } else {
@@ -1911,6 +2044,9 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
         }
         if k == nd_var_decl() {
             var g_type_node = ast_child(ch, 1)
+            if sema_type_node_is_vec4_array(src, toks, g_type_node) == 1 {
+                return sema_vec4_unsupported(src, toks, ast_child(ch, 0), "arrays")
+            }
             var gty = sema_type_from_node(c, g_type_node, src, toks)
             // Untyped globals: infer from initializer (same as local var decls).
             if (g_type_node < 0) {
@@ -1918,6 +2054,9 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
                 if (g_init < 0) == 0 {
                     gty = sema_expr_type(c, src, toks, g_init)
                 }
+            }
+            if gty == ir_ty_vec4() {
+                return sema_vec4_unsupported(src, toks, ast_child(ch, 0), "globals")
             }
             if sctx_add_global(c, src, toks, ast_child(ch, 0), gty) != 0 {
                 return 1
@@ -1929,6 +2068,12 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
             var mi = 0
             while (mi < int_vec_len(members)) {
                 var m = int_vec_get(members, mi)
+                if ast_kind(m) == nd_class_field() {
+                    var fty = sema_type_from_node(c, ast_child(m, 1), src, toks)
+                    if fty == ir_ty_vec4() {
+                        return sema_vec4_unsupported(src, toks, ast_child(m, 0), "struct fields")
+                    }
+                }
                 if ast_kind(m) == nd_func() {
                     var mtok = ast_child(m, 0)
                     int_vec_push(sctx_methods(c), mtok)
@@ -2209,7 +2354,7 @@ func sema_check_pattern(c: int, src: str, toks: int, pat: int, sty: int): int {
                 return 0 - 1
             }
         } else {
-            if sty > ir_ty_text() {
+            if sema_ty_is_enum(sty) == 1 {
                 // An enum scrutinee needs a variant pattern.
                 diag_emit_loc(src, tok_start(toks, value))
                 stderr("sema: unknown pattern '")
@@ -2403,7 +2548,7 @@ func sema_mctx_cover(m: int, info: int): int {
 // A payload binding needs the payload slot of a local enum binding: Phase 1
 // does not carry payloads across call boundaries.
 func sema_scrutinee_payload_ok(c: int, src: str, toks: int, scrutinee: int, sty: int): int {
-    if sty <= ir_ty_text() { return 0 }
+    if sema_ty_is_enum(sty) == 0 { return 0 }
     if ast_kind(scrutinee) != nd_ident() { return 0 }
     var nm = tok_text(src, toks, ast_child(scrutinee, 0))
     if sema_local_known(c, src, toks, nm) == 0 { return 0 }
@@ -2416,7 +2561,7 @@ func sema_scrutinee_payload_ok(c: int, src: str, toks: int, scrutinee: int, sty:
 func sema_match_exhaustive(c: int, src: str, toks: int, m: int, node: int): int {
     if sema_mctx_irrefutable(m) == 1 { return 0 }
     var sty = sema_mctx_sty(m)
-    if sty > ir_ty_text() {
+    if sema_ty_is_enum(sty) == 1 {
         var eids = sctx_variant_enum_ids(c)
         var missing = int_vec_new()
         var i = 0
