@@ -809,8 +809,7 @@ func native_emit_pure_elf(code: int, main_ent: int, exe_out: str, quiet: int, dw
     return 0
 }
 
-// quiet: when 1, omit stderr on failure (caller may fall back to bootstrap).
-func native_compile_and_link(merged_src: str, quiet: int, exe_out: str, target: str, debug_info: int, src_path: str, entry_line: int): int {
+func native_validate_target(target: str, quiet: int): int {
     var td = TargetDescriptor {
         arch: target_arch(target),
         os: target_os(target),
@@ -827,6 +826,11 @@ func native_compile_and_link(merged_src: str, quiet: int, exe_out: str, target: 
         if quiet == 0 { err_line(target_unsupported_error(td.name)) }
         return 1
     }
+    return 0
+}
+
+// quiet: when 1, omit stderr on failure (caller may fall back to bootstrap).
+func native_compile_and_link(merged_src: str, quiet: int, exe_out: str, debug_info: int, src_path: str, entry_line: int): int {
     var stream = lex_source(merged_src)
     if stream == 0 {
         if quiet == 0 { err_line("lexer error") }
@@ -2021,7 +2025,10 @@ func native_build_path(path: str, quiet: int, use_cache: int, target: str): int 
         if cache_active == 1 {
             cache_print_miss(cache_key)
         }
-        if native_compile_and_link(merged_out_hold, quiet, exe_hold, target, debug_info, dbg_src, entry_line) != 0 {
+        if native_validate_target(target, quiet) != 0 {
+            return 1
+        }
+        if native_compile_and_link(merged_out_hold, quiet, exe_hold, debug_info, dbg_src, entry_line) != 0 {
             return 1
         }
         if build_wants_g() == 1 {
@@ -2225,7 +2232,10 @@ func cmd_run_file(path: str): int {
         return 1
     }
     var exe_out = native_default_exe_out()
-    if native_compile_and_link(merged_out_hold, 0, exe_out, target, 0, "", 0) != 0 {
+    if native_validate_target(target, 0) != 0 {
+        return 1
+    }
+    if native_compile_and_link(merged_out_hold, 0, exe_out, 0, "", 0) != 0 {
         return 1
     }
     var rc = host_system(exe_out)
