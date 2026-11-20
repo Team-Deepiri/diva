@@ -1,0 +1,21 @@
+// Escape analysis: address stored into a global, and a confined local pointer.
+var sink: *int = 0
+
+func leak(): int {
+    var x = 7
+    sink = &x
+    return 0
+}
+
+func keep(): int {
+    var y = 3
+    var p: *int = &y
+    unsafe {
+        *p = 4
+    }
+    return y
+}
+
+func main(): int {
+    return leak() + keep()
+}

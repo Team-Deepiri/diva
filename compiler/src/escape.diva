@@ -1,0 +1,432 @@
+// Escape analysis (Issue #101).
+//
+// Report-only pass: classifies each `ir_addr_of` result as escaping or
+// stack-confined. No allocation or codegen decisions are changed here; stack
+// allocation remains the default in the backend. Future passes may consume the
+// counts to decide about heap promotion.
+//
+// All state is explicit (int_vec + cell pattern), matching compiler/src/cfg.diva.
+
+import "std/io.diva"
+import "std/vec.diva"
+import "std/conv.diva"
+import "std/host.diva"
+import "cell.diva"
+import "tokens.diva"
+import "ir.diva"
+
+func esc_bit_escape(): int { return 0 }
+func esc_bit_addr(): int   { return 1 }
+func esc_bit_heap(): int   { return 2 }
+func esc_flag_width(): int { return 3 }
+// Struct fields are lowered as slot+offset stores without their own alloca.
+func esc_field_span(): int { return 16 }
+
+func esc_cell_get(cells: int, i: int): int {
+    return mut_get(int_vec_get(cells, i))
+}
+
+func esc_cells(n: int): int {
+    var cells = int_vec_new()
+    var i = 0
+    while i < n {
+        int_vec_push(cells, mut_new(0))
+        i = i + 1
+    }
+    return cells
+}
+
+func esc_new_state(max_vreg: int): int {
+    var st = int_vec_new()
+    int_vec_push(st, esc_cells((max_vreg + 1) * esc_flag_width()))
+    int_vec_push(st, int_vec_new())
+    int_vec_push(st, int_vec_new())
+    int_vec_push(st, int_vec_new())
+    int_vec_push(st, int_vec_new())
+    return st
+}
+
+func esc_flags(st: int): int         { return int_vec_get(st, 0) }
+func esc_aliases(st: int): int       { return int_vec_get(st, 1) }
+func esc_origins(st: int): int       { return int_vec_get(st, 2) }
+func esc_alloca_slots(st: int): int  { return int_vec_get(st, 3) }
+func esc_store_slots(st: int): int   { return int_vec_get(st, 4) }
+
+func esc_get_flag(st: int, vreg: int, bit: int): int {
+    if vreg < 0 { return 0 }
+    var cells = esc_flags(st)
+    var n = int_vec_len(cells) / esc_flag_width()
+    if vreg >= n { return 0 }
+    return esc_cell_get(cells, vreg * esc_flag_width() + bit)
+}
+
+func esc_set_flag(st: int, vreg: int, bit: int): int {
+    if vreg < 0 { return 0 }
+    var cells = esc_flags(st)
+    var n = int_vec_len(cells) / esc_flag_width()
+    if vreg >= n { return 0 }
+    var idx = vreg * esc_flag_width() + bit
+    if esc_cell_get(cells, idx) == 1 { return 0 }
+    mut_set(int_vec_get(cells, idx), 1)
+    return 1
+}
+
+func esc_add_pair(vec: int, x: int, y: int): int {
+    if x < 0 { return 0 }
+    if y < 0 { return 0 }
+    int_vec_push(vec, x)
+    int_vec_push(vec, y)
+    return 0
+}
+
+func esc_add_alias(st: int, x: int, y: int): int {
+    return esc_add_pair(esc_aliases(st), x, y)
+}
+
+func esc_add_origin(st: int, addr_vreg: int, slot: int): int {
+    return esc_add_pair(esc_origins(st), addr_vreg, slot)
+}
+
+func esc_max_inst(inst: int, cur: int): int {
+    var op = inst_op(inst)
+    var r = inst_result(inst)
+    if r > cur { cur = r }
+    if (op == ir_br()) | (op == ir_br_cond()) { return cur }
+    if op == ir_call() {
+        var ac = inst_b(inst)
+        var ex = inst_extra(inst)
+        if ac == 1 {
+            if ex > cur { cur = ex }
+        } else {
+            var j = 0
+            while j < ac {
+                var av = int_vec_get(ex, j)
+                if av > cur { cur = av }
+                j = j + 1
+            }
+        }
+        return cur
+    }
+    if (op == ir_const()) | (op == ir_const_str()) | (op == ir_const_text()) { return cur }
+    var a = inst_a(inst)
+    var b = inst_b(inst)
+    if a > cur { cur = a }
+    if b > cur { cur = b }
+    if (op == ir_atomic_cas()) | (op == ir_text_slice()) {
+        var ex2 = inst_extra(inst)
+        if ex2 > cur { cur = ex2 }
+    }
+    return cur
+}
+
+func esc_max_func(f: int): int {
+    var max = 0
+    var bi = 0
+    while bi < func_block_count(f) {
+        var blk = func_get_block(f, bi)
+        var ii = 0
+        while ii < block_inst_count(blk) {
+            max = esc_max_inst(block_get_inst(blk, ii), max)
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    return max
+}
+
+func esc_collect_inst(st: int, inst: int): int {
+    var op = inst_op(inst)
+    var r = inst_result(inst)
+    var a = inst_a(inst)
+    var b = inst_b(inst)
+    if op == ir_addr_of() {
+        esc_set_flag(st, r, esc_bit_addr())
+        esc_add_origin(st, r, a)
+    }
+    if op == ir_alloc() {
+        esc_set_flag(st, r, esc_bit_heap())
+    }
+    if op == ir_alloca() {
+        int_vec_push(esc_alloca_slots(st), r)
+    }
+    if op == ir_store() {
+        int_vec_push(esc_store_slots(st), r)
+    }
+    if (op == ir_store()) | (op == ir_load()) | (op == ir_copy()) {
+        esc_add_alias(st, r, a)
+    }
+    if op == ir_phi() {
+        esc_add_alias(st, r, a)
+        esc_add_alias(st, r, b)
+    }
+    if op == ir_array_store() {
+        esc_add_alias(st, r, a)
+    }
+    return 0
+}
+
+func esc_propagate_pairs(st: int, pairs: int, bits: int): int {
+    var changed = 0
+    var i = 0
+    var n = int_vec_len(pairs)
+    while i < n {
+        var x = int_vec_get(pairs, i)
+        var y = int_vec_get(pairs, i + 1)
+        var bit = 0
+        while bit < bits {
+            if esc_get_flag(st, x, bit) == 1 {
+                if esc_set_flag(st, y, bit) == 1 { changed = 1 }
+            }
+            if esc_get_flag(st, y, bit) == 1 {
+                if esc_set_flag(st, x, bit) == 1 { changed = 1 }
+            }
+            bit = bit + 1
+        }
+        i = i + 2
+    }
+    return changed
+}
+
+func esc_propagate(st: int): int {
+    var changed = 0
+    var again = 1
+    while again == 1 {
+        again = 0
+        if esc_propagate_pairs(st, esc_aliases(st), esc_flag_width()) == 1 { again = 1 }
+        // Only escape status crosses an addr.of/slot link: the slot is not
+        // itself an address value, so provenance bits must not leak into it.
+        if esc_propagate_pairs(st, esc_origins(st), 1) == 1 { again = 1 }
+        if again == 1 { changed = 1 }
+    }
+    return changed
+}
+
+func esc_contains(v: int, x: int): int {
+    var n = int_vec_len(v)
+    var i = 0
+    while i < n {
+        if int_vec_get(v, i) == x { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+func esc_link_escaped_fields(st: int): int {
+    var origins = esc_origins(st)
+    var stores = esc_store_slots(st)
+    var allocas = esc_alloca_slots(st)
+    var i = 0
+    while i < int_vec_len(origins) {
+        var addr = int_vec_get(origins, i)
+        var slot = int_vec_get(origins, i + 1)
+        if esc_get_flag(st, addr, esc_bit_escape()) == 1 {
+            var j = 0
+            while j < int_vec_len(stores) {
+                var field = int_vec_get(stores, j)
+                if field > slot {
+                    if field <= (slot + esc_field_span()) {
+                        if esc_contains(allocas, field) == 0 {
+                            esc_add_alias(st, slot, field)
+                        }
+                    }
+                }
+                j = j + 1
+            }
+        }
+        i = i + 2
+    }
+    return 0
+}
+
+func esc_warn(op: int): int {
+    stderr("warn: value escapes through ")
+    stderr(ir_op_name(op))
+    stderr(char_to_str(10))
+    return 0
+}
+
+func esc_mark_arg(st: int, v: int): int {
+    return esc_set_flag(st, v, esc_bit_escape())
+}
+
+func esc_seed_inst(st: int, inst: int, leaf_flags: int, toks: int): int {
+    var op = inst_op(inst)
+    var a = inst_a(inst)
+    var b = inst_b(inst)
+    if op == ir_global_store() {
+        if esc_get_flag(st, a, esc_bit_addr()) == 1 { esc_warn(op) }
+        esc_set_flag(st, a, esc_bit_escape())
+    }
+    if op == ir_ptr_store() {
+        if esc_get_flag(st, b, esc_bit_addr()) == 1 {
+            if esc_get_flag(st, a, esc_bit_heap()) == 1 { esc_warn(op) }
+            esc_set_flag(st, b, esc_bit_escape())
+        }
+    }
+    if (op == ir_atomic_store()) | (op == ir_array_store()) {
+        if esc_get_flag(st, b, esc_bit_addr()) == 1 {
+            esc_set_flag(st, b, esc_bit_escape())
+        }
+    }
+    if op == ir_ret() {
+        if esc_get_flag(st, a, esc_bit_addr()) == 1 {
+            esc_set_flag(st, a, esc_bit_escape())
+        }
+    }
+    if op == ir_call() {
+        var leaf = 0
+        if a >= 0 {
+            if a < tok_count(toks) {
+                leaf = esc_cell_get(leaf_flags, a)
+            }
+        }
+        if leaf == 0 {
+            var ac = b
+            var ex = inst_extra(inst)
+            if ac == 1 {
+                esc_mark_arg(st, ex)
+            } else {
+                var i = 0
+                while i < ac {
+                    esc_mark_arg(st, int_vec_get(ex, i))
+                    i = i + 1
+                }
+            }
+        }
+    }
+    return 0
+}
+
+func esc_func_is_leaf(f: int): int {
+    var bi = 0
+    while bi < func_block_count(f) {
+        var blk = func_get_block(f, bi)
+        var ii = 0
+        while ii < block_inst_count(blk) {
+            var op = inst_op(block_get_inst(blk, ii))
+            if (op == ir_call()) | (op == ir_global_store()) | (op == ir_ptr_store()) | (op == ir_addr_of()) | (op == ir_alloc()) {
+                return 0
+            }
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    return 1
+}
+
+func esc_mark_leaf_calls(f: int, src: str, toks: int, leaf_name: str, flags: int): int {
+    var bi = 0
+    while bi < func_block_count(f) {
+        var blk = func_get_block(f, bi)
+        var ii = 0
+        while ii < block_inst_count(blk) {
+            var inst = block_get_inst(blk, ii)
+            if inst_op(inst) == ir_call() {
+                var ct = inst_a(inst)
+                if ct >= 0 {
+                    if ct < tok_count(toks) {
+                        var callee = tok_text(src, toks, ct)
+                        var callee_hold = callee
+                        if str_eq(callee_hold, leaf_name) == 1 {
+                            mut_set(int_vec_get(flags, ct), 1)
+                        }
+                    }
+                }
+            }
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    return 0
+}
+
+func esc_leaf_flags(m: int, src: str, toks: int): int {
+    var flags = esc_cells(tok_count(toks))
+    var i = 0
+    while i < mod_func_count(m) {
+        var f = mod_get_func(m, i)
+        if esc_func_is_leaf(f) == 1 {
+            var fname = tok_text(src, toks, func_name_tok(f))
+            var fname_hold = fname
+            var j = 0
+            while j < mod_func_count(m) {
+                esc_mark_leaf_calls(mod_get_func(m, j), src, toks, fname_hold, flags)
+                j = j + 1
+            }
+        }
+        i = i + 1
+    }
+    return flags
+}
+
+func esc_analyze_func(f: int, src: str, toks: int, leaf_flags: int): int {
+    var st = esc_new_state(esc_max_func(f))
+    var bi = 0
+    while bi < func_block_count(f) {
+        var blk = func_get_block(f, bi)
+        var ii = 0
+        while ii < block_inst_count(blk) {
+            esc_collect_inst(st, block_get_inst(blk, ii))
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    // Propagate address/heap provenance before seeds so indirect stores such
+    // as `p = &x; g = p;` are recognized as escapes.
+    esc_propagate(st)
+
+    bi = 0
+    while bi < func_block_count(f) {
+        var blk = func_get_block(f, bi)
+        var ii = 0
+        while ii < block_inst_count(blk) {
+            esc_seed_inst(st, block_get_inst(blk, ii), leaf_flags, toks)
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    esc_propagate(st)
+    esc_link_escaped_fields(st)
+    esc_propagate(st)
+
+    var escaping = 0
+    var local = 0
+    bi = 0
+    while bi < func_block_count(f) {
+        var blk = func_get_block(f, bi)
+        var ii = 0
+        while ii < block_inst_count(blk) {
+            var inst = block_get_inst(blk, ii)
+            if inst_op(inst) == ir_addr_of() {
+                if esc_get_flag(st, inst_result(inst), esc_bit_escape()) == 1 {
+                    escaping = escaping + 1
+                } else {
+                    local = local + 1
+                }
+            }
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+
+    var fname = tok_text(src, toks, func_name_tok(f))
+    var fname_hold = fname
+    print_str("function ")
+    print_str(fname_hold)
+    print_str(": escaping=")
+    print_str(int_to_str(escaping))
+    print_str(" local=")
+    print_str(int_to_str(local))
+    print_str(char_to_str(10))
+    return 0
+}
+
+func escape_analyze_module(m: int, src: str, toks: int): int {
+    var leaf_flags = esc_leaf_flags(m, src, toks)
+    var i = 0
+    while i < mod_func_count(m) {
+        esc_analyze_func(mod_get_func(m, i), src, toks, leaf_flags)
+        i = i + 1
+    }
+    return 0
+}
