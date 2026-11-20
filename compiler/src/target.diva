@@ -1,0 +1,216 @@
+import "std/io.diva"
+import "std/str.diva"
+import "std/vec.diva"
+
+struct TargetDescriptor {
+    var arch: str
+    var os: str
+    var pointer_width: int
+    var endianness: str
+    var name: str
+    var supported: int
+}
+
+func target_status_ok(): int { return 0 }
+func target_status_unsupported(): int { return 1 }
+func target_status_malformed(): int { return 2 }
+
+func target_native_name(): str { return "x86_64-linux-gnu" }
+func target_native_arch(): str { return "x86_64" }
+func target_native_os(): str { return "linux" }
+func target_native_pointer_width(): int { return 8 }
+func target_native_endianness(): str { return "little" }
+
+func target_split(s: str): int {
+    var parts = int_vec_new()
+    var n = str_len(s)
+    var start = 0
+    var i = 0
+    while i <= n {
+        var at_end = 0
+        if i == n { at_end = 1 }
+        var at_sep = 0
+        if at_end == 0 {
+            if str_byte(s, i) == 45 { at_sep = 1 }
+        }
+        if (at_end == 1) | (at_sep == 1) {
+            int_vec_push(parts, start)
+            int_vec_push(parts, i - start)
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return parts
+}
+
+func target_part_count(s: str): int {
+    var parts = target_split(s)
+    var count = int_vec_len(parts) / 2
+    int_vec_free(parts)
+    return count
+}
+
+func target_part(s: str, index: int): str {
+    var parts = target_split(s)
+    var off = index * 2
+    var result = ""
+    if (off >= 0) & (off + 1 < int_vec_len(parts)) {
+        result = str_slice(s, int_vec_get(parts, off), int_vec_get(parts, off + 1))
+    }
+    int_vec_free(parts)
+    return result
+}
+
+func target_known_arch(a: str): int {
+    if str_eq(a, "x86_64") == 1 { return 1 }
+    if str_eq(a, "aarch64") == 1 { return 1 }
+    if str_eq(a, "arm") == 1 { return 1 }
+    if str_eq(a, "riscv64") == 1 { return 1 }
+    if str_eq(a, "wasm32") == 1 { return 1 }
+    return 0
+}
+
+func target_known_os(o: str): int {
+    if str_eq(o, "linux") == 1 { return 1 }
+    if str_eq(o, "apple") == 1 { return 1 }
+    if str_eq(o, "none") == 1 { return 1 }
+    if str_eq(o, "windows") == 1 { return 1 }
+    if str_eq(o, "unknown") == 1 { return 1 }
+    return 0
+}
+
+func target_known_env(e: str): int {
+    if str_eq(e, "gnu") == 1 { return 1 }
+    if str_eq(e, "musl") == 1 { return 1 }
+    if str_eq(e, "elf") == 1 { return 1 }
+    if str_eq(e, "darwin") == 1 { return 1 }
+    if str_eq(e, "msvc") == 1 { return 1 }
+    return 0
+}
+
+func target_status(triple: str): int {
+    if (str_eq(triple, "native") == 1) | (str_eq(triple, target_native_name()) == 1) {
+        return target_status_ok()
+    }
+    if str_eq(triple, "x86_64-linux") == 1 {
+        return target_status_ok()
+    }
+    if str_len(triple) == 0 { return target_status_malformed() }
+    var parts = target_split(triple)
+    var count = int_vec_len(parts) / 2
+    if (count < 2) | (count > 3) {
+        int_vec_free(parts)
+        return target_status_malformed()
+    }
+    var i = 0
+    while i < count {
+        if int_vec_get(parts, i * 2 + 1) == 0 {
+            int_vec_free(parts)
+            return target_status_malformed()
+        }
+        i = i + 1
+    }
+    var arch = str_slice(triple, int_vec_get(parts, 0), int_vec_get(parts, 1))
+    var os = str_slice(triple, int_vec_get(parts, 2), int_vec_get(parts, 3))
+    var env = ""
+    if count == 3 {
+        env = str_slice(triple, int_vec_get(parts, 4), int_vec_get(parts, 5))
+    }
+    int_vec_free(parts)
+    if target_known_arch(arch) == 0 { return target_status_malformed() }
+    if target_known_os(os) == 0 { return target_status_malformed() }
+    if count == 3 {
+        if target_known_env(env) == 0 { return target_status_malformed() }
+    }
+    var native_arch = str_eq(arch, target_native_arch()) == 1
+    var native_os = str_eq(os, target_native_os()) == 1
+    var native_env = (count == 2) | (str_eq(env, "gnu") == 1)
+    if (native_arch == 1) & (native_os == 1) & (native_env == 1) {
+        return target_status_ok()
+    }
+    return target_status_unsupported()
+}
+
+func target_canonical(triple: str): str {
+    if str_eq(triple, "native") == 1 { return target_native_name() }
+    if str_eq(triple, "x86_64-linux") == 1 { return target_native_name() }
+    return triple
+}
+
+func target_arch(t: str): str { return target_part(target_canonical(t), 0) }
+
+func target_os(t: str): str {
+    var o = target_part(target_canonical(t), 1)
+    if str_eq(o, "apple") == 1 { return "macos" }
+    return o
+}
+
+func target_pointer_width(t: str): int {
+    var a = target_arch(t)
+    if (str_eq(a, "x86_64") == 1) | (str_eq(a, "aarch64") == 1) | (str_eq(a, "riscv64") == 1) {
+        return 8
+    }
+    return 4
+}
+
+func target_endianness(t: str): str {
+    return "little"
+}
+
+func target_supported(t: str): int {
+    return target_status(target_canonical(t))
+}
+
+func target_unsupported_error(triple: str): str {
+    var b = str_builder_new()
+    str_builder_append(b, "error: target '")
+    str_builder_append(b, triple)
+    str_builder_append(b, "' is declared but not implemented (only x86_64-linux-gnu is supported)")
+    var msg = str_builder_to_str(b)
+    str_builder_free(b)
+    return msg
+}
+
+func target_malformed_error(triple: str): str {
+    var b = str_builder_new()
+    str_builder_append(b, "error: malformed target '")
+    str_builder_append(b, triple)
+    str_builder_append(b, "' (expected <arch>-<os>[-env] or 'native')")
+    var msg = str_builder_to_str(b)
+    str_builder_free(b)
+    return msg
+}
+
+func target_missing_value_error(): str {
+    return "error: --target requires a triple (try 'native' or 'x86_64-linux-gnu')"
+}
+
+func target_list_entry(name: str, status: str): int {
+    stdout("  ")
+    stdout(name)
+    stdout("  ")
+    stdout(status)
+    stdout("\n")
+    return 0
+}
+
+func target_list(): int {
+    print_str("Known targets:")
+    stdout("\n")
+    target_list_entry("native", "alias for x86_64-linux-gnu (supported)")
+    target_list_entry("x86_64-linux", "alias for x86_64-linux-gnu (supported)")
+    target_list_entry(target_native_name(), "supported (native)")
+    target_list_entry("aarch64-linux-gnu", "declared, not implemented")
+    target_list_entry("aarch64-none-elf", "declared, not implemented")
+    target_list_entry("x86_64-apple-darwin", "declared, not implemented")
+    target_list_entry("arm-linux-gnueabi", "declared, not implemented")
+    target_list_entry("riscv64-linux-gnu", "declared, not implemented")
+    target_list_entry("wasm32-unknown-unknown", "declared, not implemented")
+    return 0
+}
+
+func target_current(): int {
+    print_str(target_native_name())
+    stdout("\n")
+    return 0
+}
