@@ -21,6 +21,7 @@ import "ast_dump.diva"
 import "sema.diva"
 import "loader.diva"
 import "cmd_text.diva"
+import "target.diva"
 
 // When DIVA_NATIVE_CMD_IR_DEBUG is non-empty, cmd_ir prints stderr milestones (native-driver bring-up).
 func native_cmd_ir_debug(): int {
@@ -28,6 +29,55 @@ func native_cmd_ir_debug(): int {
     var v_hold = v
     if str_len(v_hold) > 0 { return 1 }
     return 0
+}
+
+func target_flag_missing_value(): int {
+    var i = 2
+    while i < host_argc() {
+        if str_eq(host_argv(i), "--target") == 1 {
+            if i + 1 >= host_argc() {
+                return 1
+            }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func target_flag_value(): str {
+    var i = 2
+    while i < host_argc() {
+        if str_eq(host_argv(i), "--target") == 1 {
+            var raw = host_argv(i + 1)
+            var raw_hold = raw
+            return str_slice(raw_hold, 0, str_len(raw_hold))
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+func target_from_args(): str {
+    var flag_seen = 0
+    var i = 2
+    while i < host_argc() {
+        if str_eq(host_argv(i), "--target") == 1 { flag_seen = 1 }
+        i = i + 1
+    }
+    if flag_seen == 0 { return target_native_name() }
+    if target_flag_missing_value() == 1 {
+        err_line(target_missing_value_error())
+        return ""
+    }
+    var raw = target_flag_value()
+    var st = target_status(raw)
+    if st == target_status_ok() { return target_canonical(raw) }
+    if st == target_status_unsupported() {
+        err_line(target_unsupported_error(raw))
+        return ""
+    }
+    err_line(target_malformed_error(raw))
+    return ""
 }
 
 func cmd_print_usage(): int {
@@ -38,7 +88,8 @@ func cmd_print_usage(): int {
     stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g|--no-inline]\n")
     stderr("  run [--no-inline] <file.diva|package-dir>\n")
     stderr("  watch <file.diva|package-dir> | check <package-dir> | new <path> [--lib|--kernel]\n")
-    stderr("  compiler-version | pipeline\n")
+    stderr("  compiler-version | pipeline | target <list|current>\n")
+    stderr("  build|ir|opt [--target <triple>] ...   (native: x86_64-linux-gnu)\n")
     stderr("  text <inspect|count|upper|lower|width|lines|words|contains> <file>\n")
     stderr("Environment: DI_STDLIB_DIR (stdlib search path)\n")
     stderr("  DIVA_WATCH_MAX_ITERS=N exits after N poll cycles (CI smoke)\n")
@@ -460,7 +511,23 @@ func native_emit_pure_elf(code: int, main_ent: int, exe_out: str, quiet: int): i
 }
 
 // quiet: when 1, omit stderr on failure (caller may fall back to bootstrap).
-func native_compile_and_link(merged_src: str, quiet: int, exe_out: str): int {
+func native_compile_and_link(merged_src: str, quiet: int, exe_out: str, target: str): int {
+    var td = TargetDescriptor {
+        arch: target_arch(target),
+        os: target_os(target),
+        pointer_width: target_pointer_width(target),
+        endianness: target_endianness(target),
+        name: target,
+        supported: target_supported(target)
+    }
+    if td.supported != target_status_ok() {
+        if quiet == 0 { err_line(target_unsupported_error(td.name)) }
+        return 1
+    }
+    if (str_eq(td.arch, "x86_64") == 0) | (str_eq(td.endianness, "little") == 0) | (td.pointer_width != 8) {
+        if quiet == 0 { err_line(target_unsupported_error(td.name)) }
+        return 1
+    }
     var stream = lex_source(merged_src)
     if stream == 0 {
         if quiet == 0 { err_line("lexer error") }
@@ -946,12 +1013,16 @@ func opt_pick_path(): str {
     var i = 2
     while (i < host_argc()) {
         var a = host_argv(i)
-        if str_byte(a, 0) != 45 {
-            if str_len(path) == 0 {
-                path = a
+        if str_eq(a, "--target") == 1 {
+            i = i + 2
+        } else {
+            if str_byte(a, 0) != 45 {
+                if str_len(path) == 0 {
+                    path = a
+                }
             }
+            i = i + 1
         }
-        i = i + 1
     }
     return path
 }
@@ -1095,12 +1166,16 @@ func pick_build_path(): str {
     var i = 2
     while (i < host_argc()) {
         var a = host_argv(i)
-        if str_byte(a, 0) != 45 {
-            if str_len(path) == 0 {
-                path = a
+        if str_eq(a, "--target") == 1 {
+            i = i + 2
+        } else {
+            if str_byte(a, 0) != 45 {
+                if str_len(path) == 0 {
+                    path = a
+                }
             }
+            i = i + 1
         }
-        i = i + 1
     }
     return path
 }
@@ -1112,16 +1187,20 @@ func pick_build_out_path(): str {
     var i = 2
     while (i < host_argc()) {
         var a = host_argv(i)
-        if str_byte(a, 0) != 45 {
-            if str_len(first) == 0 {
-                first = a
-            } else {
-                if str_len(second) == 0 {
-                    second = a
+        if str_eq(a, "--target") == 1 {
+            i = i + 2
+        } else {
+            if str_byte(a, 0) != 45 {
+                if str_len(first) == 0 {
+                    first = a
+                } else {
+                    if str_len(second) == 0 {
+                        second = a
+                    }
                 }
             }
+            i = i + 1
         }
-        i = i + 1
     }
     if str_len(second) > 0 {
         return second
@@ -1497,6 +1576,10 @@ func cache_print_miss(hash: str): int {
 }
 
 func cmd_build(): int {
+    var target = target_from_args()
+    if str_len(target) == 0 {
+        return 1
+    }
     var path = pick_build_path()
     if str_len(path) == 0 {
         err_line("build: missing output path (e.g. diva build compiler)")
@@ -1513,11 +1596,11 @@ func cmd_build(): int {
         }
         return cmd_build_ast(path)
     }
-    return native_build_path(path, 0, 1)
+    return native_build_path(path, 0, 1, target)
 }
 
 // Shared by `build` and `watch`. quiet=1 suppresses the success line (watch prints its own).
-func native_build_path(path: str, quiet: int, use_cache: int): int {
+func native_build_path(path: str, quiet: int, use_cache: int, target: str): int {
     var merged = ""
     if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
@@ -1581,7 +1664,7 @@ func native_build_path(path: str, quiet: int, use_cache: int): int {
         if cache_active == 1 {
             cache_print_miss(cache_key)
         }
-        if native_compile_and_link(merged_out_hold, quiet, exe_hold) != 0 {
+        if native_compile_and_link(merged_out_hold, quiet, exe_hold, target) != 0 {
             return 1
         }
         if build_wants_g() == 1 {
@@ -1684,6 +1767,7 @@ func watch_max_iters(): int {
 }
 
 func cmd_watch(): int {
+    var target = target_native_name()
     if host_argc() < 3 {
         err_line("usage: diva watch <file.diva|package-dir>")
         return 1
@@ -1705,7 +1789,7 @@ func cmd_watch(): int {
     var nfiles = watch_count_lines(files_h)
     err_line(str_concat("[watch] watching ", str_concat(int_to_str(nfiles), " files (poll 1s; DIVA_WATCH_MAX_ITERS to exit)")))
     err_line("[watch] building...")
-    if native_build_path(path_h, 1, 0) != 0 {
+    if native_build_path(path_h, 1, 0, target) != 0 {
         err_line("[watch] build failed (continuing)")
     } else {
         err_line(str_concat("[watch] ok -> ", pick_build_out_path()))
@@ -1735,7 +1819,7 @@ func cmd_watch(): int {
                 files_h = files
                 snap2 = watch_make_snapshot(files_h)
                 err_line("[watch] rebuilding...")
-                if native_build_path(path_h, 1, 0) != 0 {
+                if native_build_path(path_h, 1, 0, target) != 0 {
                     err_line("[watch] build failed (continuing)")
                 } else {
                     err_line(str_concat("[watch] ok -> ", pick_build_out_path()))
@@ -1748,6 +1832,7 @@ func cmd_watch(): int {
 }
 
 func cmd_run_file(path: str): int {
+    var target = target_native_name()
     var merged = ""
     if build_path_is_package_dir(path) == 1 {
         merged = merge_package_sources(path)
@@ -1781,7 +1866,7 @@ func cmd_run_file(path: str): int {
         return 1
     }
     var exe_out = native_default_exe_out()
-    if native_compile_and_link(merged_out_hold, 0, exe_out) != 0 {
+    if native_compile_and_link(merged_out_hold, 0, exe_out, target) != 0 {
         return 1
     }
     var rc = host_system(exe_out)
@@ -1819,16 +1904,23 @@ func main(): int {
     }
 
     if str_eq(a1, "ir") == 1 {
-        if (host_argc() < 3) {
-            err_line("usage: diva ir <file.diva>")
+        if str_len(target_from_args()) == 0 {
             return 1
         }
-        return cmd_ir(host_argv(2))
+        var ir_path = opt_pick_path()
+        if str_len(ir_path) == 0 {
+            err_line("usage: diva ir [--target <triple>] <file.diva>")
+            return 1
+        }
+        return cmd_ir(ir_path)
     }
 
     if str_eq(a1, "opt") == 1 {
+        if str_len(target_from_args()) == 0 {
+            return 1
+        }
         if host_argc() < 3 {
-            err_line("usage: diva opt [--no-opt] [--no-inline] <file.diva>")
+            err_line("usage: diva opt [--no-opt] [--no-inline] [--target <triple>] <file.diva>")
             return 1
         }
         return cmd_opt()
@@ -1887,6 +1979,19 @@ func main(): int {
 
     if str_eq(a1, "text") == 1 {
         return cmd_text_cmd()
+    }
+
+    if str_eq(a1, "target") == 1 {
+        if host_argc() < 3 {
+            err_line("usage: diva target <list|current>")
+            return 1
+        }
+        var sub = host_argv(2)
+        var sub_hold = sub
+        if str_eq(sub_hold, "list") == 1 { return target_list() }
+        if str_eq(sub_hold, "current") == 1 { return target_current() }
+        err_line("usage: diva target <list|current>")
+        return 1
     }
 
     err_line("unknown command; try: diva (no args shows usage)")
