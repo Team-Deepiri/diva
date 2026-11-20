@@ -86,7 +86,7 @@ func cmd_print_usage(): int {
     stderr("  lex <file.diva> | parse <file.diva> | ir <file.diva> | asm <file.diva>\n")
     stderr("  analyze [--escape] <file.diva>\n")
     stderr("  opt [--no-opt] [--no-inline] <file.diva> (dump optimized / unoptimized IR)\n")
-    stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g|--no-inline]\n")
+    stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g|--debug-info|--no-inline]\n")
     stderr("  run [--no-inline] <file.diva|package-dir>\n")
     stderr("  watch <file.diva|package-dir> | check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline | target <list|current>\n")
@@ -94,6 +94,7 @@ func cmd_print_usage(): int {
     stderr("  text <inspect|count|upper|lower|width|lines|words|contains> <file>\n")
     stderr("Environment: DI_STDLIB_DIR (stdlib search path)\n")
     stderr("  DIVA_WATCH_MAX_ITERS=N exits after N poll cycles (CI smoke)\n")
+    stderr("  diva build --debug-info emits native DWARF v4 line tables (no python3 needed)\n")
     stderr("  diva build -g embeds DWARF via scripts/embed-dwarf-debug.py (needs python3)\n")
     stderr("  diva new <path> [--lib|--kernel|--system] (native scaffolding)\n")
     return 1
@@ -462,46 +463,343 @@ func native_require_no_externs(m: int, src: str, toks: int): int {
     return 0
 }
 
+func dwarf_push_u8(out: int, v: int): int {
+    int_vec_push(out, v & 255)
+    return 0
+}
+
+func dwarf_push_u16(out: int, v: int): int {
+    int_vec_push(out, v & 255)
+    int_vec_push(out, (v / 256) & 255)
+    return 0
+}
+
+func dwarf_push_u32(out: int, v: int): int {
+    var x = v
+    var i = 0
+    while (i < 4) {
+        int_vec_push(out, x & 255)
+        x = x / 256
+        i = i + 1
+    }
+    return 0
+}
+
+func dwarf_push_u64(out: int, v: int): int {
+    var x = v
+    var i = 0
+    while (i < 8) {
+        int_vec_push(out, x & 255)
+        x = x / 256
+        i = i + 1
+    }
+    return 0
+}
+
+func dwarf_push_uleb(out: int, v: int): int {
+    var x = v
+    var more = 1
+    while (more == 1) {
+        var b = x & 127
+        x = x / 128
+        if (x > 0) {
+            b = b | 128
+        } else {
+            more = 0
+        }
+        int_vec_push(out, b)
+    }
+    return 0
+}
+
+func dwarf_push_cstr(out: int, s: str): int {
+    var text = s
+    var text_hold = text
+    var n = str_len(text_hold)
+    var i = 0
+    while (i < n) {
+        int_vec_push(out, str_byte(text_hold, i) & 255)
+        i = i + 1
+    }
+    int_vec_push(out, 0)
+    return 0
+}
+
+func dwarf_append_bytes(out: int, src: int, start: int, count: int): int {
+    var i = 0
+    while (i < count) {
+        int_vec_push(out, int_vec_get(src, start + i))
+        i = i + 1
+    }
+    return 0
+}
+
+func dwarf_guess_entry_line(src: str): int {
+    var text = src
+    var text_hold = text
+    var main_at = str_index_of(text_hold, "func main")
+    var kmain_at = str_index_of(text_hold, "func kmain")
+    var pos = 0
+    if (main_at < 0) & (kmain_at >= 0) {
+        pos = kmain_at
+    } else {
+        if main_at >= 0 {
+            pos = main_at
+        }
+    }
+    var line = 1
+    var i = 0
+    while (i < pos) {
+        if str_byte(text_hold, i) == 10 {
+            line = line + 1
+        }
+        i = i + 1
+    }
+    return line
+}
+
+func dwarf_build_abbrev(out: int): int {
+    int_vec_push(out, 1)
+    int_vec_push(out, 17)
+    int_vec_push(out, 0)
+    int_vec_push(out, 3) int_vec_push(out, 8)
+    int_vec_push(out, 16) int_vec_push(out, 23)
+    int_vec_push(out, 17) int_vec_push(out, 1)
+    int_vec_push(out, 18) int_vec_push(out, 7)
+    int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0)
+    return 0
+}
+
+func dwarf_build_info(out: int, src_path: str, code_len: int): int {
+    var body = int_vec_new()
+    dwarf_push_u16(body, 4)
+    dwarf_push_u32(body, 0)
+    dwarf_push_u8(body, 8)
+    dwarf_push_u8(body, 1)
+    dwarf_push_cstr(body, src_path)
+    dwarf_push_u32(body, 0)
+    dwarf_push_u64(body, 4096)
+    dwarf_push_u64(body, 4096 + code_len)
+    dwarf_push_u8(body, 0)
+    dwarf_push_u32(out, int_vec_len(body))
+    dwarf_append_bytes(out, body, 0, int_vec_len(body))
+    int_vec_free(body)
+    return 0
+}
+
+func dwarf_build_line(out: int, src_path: str, entry_line: int, code_len: int): int {
+    var header = int_vec_new()
+    dwarf_push_u8(header, 1)
+    dwarf_push_u8(header, 1)
+    dwarf_push_u8(header, 1)
+    dwarf_push_u8(header, 251)
+    dwarf_push_u8(header, 14)
+    dwarf_push_u8(header, 13)
+    dwarf_push_u8(header, 0)
+    dwarf_push_u8(header, 1)
+    dwarf_push_u8(header, 1)
+    dwarf_push_u8(header, 1)
+    dwarf_push_u8(header, 1)
+    dwarf_push_u8(header, 0)
+    dwarf_push_u8(header, 0)
+    dwarf_push_u8(header, 0)
+    dwarf_push_u8(header, 1)
+    dwarf_push_u8(header, 0)
+    dwarf_push_u8(header, 0)
+    dwarf_push_u8(header, 1)
+    dwarf_push_u8(header, 0)
+    dwarf_push_cstr(header, src_path)
+    dwarf_push_uleb(header, 0)
+    dwarf_push_uleb(header, 0)
+    dwarf_push_uleb(header, 0)
+    dwarf_push_u8(header, 0)
+    var header_len = int_vec_len(header)
+    var ops = int_vec_new()
+    dwarf_push_u8(ops, 0)
+    dwarf_push_uleb(ops, 9)
+    dwarf_push_u8(ops, 2)
+    dwarf_push_u64(ops, 4096)
+    var delta = entry_line - 1
+    if (delta < 0) {
+        delta = 0
+    }
+    dwarf_push_u8(ops, 3)
+    dwarf_push_uleb(ops, delta)
+    dwarf_push_u8(ops, 1)
+    dwarf_push_u8(ops, 0)
+    dwarf_push_uleb(ops, 9)
+    dwarf_push_u8(ops, 2)
+    dwarf_push_u64(ops, 4096 + code_len)
+    dwarf_push_u8(ops, 0)
+    dwarf_push_uleb(ops, 1)
+    dwarf_push_u8(ops, 1)
+    var unit_len = 2 + 4 + header_len + int_vec_len(ops)
+    dwarf_push_u32(out, unit_len)
+    dwarf_push_u16(out, 4)
+    dwarf_push_u32(out, header_len)
+    dwarf_append_bytes(out, header, 0, header_len)
+    dwarf_append_bytes(out, ops, 0, int_vec_len(ops))
+    int_vec_free(header)
+    int_vec_free(ops)
+    return 0
+}
+
+func dwarf_shstr_add(out: int, name: str): int {
+    var off = int_vec_len(out)
+    dwarf_push_cstr(out, name)
+    return off
+}
+
+func native_build_dwarf_sections(src_path: str, entry_line: int, code_len: int): int {
+    var meta = int_vec_new()
+    var abbrev = int_vec_new()
+    var info = int_vec_new()
+    var line = int_vec_new()
+    var shstr = int_vec_new()
+    dwarf_build_abbrev(abbrev)
+    dwarf_build_info(info, src_path, code_len)
+    dwarf_build_line(line, src_path, entry_line, code_len)
+    dwarf_push_u8(shstr, 0)
+    var name_text = dwarf_shstr_add(shstr, ".text")
+    var name_abbrev = dwarf_shstr_add(shstr, ".debug_abbrev")
+    var name_info = dwarf_shstr_add(shstr, ".debug_info")
+    var name_line = dwarf_shstr_add(shstr, ".debug_line")
+    var name_shstr = dwarf_shstr_add(shstr, ".shstrtab")
+    int_vec_push(meta, int_vec_len(abbrev))
+    int_vec_push(meta, int_vec_len(info))
+    int_vec_push(meta, int_vec_len(line))
+    int_vec_push(meta, int_vec_len(shstr))
+    int_vec_push(meta, name_text)
+    int_vec_push(meta, name_abbrev)
+    int_vec_push(meta, name_info)
+    int_vec_push(meta, name_line)
+    int_vec_push(meta, name_shstr)
+    dwarf_append_bytes(meta, abbrev, 0, int_vec_len(abbrev))
+    dwarf_append_bytes(meta, info, 0, int_vec_len(info))
+    dwarf_append_bytes(meta, line, 0, int_vec_len(line))
+    dwarf_append_bytes(meta, shstr, 0, int_vec_len(shstr))
+    int_vec_free(abbrev)
+    int_vec_free(info)
+    int_vec_free(line)
+    int_vec_free(shstr)
+    return meta
+}
+
+func dwarf_emit_shdr_head(out: int, name_off: int, sh_type: int, flags: int): int {
+    dwarf_push_u32(out, name_off)
+    dwarf_push_u32(out, sh_type)
+    dwarf_push_u64(out, flags)
+    return 0
+}
+
+func dwarf_emit_shdr_tail(out: int, addr: int, offset: int, size: int, addralign: int): int {
+    dwarf_push_u64(out, addr)
+    dwarf_push_u64(out, offset)
+    dwarf_push_u64(out, size)
+    dwarf_push_u32(out, 0)
+    dwarf_push_u32(out, 0)
+    dwarf_push_u64(out, addralign)
+    dwarf_push_u64(out, 0)
+    return 0
+}
+
 // Emit ELF binary from code bytes (main_ent = entry offset) and write to exe_out. Returns 0 on success.
-func native_emit_elf_hdr(elf: int, entry: int): int {
+func native_emit_elf_hdr(elf: int, entry: int, shoff: int, shnum: int, shstrndx: int): int {
     int_vec_push(elf, 127) int_vec_push(elf, 69) int_vec_push(elf, 76) int_vec_push(elf, 70)
     int_vec_push(elf, 2) int_vec_push(elf, 1) int_vec_push(elf, 1) int_vec_push(elf, 0)
     var i = 0 while (i < 8) { int_vec_push(elf, 0) i = i + 1 }
     int_vec_push(elf, 3) int_vec_push(elf, 0)
     int_vec_push(elf, 62) int_vec_push(elf, 0)
     int_vec_push(elf, 1) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
-    int_vec_push(elf, entry & 255)
-    int_vec_push(elf, (entry / 256) & 255)
-    int_vec_push(elf, (entry / 65536) & 255)
-    int_vec_push(elf, (entry / 16777216) & 255)
-    int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
-    int_vec_push(elf, 64) i = 1 while (i < 8) { int_vec_push(elf, 0) i = i + 1 }
-    i = 0 while (i < 8) { int_vec_push(elf, 0) i = i + 1 }
-    int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0) int_vec_push(elf, 0)
-    int_vec_push(elf, 64) int_vec_push(elf, 0)
-    int_vec_push(elf, 56) int_vec_push(elf, 0)
-    int_vec_push(elf, 2) int_vec_push(elf, 0)
-    int_vec_push(elf, 0) int_vec_push(elf, 0)
-    int_vec_push(elf, 0) int_vec_push(elf, 0)
-    int_vec_push(elf, 0) int_vec_push(elf, 0)
+    dwarf_push_u32(elf, entry)
+    dwarf_push_u32(elf, 0)
+    dwarf_push_u32(elf, 64)
+    dwarf_push_u32(elf, 0)
+    dwarf_push_u32(elf, shoff)
+    dwarf_push_u32(elf, 0)
+    dwarf_push_u32(elf, 0)
+    dwarf_push_u16(elf, 64)
+    dwarf_push_u16(elf, 56)
+    dwarf_push_u16(elf, 2)
+    if shnum != 0 {
+        dwarf_push_u16(elf, 64)
+    } else {
+        dwarf_push_u16(elf, 0)
+    }
+    dwarf_push_u16(elf, shnum)
+    dwarf_push_u16(elf, shstrndx)
     return 0
 }
 
-func native_emit_pure_elf(code: int, main_ent: int, exe_out: str, quiet: int): int {
+func native_emit_pure_elf(code: int, main_ent: int, exe_out: str, quiet: int, dwarf: int): int {
     var code_len = int_vec_len(code)
     var align = 4096
     var code_size = code_len
     var rem = code_size % align
     if rem != 0 { code_size = code_size + align - rem }
     var file_sz = align + code_size
+    var shoff = 0
+    var shnum = 0
+    var shstrndx = 0
+    var off_abbrev = 0
+    var off_info = 0
+    var off_line = 0
+    var off_shstr = 0
+    var off_shdr = 0
+    var abbrev_len = 0
+    var info_len = 0
+    var line_len = 0
+    var shstr_len = 0
+    if dwarf != 0 {
+        abbrev_len = int_vec_get(dwarf, 0)
+        info_len = int_vec_get(dwarf, 1)
+        line_len = int_vec_get(dwarf, 2)
+        shstr_len = int_vec_get(dwarf, 3)
+        off_abbrev = align + code_size
+        off_info = off_abbrev + abbrev_len
+        off_line = off_info + info_len
+        off_shstr = off_line + line_len
+        off_shdr = off_shstr + shstr_len
+        rem = off_shdr % 8
+        if rem != 0 {
+            off_shdr = off_shdr + 8 - rem
+        }
+        shoff = off_shdr
+        shnum = 6
+        shstrndx = 5
+    }
     var elf = int_vec_new()
     var entry = 4096 + main_ent
-    native_emit_elf_hdr(elf, entry)
+    native_emit_elf_hdr(elf, entry, shoff, shnum, shstrndx)
     make_phdr_ro_load(elf, file_sz, align)
     make_phdr_rx_load(elf, code_len, code_size, align)
     var i = int_vec_len(elf) while (i < align) { int_vec_push(elf, 0) i = i + 1 }
     i = 0 while (i < code_len) { int_vec_push(elf, int_vec_get(code, i)) i = i + 1 }
     i = code_len while (i < code_size) { int_vec_push(elf, 0) i = i + 1 }
+    if dwarf != 0 {
+        dwarf_append_bytes(elf, dwarf, 9, abbrev_len)
+        dwarf_append_bytes(elf, dwarf, 9 + abbrev_len, info_len)
+        dwarf_append_bytes(elf, dwarf, 9 + abbrev_len + info_len, line_len)
+        dwarf_append_bytes(elf, dwarf, 9 + abbrev_len + info_len + line_len, shstr_len)
+        i = int_vec_len(elf)
+        while (i < off_shdr) {
+            int_vec_push(elf, 0)
+            i = i + 1
+        }
+        dwarf_emit_shdr_head(elf, 0, 0, 0)
+        dwarf_emit_shdr_tail(elf, 0, 0, 0, 0)
+        dwarf_emit_shdr_head(elf, int_vec_get(dwarf, 4), 1, 6)
+        dwarf_emit_shdr_tail(elf, 4096, 4096, code_len, 16)
+        dwarf_emit_shdr_head(elf, int_vec_get(dwarf, 5), 1, 0)
+        dwarf_emit_shdr_tail(elf, 0, off_abbrev, abbrev_len, 1)
+        dwarf_emit_shdr_head(elf, int_vec_get(dwarf, 6), 1, 0)
+        dwarf_emit_shdr_tail(elf, 0, off_info, info_len, 1)
+        dwarf_emit_shdr_head(elf, int_vec_get(dwarf, 7), 1, 0)
+        dwarf_emit_shdr_tail(elf, 0, off_line, line_len, 1)
+        dwarf_emit_shdr_head(elf, int_vec_get(dwarf, 8), 3, 0)
+        dwarf_emit_shdr_tail(elf, 0, off_shstr, shstr_len, 1)
+    }
     var res = native_write_exe(elf, exe_out)
     int_vec_free(elf)
     if res != 0 {
@@ -512,7 +810,7 @@ func native_emit_pure_elf(code: int, main_ent: int, exe_out: str, quiet: int): i
 }
 
 // quiet: when 1, omit stderr on failure (caller may fall back to bootstrap).
-func native_compile_and_link(merged_src: str, quiet: int, exe_out: str, target: str): int {
+func native_compile_and_link(merged_src: str, quiet: int, exe_out: str, target: str, debug_info: int, src_path: str, entry_line: int): int {
     var td = TargetDescriptor {
         arch: target_arch(target),
         os: target_os(target),
@@ -559,7 +857,15 @@ func native_compile_and_link(merged_src: str, quiet: int, exe_out: str, target: 
         int_vec_free(code)
         return 1
     }
-    return native_emit_pure_elf(code, main_ent, exe_out, quiet)
+    var dwarf = 0
+    if debug_info == 1 {
+        dwarf = native_build_dwarf_sections(src_path, entry_line, int_vec_len(code))
+    }
+    var rc = native_emit_pure_elf(code, main_ent, exe_out, quiet, dwarf)
+    if dwarf != 0 {
+        int_vec_free(dwarf)
+    }
+    return rc
 }
 
 // 1 = source needs the bootstrap compiler (parse/native-subset gap); 0 = try native pipeline.
@@ -1261,6 +1567,17 @@ func build_wants_g(): int {
     return 0
 }
 
+func build_wants_debug_info(): int {
+    var i = 2
+    while (i < host_argc()) {
+        if str_eq(host_argv(i), "--debug-info") == 1 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
 // Source path recorded in DWARF (entry .diva for packages).
 func dwarf_debug_src_path(path: str): str {
     if build_path_is_package_dir(path) == 1 {
@@ -1661,23 +1978,36 @@ func native_build_path(path: str, quiet: int, use_cache: int, target: str): int 
     }
     var exe_out = pick_build_out_path()
     var exe_hold = exe_out
+    var debug_info = build_wants_debug_info()
+    var dbg_src = ""
+    var entry_line = 0
+    if debug_info == 1 {
+        dbg_src = dwarf_debug_src_path(path)
+        var dbg_src_text = read_source(dbg_src)
+        entry_line = dwarf_guess_entry_line(dbg_src_text)
+        if quiet == 0 {
+            err_line("[native] DWARF line tables enabled (--debug-info)")
+        }
+    }
     var cache_active = 0
     var cache_key = ""
     var cache_files = ""
     var cache_version = ""
     if use_cache == 1 {
-        if cache_disabled() == 0 {
-            var files = collect_watch_files(path)
-            var files_hold = files
-            if str_len(files_hold) > 0 {
-                var version = cache_version_id()
-                var version_hold = version
-                var key = cache_hash_sources(files_hold, version_hold, build_wants_g())
-                if key != 0 {
-                    cache_key = fnv_hex16(key)
-                    cache_files = files_hold
-                    cache_version = version_hold
-                    cache_active = 1
+        if debug_info == 0 {
+            if cache_disabled() == 0 {
+                var files = collect_watch_files(path)
+                var files_hold = files
+                if str_len(files_hold) > 0 {
+                    var version = cache_version_id()
+                    var version_hold = version
+                    var key = cache_hash_sources(files_hold, version_hold, build_wants_g())
+                    if key != 0 {
+                        cache_key = fnv_hex16(key)
+                        cache_files = files_hold
+                        cache_version = version_hold
+                        cache_active = 1
+                    }
                 }
             }
         }
@@ -1691,19 +2021,21 @@ func native_build_path(path: str, quiet: int, use_cache: int, target: str): int 
         if cache_active == 1 {
             cache_print_miss(cache_key)
         }
-        if native_compile_and_link(merged_out_hold, quiet, exe_hold, target) != 0 {
+        if native_compile_and_link(merged_out_hold, quiet, exe_hold, target, debug_info, dbg_src, entry_line) != 0 {
             return 1
         }
         if build_wants_g() == 1 {
-            var dbg_src = dwarf_debug_src_path(path)
-            if native_embed_dwarf(exe_hold, dbg_src) != 0 {
-                if quiet == 0 {
-                    err_line("build -g: embed-dwarf-debug.py failed (need python3 + scripts/embed-dwarf-debug.py)")
+            if debug_info == 0 {
+                var legacy_src = dwarf_debug_src_path(path)
+                if native_embed_dwarf(exe_hold, legacy_src) != 0 {
+                    if quiet == 0 {
+                        err_line("build -g: embed-dwarf-debug.py failed (need python3 + scripts/embed-dwarf-debug.py)")
+                    }
+                    return 1
                 }
-                return 1
-            }
-            if quiet == 0 {
-                err_line("[native] DWARF -g sections embedded (addr2line)")
+                if quiet == 0 {
+                    err_line("[native] DWARF -g sections embedded (addr2line)")
+                }
             }
         }
         if cache_active == 1 {
@@ -1893,7 +2225,7 @@ func cmd_run_file(path: str): int {
         return 1
     }
     var exe_out = native_default_exe_out()
-    if native_compile_and_link(merged_out_hold, 0, exe_out, target) != 0 {
+    if native_compile_and_link(merged_out_hold, 0, exe_out, target, 0, "", 0) != 0 {
         return 1
     }
     var rc = host_system(exe_out)
