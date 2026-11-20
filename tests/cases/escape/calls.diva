@@ -1,0 +1,30 @@
+// Call-argument policy: only known-leaf callees keep pointer arguments local.
+var sink: *int = 0
+
+func nonleaf(p: *int): int {
+    sink = p
+    return 0
+}
+
+func leaf(p: *int): int {
+    return 7
+}
+
+func pass_nonleaf(): int {
+    var x = 1
+    return nonleaf(&x)
+}
+
+func pass_leaf(): int {
+    var y = 2
+    return leaf(&y)
+}
+
+func escaped_ret(): *int {
+    var z = 3
+    return &z
+}
+
+func main(): int {
+    return pass_nonleaf() + pass_leaf()
+}

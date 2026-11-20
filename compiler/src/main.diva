@@ -16,6 +16,7 @@ import "ir_builder.diva"
 import "ir_dump.diva"
 import "ir_opt.diva"
 import "cfg.diva"
+import "escape.diva"
 import "codegen_x86.diva"
 import "ast_dump.diva"
 import "sema.diva"
@@ -83,7 +84,7 @@ func target_from_args(): str {
 func cmd_print_usage(): int {
     stderr("usage: diva <command> [args]\n")
     stderr("  lex <file.diva> | parse <file.diva> | ir <file.diva> | asm <file.diva>\n")
-    stderr("  analyze <file.diva>\n")
+    stderr("  analyze [--escape] <file.diva>\n")
     stderr("  opt [--no-opt] [--no-inline] <file.diva> (dump optimized / unoptimized IR)\n")
     stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g|--no-inline]\n")
     stderr("  run [--no-inline] <file.diva|package-dir>\n")
@@ -1068,6 +1069,32 @@ func cmd_analyze(): int {
             var probe_toks = lex_source(probe_src_hold)
             if probe_toks == 0 { return 1 }
             return cfg_selftest_undefined_label(probe_src_hold, probe_toks)
+        }
+        if str_eq(probe, "--escape") == 1 {
+            if host_argc() < 4 {
+                err_line("usage: diva analyze --escape <file.diva>")
+                return 1
+            }
+            var esc_path = host_argv(3)
+            if path_is_diva_file(esc_path) == 0 {
+                err_line("analyze: expected a .diva file")
+                return 1
+            }
+            var esc_src = merge_file_sources(esc_path)
+            var esc_src_hold = esc_src
+            if str_len(esc_src_hold) == 0 { return 1 }
+            var esc_stream = lex_source(esc_src_hold)
+            if esc_stream == 0 { return 1 }
+            var esc_pr = parse_source(esc_src_hold, esc_stream, 0)
+            var esc_ast = int_vec_get(esc_pr, 0)
+            if int_vec_get(esc_pr, 1) != 0 {
+                err_line("analyze: parse failed")
+                return 1
+            }
+            if sema_check_file(esc_src_hold, esc_stream, esc_ast) != 0 { return 1 }
+            var esc_ir_result = build_ir(esc_src_hold, esc_stream, esc_ast)
+            var esc_m = int_vec_get(esc_ir_result, 0)
+            return escape_analyze_module(esc_m, esc_src_hold, esc_stream)
         }
     }
     if host_argc() < 3 {

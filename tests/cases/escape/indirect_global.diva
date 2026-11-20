@@ -1,0 +1,13 @@
+// Provenance follows local copies: &x reaches the global through p.
+var sink: *int = 0
+
+func leak_indirect(): int {
+    var x = 1
+    var p: *int = &x
+    sink = p
+    return 0
+}
+
+func main(): int {
+    return leak_indirect()
+}

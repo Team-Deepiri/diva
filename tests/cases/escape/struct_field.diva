@@ -1,0 +1,17 @@
+// The struct address escapes to a global; the address written into its
+// pointer field escapes with it (field stores are ir_store into slot+offset).
+struct Box { p: *int }
+
+var sink: *Box = 0
+
+func leak_field(): int {
+    var b: Box = Box { p: 0 }
+    var x = 7
+    sink = &b
+    b.p = &x
+    return 0
+}
+
+func main(): int {
+    return leak_field()
+}
