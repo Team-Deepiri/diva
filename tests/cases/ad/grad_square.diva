@@ -1,0 +1,8 @@
+#[differentiate]
+func square(x: int): int {
+    return x * x
+}
+
+func main(): int {
+    return square_deriv(3)
+}

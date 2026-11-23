@@ -1,0 +1,8 @@
+#[differentiate]
+func cube(x: int): int {
+    return x * x * x
+}
+
+func main(): int {
+    return cube_deriv(2)
+}

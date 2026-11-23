@@ -498,6 +498,7 @@ func sctx_ty_name(ty: int): str {
     if ty == ir_ty_text() { return "text" }
     if ty == ir_ty_slice() { return "slice" }
     if ty == ir_ty_vec4() { return "vec4" }
+    if ty == ir_ty_dual() { return "dual" }
     if ty > ir_ty_text() { return "enum" }
     return "?"
 }
@@ -506,6 +507,7 @@ func sema_ty_is_enum(ty: int): int {
     if ty <= ir_ty_text() { return 0 }
     if ty == ir_ty_slice() { return 0 }
     if ty == ir_ty_vec4() { return 0 }
+    if ty == ir_ty_dual() { return 0 }
     return 1
 }
 
@@ -550,6 +552,7 @@ func sema_type_from_node(c: int, type_node: int, src: str, toks: int): int {
     if str_eq(tn, "str") == 1 { return ir_ty_str() }
     if str_eq(tn, "text") == 1 { return ir_ty_text() }
     if str_eq(tn, "vec4") == 1 { return ir_ty_vec4() }
+    if str_eq(tn, "Dual") == 1 { return ir_ty_dual() }
     if str_eq(tn, "void") == 1 { return ir_ty_void() }
     var ei = 0
     var en = int_vec_len(sctx_enum_type_toks(c))
@@ -913,6 +916,10 @@ func sema_check_binop_types(c: int, src: str, toks: int, node: int): int {
         if (sema_binop_is_vec4(op) == 1) & (lt == ir_ty_vec4()) & (rt == ir_ty_vec4()) { return 0 }
         return sema_vec4_binop_error(src, toks, node)
     }
+    if (lt == ir_ty_dual()) | (rt == ir_ty_dual()) {
+        stderr("sema: dual arithmetic requires dual_* builtins\n")
+        return 1
+    }
     if (op == binop_add()) & (lt == ir_ty_text()) & (rt == ir_ty_text()) { return 0 }
     var want = ir_ty_int()
     if sema_binop_is_logic(op) == 1 {
@@ -999,6 +1006,13 @@ func sema_builtin_arity(nm: str): int {
     if str_eq(nm, "vec4_load") == 1 { return 4 }
     if str_eq(nm, "vec4_get") == 1 { return 2 }
     if str_eq(nm, "vec4_sum") == 1 { return 1 }
+    if str_eq(nm, "dual") == 1 { return 2 }
+    if str_eq(nm, "dual_val") == 1 { return 1 }
+    if str_eq(nm, "dual_tan") == 1 { return 1 }
+    if str_eq(nm, "dual_add") == 1 { return 2 }
+    if str_eq(nm, "dual_sub") == 1 { return 2 }
+    if str_eq(nm, "dual_mul") == 1 { return 2 }
+    if str_eq(nm, "dual_scale") == 1 { return 2 }
     return 0 - 1
 }
 
@@ -1007,6 +1021,11 @@ func sema_builtin_ret(nm: str): int {
     if str_eq(nm, "fence") == 1 { return ir_ty_void() }
     if str_eq(nm, "vec4_splat") == 1 { return ir_ty_vec4() }
     if str_eq(nm, "vec4_load") == 1 { return ir_ty_vec4() }
+    if str_eq(nm, "dual") == 1 { return ir_ty_dual() }
+    if str_eq(nm, "dual_add") == 1 { return ir_ty_dual() }
+    if str_eq(nm, "dual_sub") == 1 { return ir_ty_dual() }
+    if str_eq(nm, "dual_mul") == 1 { return ir_ty_dual() }
+    if str_eq(nm, "dual_scale") == 1 { return ir_ty_dual() }
     if sema_builtin_arity(nm) >= 0 { return ir_ty_int() }
     return 0 - 1
 }
@@ -1029,6 +1048,28 @@ func sema_is_simd_builtin(nm: str): int {
     return 0
 }
 
+// Forward-mode dual builtins (Issue #121). Arguments are checked by name just
+// like vec4: dual values are two-word locals and never escape via direct ops.
+func sema_is_dual_builtin(nm: str): int {
+    if str_eq(nm, "dual") == 1 { return 1 }
+    if str_eq(nm, "dual_val") == 1 { return 1 }
+    if str_eq(nm, "dual_tan") == 1 { return 1 }
+    if str_eq(nm, "dual_add") == 1 { return 1 }
+    if str_eq(nm, "dual_sub") == 1 { return 1 }
+    if str_eq(nm, "dual_mul") == 1 { return 1 }
+    if str_eq(nm, "dual_scale") == 1 { return 1 }
+    return 0
+}
+
+func sema_dual_arg_ty(nm: str, i: int): int {
+    if str_eq(nm, "dual") == 1 { return ir_ty_int() }
+    if str_eq(nm, "dual_scale") == 1 {
+        if i == 1 { return ir_ty_int() }
+        return ir_ty_dual()
+    }
+    return ir_ty_dual()
+}
+
 func sema_simd_arg_ty(nm: str, i: int): int {
     if str_eq(nm, "vec4_get") == 1 {
         if i == 0 { return ir_ty_vec4() }
@@ -1043,6 +1084,7 @@ func sema_simd_arg_ty(nm: str, i: int): int {
 func sema_builtin_expects_ptr(nm: str, arg_index: int): int {
     if arg_index != 0 { return 0 }
     if str_eq(nm, "fence") == 1 { return 0 }
+    if sema_is_dual_builtin(nm) == 1 { return 0 }
     return 1
 }
 
@@ -1395,6 +1437,12 @@ func sema_check_builtin_call(c: int, src: str, toks: int, ctok: int, nm: str, ar
         var av = int_vec_get(args, i)
         if sema_check_expr(c, src, toks, av) != 0 { return 1 }
         var aty = sema_expr_type(c, src, toks, av)
+        if sema_is_dual_builtin(nm) == 1 {
+            var dwant = sema_dual_arg_ty(nm, i)
+            if aty != dwant {
+                return sema_type_mismatch_at(src, toks, ctok, dwant, aty)
+            }
+        } else {
         if sema_is_simd_builtin(nm) == 1 {
             var want = sema_simd_arg_ty(nm, i)
             if aty != want {
@@ -1420,6 +1468,7 @@ func sema_check_builtin_call(c: int, src: str, toks: int, ctok: int, nm: str, ar
                     return 1
                 }
             }
+        }
         }
         if (str_eq(nm, "vec4_get") == 1) & (i == 1) {
             if sema_check_vec4_lane(src, toks, ctok, av) != 0 { return 1 }

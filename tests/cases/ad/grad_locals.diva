@@ -1,0 +1,10 @@
+#[differentiate]
+func poly(x: int): int {
+    var y: int = x * x
+    y = y + x
+    return y
+}
+
+func main(): int {
+    return poly_deriv(3)
+}

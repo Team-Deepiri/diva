@@ -1,0 +1,6 @@
+func main(): int {
+    var d: Dual = dual(5, 1)
+    var s: Dual = dual_scale(d, 3)
+    if dual_val(s) != 15 { return 1 }
+    return dual_tan(s)
+}

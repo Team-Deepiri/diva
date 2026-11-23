@@ -24,6 +24,7 @@ import "sema.diva"
 import "loader.diva"
 import "cmd_text.diva"
 import "target.diva"
+import "ad.diva"
 
 // When DIVA_NATIVE_CMD_IR_DEBUG is non-empty, cmd_ir prints stderr milestones (native-driver bring-up).
 func native_cmd_ir_debug(): int {
@@ -85,6 +86,7 @@ func target_from_args(): str {
 func cmd_print_usage(): int {
     stderr("usage: diva <command> [args]\n")
     stderr("  lex <file.diva> | parse <file.diva> | ir [--types] <file.diva> | asm <file.diva>\n")
+    stderr("  grad <file.diva> <func>  (emit #[differentiate] companion functions)\n")
     stderr("  analyze [--escape] <file.diva>\n")
     stderr("  opt [--no-opt] [--no-inline] <file.diva> (dump optimized / unoptimized IR)\n")
     stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g|--debug-info|--no-inline]\n")
@@ -1274,6 +1276,34 @@ func cmd_parse(path: str): int {
     return 0
 }
 
+func cmd_grad(path: str, fname: str): int {
+    var src = read_source(path)
+    var src_hold = src
+    if str_len(src_hold) == 0 { return 1 }
+    var stream = lex_source(src_hold)
+    if stream == 0 { err_line("grad: lexer error") return 1 }
+    var pr = parse_source(src_hold, stream, 0)
+    var ast = int_vec_get(pr, 0)
+    var marked = int_vec_get(pr, 2)
+    if int_vec_get(pr, 1) != 0 { err_line("grad: parse failed") return 1 }
+    var adfn = ad_find_func(src_hold, stream, ast, fname)
+    if adfn < 0 {
+        err_line("grad: function not found: ")
+        err_line(fname)
+        return 1
+    }
+    if ad_is_marked(src_hold, stream, marked, adfn) == 0 {
+        err_line("grad: function is not marked #[differentiate]: ")
+        err_line(fname)
+        return 1
+    }
+    var err_cell = mut_new(0)
+    var out = ad_emit_file(err_cell, src_hold, stream, adfn, fname)
+    if mut_get(err_cell) != 0 { return 1 }
+    print_str(out)
+    return 0
+}
+
 func verify_ir_module(m: int, src: str, toks: int): int {
     return ity_verify_module(m, src, toks)
 }
@@ -2354,6 +2384,14 @@ func main(): int {
 
     if str_eq(a1, "build") == 1 {
         return cmd_build()
+    }
+
+    if str_eq(a1, "grad") == 1 {
+        if (host_argc() < 4) {
+            err_line("usage: diva grad <file.diva> <func>")
+            return 1
+        }
+        return cmd_grad(host_argv(2), host_argv(3))
     }
 
     if str_eq(a1, "watch") == 1 {

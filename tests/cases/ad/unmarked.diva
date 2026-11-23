@@ -1,0 +1,7 @@
+func square(x: int): int {
+    return x * x
+}
+
+func main(): int {
+    return 0
+}

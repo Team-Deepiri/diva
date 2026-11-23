@@ -1,0 +1,6 @@
+func main(): int {
+    var d: Dual = dual(3, 1)
+    var p: Dual = dual_mul(d, d)
+    if dual_val(p) != 9 { return 1 }
+    return dual_tan(p)
+}

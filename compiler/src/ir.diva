@@ -24,6 +24,8 @@ func ir_ty_text(): int { return 5 }
 // high fixed id so it can never collide with a user enum's assigned type.
 func ir_ty_slice(): int { return 1099 }
 func ir_ty_vec4(): int  { return 1100 }
+// Forward-AD dual number: a two-word [value, tangent] aggregate (#121).
+func ir_ty_dual(): int  { return 1101 }
 
 // --- IR opcodes ---
 

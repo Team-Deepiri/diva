@@ -10,7 +10,8 @@ import "cell.diva"
 import "diag.diva"
 
 // --- Parser context ---
-// ps = int_vec: [pos_cell, tlen, err_cell, toks_handle, quiet (0=loud, 1=no stderr on error), struct_ok_cell]
+// ps = int_vec: [pos_cell, tlen, err_cell, toks_handle, quiet (0=loud, 1=no stderr on error),
+//                struct_ok_cell, differentiate_pending_cell, differentiated_func_toks]
 
 func ps_new(toks: int, quiet: int): int {
     var ps = int_vec_new()
@@ -20,6 +21,8 @@ func ps_new(toks: int, quiet: int): int {
     int_vec_push(ps, toks)
     int_vec_push(ps, quiet)
     int_vec_push(ps, mut_new(1))
+    int_vec_push(ps, mut_new(0))
+    int_vec_push(ps, int_vec_new())
     return ps
 }
 
@@ -34,6 +37,11 @@ func ps_struct_ok(ps: int): int { return mut_get(int_vec_get(ps, 5)) }
 func ps_set_pos(ps: int, v: int): int { return mut_set(int_vec_get(ps, 0), v) }
 func ps_set_err(ps: int): int         { return mut_set(int_vec_get(ps, 2), 1) }
 func ps_set_struct_ok(ps: int, v: int): int { return mut_set(int_vec_get(ps, 5), v) }
+
+// `#[differentiate]` marks the next top-level function for the AD transform.
+func ps_ad_pending(ps: int): int { return mut_get(int_vec_get(ps, 6)) }
+func ps_set_ad_pending(ps: int, v: int): int { return mut_set(int_vec_get(ps, 6), v) }
+func ps_ad_funcs(ps: int): int { return int_vec_get(ps, 7) }
 
 // --- Core helpers ---
 
@@ -1192,6 +1200,9 @@ func p_parse_attributes(ps: int, src: str): int {
         }
         var name_tok = p_advance(ps)
         var name = p_text(ps, src, name_tok)
+        if str_eq(name, "differentiate") == 1 {
+            ps_set_ad_pending(ps, 1)
+        }
         if str_eq(name, "repr") == 1 {
             if p_cur(ps) != tk_lparen() {
                 p_attr_error(ps, src, "repr expects a layout name (C or i8/i16/i32/i64/u8/u16/u32/u64/isize/usize)")
@@ -1214,6 +1225,7 @@ func parse_top_level(ps: int, src: str): int {
     while p_cur(ps) != tk_eof() {
         if ps_err(ps) != 0 { return ast_file(children) }
         p_skip_semi(ps)
+        ps_set_ad_pending(ps, 0)
         p_parse_attributes(ps, src)
         if ps_err(ps) != 0 { return ast_file(children) }
         var kind = p_cur(ps)
@@ -1244,7 +1256,12 @@ func parse_top_level(ps: int, src: str): int {
             int_vec_push(children, ast_package(ntok))
         } else {
         if kind == tk_func() {
-            int_vec_push(children, parse_func_decl(ps, src))
+            var fnode = parse_func_decl(ps, src)
+            if ps_ad_pending(ps) == 1 {
+                int_vec_push(ps_ad_funcs(ps), ast_child(fnode, 0))
+                ps_set_ad_pending(ps, 0)
+            }
+            int_vec_push(children, fnode)
         } else {
         if kind == tk_extern() {
             int_vec_push(children, parse_extern_decl(ps, src))
@@ -1283,7 +1300,7 @@ func parse_top_level(ps: int, src: str): int {
 }
 
 // --- Public entry point ---
-// Returns int_vec: [ast_node, err_flag]
+// Returns int_vec: [ast_node, err_flag, differentiated_func_toks]
 
 func parse_source(src: str, stream: int, quiet: int): int {
     var ps = ps_new(stream, quiet)
@@ -1291,5 +1308,6 @@ func parse_source(src: str, stream: int, quiet: int): int {
     var result = int_vec_new()
     int_vec_push(result, ast)
     int_vec_push(result, ps_err(ps))
+    int_vec_push(result, ps_ad_funcs(ps))
     return result
 }

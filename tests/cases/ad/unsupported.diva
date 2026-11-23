@@ -1,0 +1,9 @@
+#[differentiate]
+func branching(x: int): int {
+    if x > 0 { return x * x }
+    return 0
+}
+
+func main(): int {
+    return 0
+}

@@ -1,0 +1,304 @@
+// Forward-mode automatic differentiation source transform (Issue #121).
+//
+// `diva grad <file.diva> <func>` reprints the input file followed by a pair of
+// companion functions for a function marked `#[differentiate]`:
+//
+//   func f_dual(x: int): int   // dual-number evaluation, returns the tangent
+//   func f_deriv(x: int): int  // thin int -> int wrapper around f_dual
+//
+// The transform works on the parsed AST and emits ordinary Diva source, so the
+// generated file goes through the normal sema/IR/codegen pipeline. Only the
+// scalar subset below is supported; reverse mode and tensor AD are deferred.
+
+import "std/host.diva"
+import "std/io.diva"
+import "std/vec.diva"
+import "std/conv.diva"
+import "std/str.diva"
+import "tokens.diva"
+import "ast.diva"
+import "cell.diva"
+
+func ad_nl(): str { return char_to_str(10) }
+
+func ad_set_err(err_cell: int, msg: str): int {
+    if mut_get(err_cell) == 0 {
+        mut_set(err_cell, 1)
+        stderr("grad: ")
+        stderr(msg)
+        stderr(ad_nl())
+    }
+    return 0
+}
+
+func ad_find_func(src: str, toks: int, file_node: int, name: str): int {
+    var children = ast_child(file_node, 0)
+    var i = 0
+    while i < int_vec_len(children) {
+        var node = int_vec_get(children, i)
+        if ast_kind(node) == nd_func() {
+            var nt = ast_child(node, 0)
+            if str_eq(tok_text(src, toks, nt), name) == 1 { return node }
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func ad_is_marked(src: str, toks: int, marked: int, fn: int): int {
+    var nt = ast_child(fn, 0)
+    var i = 0
+    while i < int_vec_len(marked) {
+        if tok_spelling_eq(src, toks, nt, int_vec_get(marked, i)) == 1 { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+func ad_name_in(src: str, toks: int, names: int, nt: int): int {
+    var i = 0
+    while i < int_vec_len(names) {
+        if tok_spelling_eq(src, toks, nt, int_vec_get(names, i)) == 1 { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+func ad_type_is(src: str, toks: int, node: int, want: str): int {
+    if node < 0 { return 0 }
+    if ast_kind(node) != nd_type_name() { return 0 }
+    if str_eq(tok_text(src, toks, ast_child(node, 0)), want) == 1 { return 1 }
+    return 0
+}
+
+// Translate a scalar expression into a dual expression. Identifiers that are
+// known dual locals are passed through; unknown names are zero-tangent constants.
+func ad_dual_expr(err_cell: int, src: str, toks: int, node: int, names_cell: int): str {
+    if node < 0 {
+        ad_set_err(err_cell, "missing expression in differentiable function")
+        return ""
+    }
+    var k = ast_kind(node)
+    if k == nd_int_lit() {
+        var b = str_builder_new()
+        str_builder_append(b, "dual(")
+        str_builder_append(b, int_to_str(ast_child(node, 0)))
+        str_builder_append(b, ", 0)")
+        var s = str_builder_to_str(b)
+        str_builder_free(b)
+        return s
+    }
+    if k == nd_ident() {
+        var nt = ast_child(node, 0)
+        var nm = tok_text(src, toks, nt)
+        if ad_name_in(src, toks, mut_get(names_cell), nt) == 1 { return nm }
+        var bi = str_builder_new()
+        str_builder_append(bi, "dual(")
+        str_builder_append(bi, nm)
+        str_builder_append(bi, ", 0)")
+        var si = str_builder_to_str(bi)
+        str_builder_free(bi)
+        return si
+    }
+    if k == nd_unary() {
+        if ast_child(node, 0) != unop_neg() {
+            ad_set_err(err_cell, "unsupported unary operator in differentiable expression")
+            return ""
+        }
+        var inner = ad_dual_expr(err_cell, src, toks, ast_child(node, 1), names_cell)
+        if str_len(inner) == 0 { return "" }
+        var bu = str_builder_new()
+        str_builder_append(bu, "dual_scale(")
+        str_builder_append(bu, inner)
+        str_builder_append(bu, ", -1)")
+        var su = str_builder_to_str(bu)
+        str_builder_free(bu)
+        return su
+    }
+    if k == nd_binop() {
+        var op = ast_child(node, 0)
+        var ln = ast_child(node, 1)
+        var rn = ast_child(node, 2)
+        if op == binop_mul() {
+            if ast_kind(rn) == nd_int_lit() {
+                var ls = ad_dual_expr(err_cell, src, toks, ln, names_cell)
+                if str_len(ls) == 0 { return "" }
+                var bk = str_builder_new()
+                str_builder_append(bk, "dual_scale(")
+                str_builder_append(bk, ls)
+                str_builder_append(bk, ", ")
+                str_builder_append(bk, int_to_str(ast_child(rn, 0)))
+                str_builder_append(bk, ")")
+                var sk = str_builder_to_str(bk)
+                str_builder_free(bk)
+                return sk
+            }
+            if ast_kind(ln) == nd_int_lit() {
+                var rs = ad_dual_expr(err_cell, src, toks, rn, names_cell)
+                if str_len(rs) == 0 { return "" }
+                var bk2 = str_builder_new()
+                str_builder_append(bk2, "dual_scale(")
+                str_builder_append(bk2, rs)
+                str_builder_append(bk2, ", ")
+                str_builder_append(bk2, int_to_str(ast_child(ln, 0)))
+                str_builder_append(bk2, ")")
+                var sk2 = str_builder_to_str(bk2)
+                str_builder_free(bk2)
+                return sk2
+            }
+        }
+        var fname = ""
+        if op == binop_add() { fname = "dual_add" }
+        if op == binop_sub() { fname = "dual_sub" }
+        if op == binop_mul() { fname = "dual_mul" }
+        if str_len(fname) == 0 {
+            ad_set_err(err_cell, "unsupported operator in differentiable expression (only +, -, * and integer scaling)")
+            return ""
+        }
+        var le = ad_dual_expr(err_cell, src, toks, ln, names_cell)
+        if str_len(le) == 0 { return "" }
+        var re = ad_dual_expr(err_cell, src, toks, rn, names_cell)
+        if str_len(re) == 0 { return "" }
+        var bo = str_builder_new()
+        str_builder_append(bo, fname)
+        str_builder_append(bo, "(")
+        str_builder_append(bo, le)
+        str_builder_append(bo, ", ")
+        str_builder_append(bo, re)
+        str_builder_append(bo, ")")
+        var so = str_builder_to_str(bo)
+        str_builder_free(bo)
+        return so
+    }
+    ad_set_err(err_cell, "unsupported expression in differentiable function")
+    return ""
+}
+
+func ad_dual_stmt(err_cell: int, src: str, toks: int, names_cell: int, node: int): str {
+    var k = ast_kind(node)
+    if k == nd_var_decl() {
+        var nt = ast_child(node, 0)
+        var init = ast_child(node, 2)
+        var de = ad_dual_expr(err_cell, src, toks, init, names_cell)
+        if str_len(de) == 0 { return "" }
+        int_vec_push(mut_get(names_cell), nt)
+        var b = str_builder_new()
+        str_builder_append(b, "  var ")
+        str_builder_append(b, tok_text(src, toks, nt))
+        str_builder_append(b, ": Dual = ")
+        str_builder_append(b, de)
+        str_builder_append(b, ";")
+        var s = str_builder_to_str(b)
+        str_builder_free(b)
+        return s
+    }
+    if k == nd_assign() {
+        var target = ast_child(node, 0)
+        if ast_kind(target) != nd_ident() {
+            ad_set_err(err_cell, "only simple variable assignments are supported")
+            return ""
+        }
+        var de2 = ad_dual_expr(err_cell, src, toks, ast_child(node, 1), names_cell)
+        if str_len(de2) == 0 { return "" }
+        var b2 = str_builder_new()
+        str_builder_append(b2, "  ")
+        str_builder_append(b2, tok_text(src, toks, ast_child(target, 0)))
+        str_builder_append(b2, " = ")
+        str_builder_append(b2, de2)
+        str_builder_append(b2, ";")
+        var s2 = str_builder_to_str(b2)
+        str_builder_free(b2)
+        return s2
+    }
+    if k == nd_return() {
+        var e = ast_child(node, 0)
+        if e < 0 {
+            ad_set_err(err_cell, "differentiable functions must return an int expression")
+            return ""
+        }
+        var de3 = ad_dual_expr(err_cell, src, toks, e, names_cell)
+        if str_len(de3) == 0 { return "" }
+        var b3 = str_builder_new()
+        str_builder_append(b3, "  return dual_tan(")
+        str_builder_append(b3, de3)
+        str_builder_append(b3, ");")
+        var s3 = str_builder_to_str(b3)
+        str_builder_free(b3)
+        return s3
+    }
+    ad_set_err(err_cell, "unsupported statement in differentiable function (use var/assign/return of +, -, *)")
+    return ""
+}
+
+func ad_emit_companions(err_cell: int, src: str, toks: int, fn: int, name: str): str {
+    var params = ast_child(fn, 1)
+    if int_vec_len(params) != 1 {
+        ad_set_err(err_cell, "differentiable functions take exactly one int parameter")
+        return ""
+    }
+    var param = int_vec_get(params, 0)
+    var ptok = ast_child(param, 0)
+    if ad_type_is(src, toks, ast_child(param, 1), "int") == 0 {
+        ad_set_err(err_cell, "differentiable parameter must have type int")
+        return ""
+    }
+    if ad_type_is(src, toks, ast_child(fn, 2), "int") == 0 {
+        ad_set_err(err_cell, "differentiable function must return int")
+        return ""
+    }
+    var body = ast_child(fn, 3)
+    if ast_kind(body) != nd_block() {
+        ad_set_err(err_cell, "differentiable function needs a block body")
+        return ""
+    }
+    var names = int_vec_new()
+    int_vec_push(names, ptok)
+    var names_cell = mut_new(names)
+
+    var b = str_builder_new()
+    str_builder_append(b, "func ")
+    str_builder_append(b, name)
+    str_builder_append(b, "_dual(_ad_arg: int): int {")
+    str_builder_append(b, ad_nl())
+    str_builder_append(b, "  var ")
+    str_builder_append(b, tok_text(src, toks, ptok))
+    str_builder_append(b, ": Dual = dual(_ad_arg, 1);")
+    str_builder_append(b, ad_nl())
+    var stmts = ast_child(body, 0)
+    var i = 0
+    while i < int_vec_len(stmts) {
+        var line = ad_dual_stmt(err_cell, src, toks, names_cell, int_vec_get(stmts, i))
+        if str_len(line) == 0 { str_builder_free(b) return "" }
+        str_builder_append(b, line)
+        str_builder_append(b, ad_nl())
+        i = i + 1
+    }
+    str_builder_append(b, "}")
+    str_builder_append(b, ad_nl())
+    str_builder_append(b, ad_nl())
+    str_builder_append(b, "func ")
+    str_builder_append(b, name)
+    str_builder_append(b, "_deriv(x: int): int {")
+    str_builder_append(b, ad_nl())
+    str_builder_append(b, "  return ")
+    str_builder_append(b, name)
+    str_builder_append(b, "_dual(x);")
+    str_builder_append(b, ad_nl())
+    str_builder_append(b, "}")
+    str_builder_append(b, ad_nl())
+    var s = str_builder_to_str(b)
+    str_builder_free(b)
+    return s
+}
+
+func ad_emit_file(err_cell: int, src: str, toks: int, fn: int, name: str): str {
+    var companions = ad_emit_companions(err_cell, src, toks, fn, name)
+    if str_len(companions) == 0 { return "" }
+    var b = str_builder_new()
+    str_builder_append(b, src)
+    str_builder_append(b, ad_nl())
+    str_builder_append(b, companions)
+    var s = str_builder_to_str(b)
+    str_builder_free(b)
+    return s
+}
