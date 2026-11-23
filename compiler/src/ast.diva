@@ -60,6 +60,7 @@ func nd_unsafe_block(): int { return 51 }
 func nd_type_ref(): int    { return 52 }
 func nd_if_expr(): int     { return 53 }
 func nd_type_dyn(): int    { return 54 }
+func nd_type_tensor(): int { return 55 }
 
 // --- Pattern sub-kinds (stored in pattern payload) ---
 
@@ -479,6 +480,16 @@ func ast_type_ref(elem: int, is_mut: int): int {
     int_vec_push(n, nd_type_ref())
     int_vec_push(n, elem)
     int_vec_push(n, is_mut)
+    return n
+}
+
+func ast_type_tensor(elem: int, dim0_tok: int, dim1_tok: int, device_tok: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_type_tensor())
+    int_vec_push(n, elem)
+    int_vec_push(n, dim0_tok)
+    int_vec_push(n, dim1_tok)
+    int_vec_push(n, device_tok)
     return n
 }
 

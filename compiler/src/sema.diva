@@ -261,6 +261,7 @@ func sctx_new(): int {
     int_vec_push(c, mut_new(int_vec_new())) // [21] struct type name tok per local (Issue #88)
     int_vec_push(c, mut_new(int_vec_new())) // [22] moved-value cells per local (Issue #88)
     int_vec_push(c, int_vec_new())          // [23] struct type name tokens (Issue #88)
+    int_vec_push(c, mut_new(int_vec_new())) // [24] tensor rank per local (Issue #112)
     return c
 }
 
@@ -305,6 +306,9 @@ func sctx_set_moved_cells(c: int, v: int): int { return mut_set(int_vec_get(c, 2
 
 // Struct type-name tokens collected from `struct` declarations (Issue #88).
 func sctx_struct_type_toks(c: int): int { return int_vec_get(c, 23) }
+
+func sctx_tensor_ranks(c: int): int { return mut_get(int_vec_get(c, 24)) }
+func sctx_set_tensor_ranks(c: int, v: int): int { return mut_set(int_vec_get(c, 24), v) }
 
 // Remember the result type of a checked match expression.
 func sema_cache_match_type(c: int, node: int, ty: int): int {
@@ -393,6 +397,7 @@ func sctx_free(c: int): int {
     int_vec_free(sctx_local_struct_toks(c))
     int_vec_free(sctx_moved_cells(c))
     int_vec_free(sctx_struct_type_toks(c))
+    int_vec_free(sctx_tensor_ranks(c))
     int_vec_free(c)
     return 0
 }
@@ -439,6 +444,10 @@ func sctx_scope_pop(c: int): int {
     if int_vec_len(mvc) > mark {
         sctx_set_moved_cells(c, sctx_truncate_vec(mvc, mark))
     }
+    var trk = sctx_tensor_ranks(c)
+    if int_vec_len(trk) > mark {
+        sctx_set_tensor_ranks(c, sctx_truncate_vec(trk, mark))
+    }
     return 0
 }
 
@@ -459,11 +468,16 @@ func sctx_define(c: int, name_tok: int): int {
 }
 
 func sctx_define_typed(c: int, name_tok: int, ty: int): int {
+    return sctx_define_typed_rank(c, name_tok, ty, 0)
+}
+
+func sctx_define_typed_rank(c: int, name_tok: int, ty: int, rank: int): int {
     int_vec_push(sctx_names(c), name_tok)
     int_vec_push(sctx_local_types(c), ty)
     int_vec_push(sctx_ref_flags(c), 0)
     int_vec_push(sctx_local_struct_toks(c), 0 - 1)
     int_vec_push(sctx_moved_cells(c), mut_new(0))
+    int_vec_push(sctx_tensor_ranks(c), rank)
     return 0
 }
 
@@ -476,6 +490,7 @@ func sctx_define_struct(c: int, name_tok: int, ty: int, struct_tok: int): int {
     int_vec_push(sctx_ref_flags(c), 0)
     int_vec_push(sctx_local_struct_toks(c), struct_tok)
     int_vec_push(sctx_moved_cells(c), mut_new(0))
+    int_vec_push(sctx_tensor_ranks(c), 0)
     return 0
 }
 
@@ -486,6 +501,7 @@ func sctx_define_ref(c: int, name_tok: int, ty: int): int {
     int_vec_push(sctx_ref_flags(c), 1)
     int_vec_push(sctx_local_struct_toks(c), 0 - 1)
     int_vec_push(sctx_moved_cells(c), mut_new(0))
+    int_vec_push(sctx_tensor_ranks(c), 0)
     return 0
 }
 
@@ -499,6 +515,7 @@ func sctx_ty_name(ty: int): str {
     if ty == ir_ty_slice() { return "slice" }
     if ty == ir_ty_vec4() { return "vec4" }
     if ty == ir_ty_dual() { return "dual" }
+    if ty == ir_ty_tensor() { return "tensor" }
     if ty > ir_ty_text() { return "enum" }
     return "?"
 }
@@ -508,6 +525,7 @@ func sema_ty_is_enum(ty: int): int {
     if ty == ir_ty_slice() { return 0 }
     if ty == ir_ty_vec4() { return 0 }
     if ty == ir_ty_dual() { return 0 }
+    if ty == ir_ty_tensor() { return 0 }
     return 1
 }
 
@@ -530,6 +548,9 @@ func sema_type_from_node(c: int, type_node: int, src: str, toks: int): int {
     }
     if ast_kind(type_node) == nd_type_slice() {
         return ir_ty_slice()
+    }
+    if ast_kind(type_node) == nd_type_tensor() {
+        return ir_ty_tensor()
     }
     if ast_kind(type_node) != nd_type_name() {
         return ir_ty_int()
@@ -563,6 +584,52 @@ func sema_type_from_node(c: int, type_node: int, src: str, toks: int): int {
         ei = ei + 1
     }
     return ir_ty_int()
+}
+
+func sema_type_tensor_rank(type_node: int): int {
+    if type_node < 0 { return 0 }
+    if ast_kind(type_node) != nd_type_tensor() { return 0 }
+    if ast_child(type_node, 2) < 0 { return 1 }
+    return 2
+}
+
+func sema_tensor_builtin(nm: str): int {
+    if str_eq(nm, "tensor_new") == 1 { return 1 }
+    if str_eq(nm, "tensor_fill") == 1 { return 2 }
+    if str_eq(nm, "tensor_get") == 1 { return 3 }
+    if str_eq(nm, "tensor_set") == 1 { return 4 }
+    if str_eq(nm, "tensor_len") == 1 { return 5 }
+    if str_eq(nm, "tensor_rank") == 1 { return 6 }
+    return 0
+}
+
+func sema_tensor_init_rank(src: str, toks: int, node: int): int {
+    if node < 0 { return 0 }
+    if ast_kind(node) != nd_call() { return 0 }
+    var callee = ast_child(node, 0)
+    if ast_kind(callee) != nd_ident() { return 0 }
+    var nm = tok_text(src, toks, ast_child(callee, 0))
+    var tb = sema_tensor_builtin(nm)
+    if (tb != 1) & (tb != 2) { return 0 }
+    var args = ast_child(node, 1)
+    var shape_n = int_vec_len(args)
+    if tb == 2 { shape_n = shape_n - 1 }
+    if shape_n == 1 { return 1 }
+    if shape_n == 2 { return 2 }
+    return 0
+}
+
+func sctx_lookup_var_rank(c: int, src: str, toks: int, want: str): int {
+    var names = sctx_names(c)
+    var ranks = sctx_tensor_ranks(c)
+    var i = int_vec_len(names) - 1
+    while (i >= 0) {
+        if str_eq(tok_text(src, toks, int_vec_get(names, i)), want) == 1 {
+            return int_vec_get(ranks, i)
+        }
+        i = i - 1
+    }
+    return 0
 }
 
 func sctx_lookup_var_type(c: int, src: str, toks: int, want: str): int {
@@ -996,6 +1063,13 @@ func sctx_fn_ret_type(c: int, src: str, toks: int, want: str): int {
 // Language-level atomic builtins (Issue #98). They are lowered to real IR ops,
 // so they are recognised by name without an extern declaration.
 func sema_builtin_arity(nm: str): int {
+    var tb = sema_tensor_builtin(nm)
+    if tb == 1 { return 2 }
+    if tb == 2 { return 3 }
+    if tb == 3 { return 2 }
+    if tb == 4 { return 3 }
+    if tb == 5 { return 1 }
+    if tb == 6 { return 1 }
     if str_eq(nm, "atomic_load") == 1 { return 1 }
     if str_eq(nm, "atomic_store") == 1 { return 2 }
     if str_eq(nm, "atomic_add") == 1 { return 2 }
@@ -1017,6 +1091,10 @@ func sema_builtin_arity(nm: str): int {
 }
 
 func sema_builtin_ret(nm: str): int {
+    var tb = sema_tensor_builtin(nm)
+    if (tb == 1) | (tb == 2) { return ir_ty_tensor() }
+    if tb == 4 { return ir_ty_void() }
+    if (tb == 3) | (tb == 5) | (tb == 6) { return ir_ty_int() }
     if str_eq(nm, "atomic_store") == 1 { return ir_ty_void() }
     if str_eq(nm, "fence") == 1 { return ir_ty_void() }
     if str_eq(nm, "vec4_splat") == 1 { return ir_ty_vec4() }
@@ -1083,6 +1161,7 @@ func sema_simd_arg_ty(nm: str, i: int): int {
 
 func sema_builtin_expects_ptr(nm: str, arg_index: int): int {
     if arg_index != 0 { return 0 }
+    if sema_tensor_builtin(nm) > 0 { return 0 }
     if str_eq(nm, "fence") == 1 { return 0 }
     if sema_is_dual_builtin(nm) == 1 { return 0 }
     return 1
@@ -1413,7 +1492,119 @@ func sema_check_vec4_lane(src: str, toks: int, ctok: int, node: int): int {
     return 0
 }
 
+func sema_tensor_arity_error(src: str, toks: int, ctok: int, nm: str, expected: str, got: int): int {
+    diag_emit_loc(src, tok_start(toks, ctok))
+    stderr("sema: wrong number of arguments for '")
+    stderr(nm)
+    stderr("': expected ")
+    stderr(expected)
+    stderr(", got ")
+    stderr(int_to_str(got))
+    stderr(char_to_str(10))
+    return 1
+}
+
+func sema_check_tensor_indexes(c: int, src: str, toks: int, args: int, first: int, count: int): int {
+    var i = first
+    while (i < first + count) {
+        var av = int_vec_get(args, i)
+        if sema_check_expr(c, src, toks, av) != 0 { return 0 - 2 }
+        var aty = sema_expr_type(c, src, toks, av)
+        if aty != ir_ty_int() { return av }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func sema_tensor_index_result(c: int, src: str, toks: int, ctok: int, bad: int): int {
+    if bad == 0 - 2 { return 1 }
+    if bad >= 0 {
+        return sema_type_mismatch_at(src, toks, ctok, ir_ty_int(), sema_expr_type(c, src, toks, bad))
+    }
+    return 0
+}
+
+func sema_check_tensor_builtin(c: int, src: str, toks: int, ctok: int, nm: str, args: int): int {
+    var tb = sema_tensor_builtin(nm)
+    var argc = int_vec_len(args)
+    if tb == 1 {
+        if (argc < 1) | (argc > 2) {
+            return sema_tensor_arity_error(src, toks, ctok, nm, "1 or 2", argc)
+        }
+        var b1 = sema_check_tensor_indexes(c, src, toks, args, 0, argc)
+        return sema_tensor_index_result(c, src, toks, ctok, b1)
+    }
+    if tb == 2 {
+        if (argc < 2) | (argc > 3) {
+            return sema_tensor_arity_error(src, toks, ctok, nm, "2 or 3", argc)
+        }
+        var b2 = sema_check_tensor_indexes(c, src, toks, args, 0, argc)
+        return sema_tensor_index_result(c, src, toks, ctok, b2)
+    }
+    if (tb == 3) | (tb == 4) {
+        var min_args = 2
+        var max_args = 3
+        if tb == 4 { min_args = 3 max_args = 4 }
+        if (argc < min_args) | (argc > max_args) {
+            var expected = str_concat(str_concat(int_to_str(min_args - 1), " to "), int_to_str(max_args - 1))
+            return sema_tensor_arity_error(src, toks, ctok, nm, expected, argc)
+        }
+        var tnode = int_vec_get(args, 0)
+        if sema_check_expr(c, src, toks, tnode) != 0 { return 1 }
+        var tty = sema_expr_type(c, src, toks, tnode)
+        if tty != ir_ty_tensor() {
+            return sema_type_mismatch_at(src, toks, ctok, ir_ty_tensor(), tty)
+        }
+        var idxn = argc - 1
+        if tb == 4 { idxn = argc - 2 }
+        if ast_kind(tnode) == nd_ident() {
+            var tname = tok_text(src, toks, ast_child(tnode, 0))
+            var rank = sctx_lookup_var_rank(c, src, toks, tname)
+            if (rank > 0) & (rank != idxn) {
+                diag_emit_loc(src, tok_start(toks, ctok))
+                stderr("sema: '")
+                stderr(nm)
+                stderr("' expects ")
+                stderr(int_to_str(rank))
+                stderr(" indices for rank ")
+                stderr(int_to_str(rank))
+                stderr(" tensor, got ")
+                stderr(int_to_str(idxn))
+                stderr(char_to_str(10))
+                return 1
+            }
+        }
+        var b3 = sema_check_tensor_indexes(c, src, toks, args, 1, idxn)
+        if sema_tensor_index_result(c, src, toks, ctok, b3) != 0 { return 1 }
+        if tb == 4 {
+            var vnode = int_vec_get(args, argc - 1)
+            if sema_check_expr(c, src, toks, vnode) != 0 { return 1 }
+            var vty = sema_expr_type(c, src, toks, vnode)
+            if vty != ir_ty_int() {
+                return sema_type_mismatch_at(src, toks, ctok, ir_ty_int(), vty)
+            }
+        }
+        return 0
+    }
+    if (tb == 5) | (tb == 6) {
+        if argc != 1 {
+            return sema_tensor_arity_error(src, toks, ctok, nm, "1", argc)
+        }
+        var tnode2 = int_vec_get(args, 0)
+        if sema_check_expr(c, src, toks, tnode2) != 0 { return 1 }
+        var tty2 = sema_expr_type(c, src, toks, tnode2)
+        if tty2 != ir_ty_tensor() {
+            return sema_type_mismatch_at(src, toks, ctok, ir_ty_tensor(), tty2)
+        }
+        return 0
+    }
+    return 0
+}
+
 func sema_check_builtin_call(c: int, src: str, toks: int, ctok: int, nm: str, args: int): int {
+    if sema_tensor_builtin(nm) > 0 {
+        return sema_check_tensor_builtin(c, src, toks, ctok, nm, args)
+    }
     var arity = sema_builtin_arity(nm)
     if (sema_builtin_requires_unsafe(nm) == 1) & (sctx_unsafe(c) == 0) {
         diag_emit_loc(src, tok_start(toks, ctok))
@@ -1672,13 +1863,24 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
             return sema_vec4_unsupported(src, toks, name_tok, "arrays")
         }
         var vty = sema_type_from_node(c, type_node, src, toks)
+        var decl_rank = sema_type_tensor_rank(type_node)
+        var init_rank = sema_tensor_init_rank(src, toks, init)
+        var bind_rank = decl_rank
         var struct_tok = sema_struct_tok_from_type(c, type_node, src, toks)
         if (init < 0) == 0 {
             if sema_check_expr(c, src, toks, init) != 0 { return 1 }
             if (type_node < 0) {
                 vty = sema_expr_type(c, src, toks, init)
+                bind_rank = init_rank
             } else {
                 var got = sema_expr_type(c, src, toks, init)
+                if (vty == ir_ty_tensor()) & (init_rank > 0) & (decl_rank > 0) & (init_rank != decl_rank) {
+                    diag_emit_loc(src, tok_start(toks, name_tok))
+                    stderr("sema: tensor shape rank mismatch in declaration of '")
+                    stderr(tok_text(src, toks, name_tok))
+                    stderr("'\n")
+                    return 1
+                }
                 // A reference annotation (`&T`) binds the pointee type but its
                 // initializer is an address (pointer-typed).
                 var want = vty
@@ -1703,7 +1905,7 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
             }
         }
         if struct_tok < 0 {
-            sctx_define_typed(c, name_tok, vty)
+            sctx_define_typed_rank(c, name_tok, vty, bind_rank)
         } else {
             sctx_define_struct(c, name_tok, vty, struct_tok)
         }
@@ -1734,6 +1936,15 @@ func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
             }
             var want = sctx_lookup_var_type(c, src, toks, nm)
             var got = sema_expr_type(c, src, toks, value)
+            var value_rank = sema_tensor_init_rank(src, toks, value)
+            var want_rank = sctx_lookup_var_rank(c, src, toks, nm)
+            if (want == ir_ty_tensor()) & (value_rank > 0) & (want_rank > 0) & (value_rank != want_rank) {
+                diag_emit_loc(src, tok_start(toks, ttok))
+                stderr("sema: tensor shape rank mismatch in assignment to '")
+                stderr(nm)
+                stderr("'\n")
+                return 1
+            }
             var slice_lit_ok2 = 0
             if (want == ir_ty_slice()) & (ast_kind(value) == nd_array_lit()) { slice_lit_ok2 = 1 }
             if (slice_lit_ok2 == 0) & (sema_type_assignable(want, got, value) == 0) {
@@ -1855,7 +2066,7 @@ func sema_check_func_node(c: int, src: str, toks: int, fn: int): int {
         } else {
             var pstok = sema_struct_tok_from_type(c, ptnode, src, toks)
             if pstok < 0 {
-                sctx_define_typed(c, ast_child(p, 0), pty)
+                sctx_define_typed_rank(c, ast_child(p, 0), pty, sema_type_tensor_rank(ptnode))
             } else {
                 sctx_define_struct(c, ast_child(p, 0), pty, pstok)
             }
