@@ -1,0 +1,472 @@
+import "std/host.diva"
+import "std/io.diva"
+import "std/vec.diva"
+import "std/str.diva"
+import "std/conv.diva"
+import "std/mem.diva"
+import "cell.diva"
+import "tokens.diva"
+import "ir.diva"
+import "ir_types.diva"
+
+func mlir_ctx_new(m: int, toks: int): int {
+    var ctx = int_vec_new()
+    int_vec_push(ctx, str_builder_new())
+    int_vec_push(ctx, mut_new(0))
+    int_vec_push(ctx, mut_new(0))
+    int_vec_push(ctx, m)
+    int_vec_push(ctx, toks)
+    int_vec_push(ctx, mut_new(0 - 1))
+    int_vec_push(ctx, mut_new(ir_ty_int()))
+    return ctx
+}
+
+func mlir_ctx_text(ctx: int): int { return int_vec_get(ctx, 0) }
+func mlir_ctx_unsupported(ctx: int): int { return int_vec_get(ctx, 1) }
+func mlir_ctx_total(ctx: int): int { return int_vec_get(ctx, 2) }
+func mlir_ctx_module(ctx: int): int { return int_vec_get(ctx, 3) }
+func mlir_ctx_toks(ctx: int): int { return int_vec_get(ctx, 4) }
+func mlir_ftypes(ctx: int): int { return mut_get(int_vec_get(ctx, 5)) }
+func mlir_ret(ctx: int): int { return mut_get(int_vec_get(ctx, 6)) }
+
+func mlir_nl(): str { return char_to_str(10) }
+
+func mlir_value(v: int): str {
+    if v < 0 { return "%vundef" }
+    return str_concat("%v", int_to_str(v))
+}
+
+func mlir_label(label: int): str {
+    if label < 0 { return "^bb0" }
+    return str_concat("^bb", int_to_str(label))
+}
+
+func mlir_type_name(t: int): str {
+    if t == ir_ty_void()   { return "none" }
+    if t == ir_ty_bool()   { return "i1" }
+    if t == ir_ty_int()    { return "i64" }
+    if t == ir_ty_str()    { return "!diva.str" }
+    if t == ir_ty_text()   { return "!diva.text" }
+    if t == ir_ty_ptr()    { return "!diva.ptr" }
+    if t == ir_ty_slice()  { return "!diva.slice" }
+    if t == ir_ty_vec4()   { return "vector<4xi64>" }
+    return "!diva.opaque"
+}
+
+func mlir_value_type(v: int, ftypes: int): str {
+    if v < 0 { return "i64" }
+    if ftypes < 0 { return "i64" }
+    var t = mem_get(ftypes, v)
+    if t == ity_unknown() { return "i64" }
+    if t == ir_ty_void() { return "i64" }
+    if t == ir_ty_ptr() { return "i64" }
+    return mlir_type_name(t)
+}
+
+func mlir_is_symbol_char(c: int): int {
+    if c >= 48 { if c <= 57 { return 1 } }
+    if c >= 65 { if c <= 90 { return 1 } }
+    if c >= 97 { if c <= 122 { return 1 } }
+    if c == 95 { return 1 }
+    if c == 36 { return 1 }
+    return 0
+}
+
+func mlir_symbol(name: str): str {
+    var n = str_len(name)
+    var i = 0
+    while i < n {
+        if mlir_is_symbol_char(str_byte(name, i)) == 0 {
+            var b = str_builder_new()
+            str_builder_append(b, char_to_str(34))
+            str_builder_append(b, name)
+            str_builder_append(b, char_to_str(34))
+            var quoted = str_builder_to_str(b)
+            str_builder_free(b)
+            return quoted
+        }
+        i = i + 1
+    }
+    return name
+}
+
+func mlir_line(ctx: int, depth: int, text: str): int {
+    var b = str_builder_new()
+    var i = 0
+    while i < depth {
+        str_builder_append(b, "  ")
+        i = i + 1
+    }
+    str_builder_append(b, text)
+    str_builder_append(b, mlir_nl())
+    str_builder_append(mlir_ctx_text(ctx), str_builder_to_str(b))
+    str_builder_free(b)
+    return 0
+}
+
+func mlir_emit_line_value(ctx: int, depth: int, res: int, rhs: str): int {
+    var b = str_builder_new()
+    str_builder_append(b, mlir_value(res))
+    str_builder_append(b, " = ")
+    str_builder_append(b, rhs)
+    mlir_line(ctx, depth, str_builder_to_str(b))
+    str_builder_free(b)
+    return 0
+}
+
+func mlir_unsupported_name(ctx: int, depth: int, opname: str): int {
+    mut_set(mlir_ctx_unsupported(ctx), mut_get(mlir_ctx_unsupported(ctx)) + 1)
+    var b = str_builder_new()
+    str_builder_append(b, "// diva.unsupported: ")
+    str_builder_append(b, opname)
+    mlir_line(ctx, depth, str_builder_to_str(b))
+    str_builder_free(b)
+    return 0
+}
+
+func mlir_emit_unsupported(ctx: int, depth: int, inst: int): int {
+    return mlir_unsupported_name(ctx, depth, ir_op_name(inst_op(inst)))
+}
+
+func mlir_emit_binary(ctx: int, depth: int, inst: int, opname: str, ty: str): int {
+    var b = str_builder_new()
+    str_builder_append(b, opname)
+    str_builder_append(b, " ")
+    str_builder_append(b, mlir_value(inst_a(inst)))
+    str_builder_append(b, ", ")
+    str_builder_append(b, mlir_value(inst_b(inst)))
+    str_builder_append(b, " : ")
+    str_builder_append(b, ty)
+    mlir_emit_line_value(ctx, depth, inst_result(inst), str_builder_to_str(b))
+    str_builder_free(b)
+    return 0
+}
+
+func mlir_emit_cmp(ctx: int, depth: int, inst: int, pred: str): int {
+    var b = str_builder_new()
+    str_builder_append(b, "arith.cmpi ")
+    str_builder_append(b, pred)
+    str_builder_append(b, ", ")
+    str_builder_append(b, mlir_value(inst_a(inst)))
+    str_builder_append(b, ", ")
+    str_builder_append(b, mlir_value(inst_b(inst)))
+    str_builder_append(b, " : ")
+    str_builder_append(b, mlir_value_type(inst_a(inst), mlir_ftypes(ctx)))
+    mlir_emit_line_value(ctx, depth, inst_result(inst), str_builder_to_str(b))
+    str_builder_free(b)
+    return 0
+}
+
+func mlir_emit_neg(ctx: int, depth: int, inst: int): int {
+    var res = inst_result(inst)
+    var zero = str_concat(mlir_value(res), "_zero")
+    var zb = str_builder_new()
+    str_builder_append(zb, zero)
+    str_builder_append(zb, " = arith.constant 0 : i64")
+    mlir_line(ctx, depth, str_builder_to_str(zb))
+    str_builder_free(zb)
+    var b = str_builder_new()
+    str_builder_append(b, "arith.subi ")
+    str_builder_append(b, zero)
+    str_builder_append(b, ", ")
+    str_builder_append(b, mlir_value(inst_a(inst)))
+    str_builder_append(b, " : i64")
+    mlir_emit_line_value(ctx, depth, res, str_builder_to_str(b))
+    str_builder_free(b)
+    return 0
+}
+
+func mlir_emit_not(ctx: int, depth: int, inst: int): int {
+    var res = inst_result(inst)
+    var one = str_concat(mlir_value(res), "_true")
+    var ob = str_builder_new()
+    str_builder_append(ob, one)
+    str_builder_append(ob, " = arith.constant true : i1")
+    mlir_line(ctx, depth, str_builder_to_str(ob))
+    str_builder_free(ob)
+    var b = str_builder_new()
+    str_builder_append(b, "arith.xori ")
+    str_builder_append(b, mlir_value(inst_a(inst)))
+    str_builder_append(b, ", ")
+    str_builder_append(b, one)
+    str_builder_append(b, " : i1")
+    mlir_emit_line_value(ctx, depth, res, str_builder_to_str(b))
+    str_builder_free(b)
+    return 0
+}
+
+func mlir_find_func(m: int, src: str, toks: int, name: str): int {
+    var fc = mod_func_count(m)
+    var i = 0
+    while i < fc {
+        var f = mod_get_func(m, i)
+        if str_eq(tok_text(src, toks, func_name_tok(f)), name) == 1 { return i }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func mlir_unsupported_runtime(name: str): str {
+    if str_eq(name, "text_concat") == 1 { return ir_op_name(ir_text_concat()) }
+    if str_eq(name, "text_slice") == 1 { return ir_op_name(ir_text_slice()) }
+    if str_eq(name, "text_cmp") == 1 { return ir_op_name(ir_text_cmp()) }
+    if str_eq(name, "str_concat") == 1 { return ir_op_name(ir_text_concat()) }
+    return ""
+}
+
+func mlir_emit_call(ctx: int, src: str, inst: int, depth: int): int {
+    var m = mlir_ctx_module(ctx)
+    var toks = mlir_ctx_toks(ctx)
+    var ftypes = mlir_ftypes(ctx)
+    var name_tok = inst_a(inst)
+    var name = tok_text(src, toks, name_tok)
+    var deferred = mlir_unsupported_runtime(name)
+    if str_len(deferred) > 0 {
+        return mlir_unsupported_name(ctx, depth, deferred)
+    }
+    var fi = mod_alias_lookup(m, name_tok)
+    if fi < 0 { fi = mlir_find_func(m, src, toks, name) }
+    var ret = ir_ty_int()
+    if (fi >= 0) & (fi < mod_func_count(m)) {
+        ret = func_ret_type(mod_get_func(m, fi))
+    }
+    var argc = inst_b(inst)
+    var args = inst_extra(inst)
+    var b = str_builder_new()
+    var res = inst_result(inst)
+    if (res >= 0) & (ret != ir_ty_void()) {
+        str_builder_append(b, mlir_value(res))
+        str_builder_append(b, " = ")
+    }
+    str_builder_append(b, "func.call @")
+    str_builder_append(b, mlir_symbol(name))
+    str_builder_append(b, "(")
+    var i = 0
+    while i < argc {
+        if i > 0 { str_builder_append(b, ", ") }
+        var v = -1
+        if argc == 1 {
+            v = args
+        } else {
+            v = int_vec_get(args, i)
+        }
+        str_builder_append(b, mlir_value(v))
+        i = i + 1
+    }
+    str_builder_append(b, ")")
+    if ret != ir_ty_void() {
+        str_builder_append(b, " : (")
+        i = 0
+        while i < argc {
+            if i > 0 { str_builder_append(b, ", ") }
+            var av = -1
+            if argc == 1 {
+                av = args
+            } else {
+                av = int_vec_get(args, i)
+            }
+            str_builder_append(b, mlir_value_type(av, ftypes))
+            i = i + 1
+        }
+        str_builder_append(b, ") -> ")
+        str_builder_append(b, mlir_type_name(ret))
+    }
+    mlir_line(ctx, depth, str_builder_to_str(b))
+    str_builder_free(b)
+    return 0
+}
+
+func mlir_emit_inst(ctx: int, src: str, inst: int, depth: int): int {
+    var op = inst_op(inst)
+    var ftypes = mlir_ftypes(ctx)
+    if op == ir_param() { return 0 }
+    if op == ir_nop() {
+        mlir_line(ctx, depth, "// diva.nop")
+        return 0
+    }
+    mut_set(mlir_ctx_total(ctx), mut_get(mlir_ctx_total(ctx)) + 1)
+    if op == ir_const() {
+        var cb = str_builder_new()
+        str_builder_append(cb, "arith.constant ")
+        str_builder_append(cb, int_to_str(inst_a(inst)))
+        str_builder_append(cb, " : i64")
+        mlir_emit_line_value(ctx, depth, inst_result(inst), str_builder_to_str(cb))
+        str_builder_free(cb)
+        return 0
+    }
+    if op == ir_add() { return mlir_emit_binary(ctx, depth, inst, "arith.addi", "i64") }
+    if op == ir_sub() { return mlir_emit_binary(ctx, depth, inst, "arith.subi", "i64") }
+    if op == ir_mul() { return mlir_emit_binary(ctx, depth, inst, "arith.muli", "i64") }
+    if op == ir_div() { return mlir_emit_binary(ctx, depth, inst, "arith.divsi", "i64") }
+    if op == ir_mod() { return mlir_emit_binary(ctx, depth, inst, "arith.remsi", "i64") }
+    if op == ir_and() {
+        return mlir_emit_binary(ctx, depth, inst, "arith.andi", mlir_value_type(inst_a(inst), ftypes))
+    }
+    if op == ir_or() {
+        return mlir_emit_binary(ctx, depth, inst, "arith.ori", mlir_value_type(inst_a(inst), ftypes))
+    }
+    if op == ir_xor() {
+        return mlir_emit_binary(ctx, depth, inst, "arith.xori", mlir_value_type(inst_a(inst), ftypes))
+    }
+    if op == ir_shl() { return mlir_emit_binary(ctx, depth, inst, "arith.shli", "i64") }
+    if op == ir_shr() { return mlir_emit_binary(ctx, depth, inst, "arith.shrui", "i64") }
+    if op == ir_sar() { return mlir_emit_binary(ctx, depth, inst, "arith.shrsi", "i64") }
+    if op == ir_eq() { return mlir_emit_cmp(ctx, depth, inst, "eq") }
+    if op == ir_ne() { return mlir_emit_cmp(ctx, depth, inst, "ne") }
+    if op == ir_lt() { return mlir_emit_cmp(ctx, depth, inst, "slt") }
+    if op == ir_le() { return mlir_emit_cmp(ctx, depth, inst, "sle") }
+    if op == ir_gt() { return mlir_emit_cmp(ctx, depth, inst, "sgt") }
+    if op == ir_ge() { return mlir_emit_cmp(ctx, depth, inst, "sge") }
+    if op == ir_neg() { return mlir_emit_neg(ctx, depth, inst) }
+    if op == ir_not() { return mlir_emit_not(ctx, depth, inst) }
+    if op == ir_call() { return mlir_emit_call(ctx, src, inst, depth) }
+    if op == ir_br() {
+        var bb = str_builder_new()
+        str_builder_append(bb, "cf.br ")
+        str_builder_append(bb, mlir_label(inst_a(inst)))
+        mlir_line(ctx, depth, str_builder_to_str(bb))
+        str_builder_free(bb)
+        return 0
+    }
+    if op == ir_br_cond() {
+        var cb = str_builder_new()
+        str_builder_append(cb, "cf.cond_br ")
+        str_builder_append(cb, mlir_value(inst_result(inst)))
+        str_builder_append(cb, ", ")
+        str_builder_append(cb, mlir_label(inst_a(inst)))
+        str_builder_append(cb, ", ")
+        str_builder_append(cb, mlir_label(inst_b(inst)))
+        mlir_line(ctx, depth, str_builder_to_str(cb))
+        str_builder_free(cb)
+        return 0
+    }
+    if op == ir_ret() {
+        var rb = str_builder_new()
+        str_builder_append(rb, "func.return ")
+        str_builder_append(rb, mlir_value(inst_a(inst)))
+        str_builder_append(rb, " : ")
+        str_builder_append(rb, mlir_type_name(mlir_ret(ctx)))
+        mlir_line(ctx, depth, str_builder_to_str(rb))
+        str_builder_free(rb)
+        return 0
+    }
+    if op == ir_ret_void() {
+        mlir_line(ctx, depth, "func.return")
+        return 0
+    }
+    return mlir_emit_unsupported(ctx, depth, inst)
+}
+
+func mlir_find_param_vreg(f: int, pi: int): int {
+    var blocks = func_blocks(f)
+    var bc = int_vec_len(blocks)
+    var bi = 0
+    while bi < bc {
+        var insts = block_insts(int_vec_get(blocks, bi))
+        var ic = int_vec_len(insts)
+        var i = 0
+        while i < ic {
+            var inst = int_vec_get(insts, i)
+            if (inst_op(inst) == ir_param()) & (inst_a(inst) == pi) {
+                return inst_result(inst)
+            }
+            i = i + 1
+        }
+        bi = bi + 1
+    }
+    return 0 - 1
+}
+
+func mlir_set_func_state(ctx: int, ftypes: int, ret_ty: int): int {
+    mut_set(int_vec_get(ctx, 5), ftypes)
+    mut_set(int_vec_get(ctx, 6), ret_ty)
+    return 0
+}
+
+func mlir_emit_func(ctx: int, src: str, f: int): int {
+    var toks = mlir_ctx_toks(ctx)
+    var ret_ty = func_ret_type(f)
+    var hb = str_builder_new()
+    str_builder_append(hb, "  func.func @")
+    str_builder_append(hb, mlir_symbol(tok_text(src, toks, func_name_tok(f))))
+    str_builder_append(hb, "(")
+    var pc = func_param_count(f)
+    var i = 0
+    while i < pc {
+        if i > 0 { str_builder_append(hb, ", ") }
+        var v = mlir_find_param_vreg(f, i)
+        if v < 0 { v = i }
+        str_builder_append(hb, mlir_value(v))
+        str_builder_append(hb, ": i64")
+        i = i + 1
+    }
+    str_builder_append(hb, ")")
+    if ret_ty != ir_ty_void() {
+        str_builder_append(hb, " -> ")
+        str_builder_append(hb, mlir_type_name(ret_ty))
+    }
+    str_builder_append(hb, " {")
+    mlir_line(ctx, 0, str_builder_to_str(hb))
+    str_builder_free(hb)
+
+    var blocks = func_blocks(f)
+    var bc = int_vec_len(blocks)
+    var bi = 0
+    while bi < bc {
+        var blk = int_vec_get(blocks, bi)
+        var lb = str_builder_new()
+        str_builder_append(lb, mlir_label(block_label(blk)))
+        str_builder_append(lb, ":")
+        mlir_line(ctx, 1, str_builder_to_str(lb))
+        str_builder_free(lb)
+        var insts = block_insts(blk)
+        var ic = int_vec_len(insts)
+        i = 0
+        while i < ic {
+            mlir_emit_inst(ctx, src, int_vec_get(insts, i), 2)
+            i = i + 1
+        }
+        bi = bi + 1
+    }
+    mlir_line(ctx, 1, "}")
+    return 0
+}
+
+func mlir_emit_summary(ctx: int): int {
+    stderr("mlir: emitted ")
+    stderr(int_to_str(mut_get(mlir_ctx_total(ctx))))
+    stderr(" instruction(s), unsupported ")
+    stderr(int_to_str(mut_get(mlir_ctx_unsupported(ctx))))
+    stderr("; partial lowering (issue #119)")
+    stderr(mlir_nl())
+    return 0
+}
+
+func mlir_emit_module(m: int, src: str, toks: int): int {
+    var ctx = mlir_ctx_new(m, toks)
+    var err_cell = mut_new(0)
+    var warn_cell = mut_new(0)
+    var types = ity_infer_module(m, src, toks, err_cell, warn_cell)
+    print_str("// Diva -> MLIR textual lowering (partial; issue #119)")
+    print_str(mlir_nl())
+    mlir_line(ctx, 0, "module {")
+    var fc = mod_func_count(m)
+    var i = 0
+    while i < fc {
+        var ftypes = 0 - 1
+        if i < int_vec_len(types) { ftypes = int_vec_get(types, i) }
+        mlir_set_func_state(ctx, ftypes, func_ret_type(mod_get_func(m, i)))
+        mlir_emit_func(ctx, src, mod_get_func(m, i))
+        i = i + 1
+    }
+    mlir_line(ctx, 0, "}")
+    print_str(str_builder_to_str(mlir_ctx_text(ctx)))
+    print_str(mlir_nl())
+    mlir_emit_summary(ctx)
+    str_builder_free(mlir_ctx_text(ctx))
+    ity_free_types(types)
+    int_vec_free(ctx)
+    int_vec_free(err_cell)
+    int_vec_free(warn_cell)
+    return 0
+}
