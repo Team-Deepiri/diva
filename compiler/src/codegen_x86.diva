@@ -52,6 +52,7 @@ func stack_offset(slot: int): str {
 }
 
 func cg_func_name(m: int, src: str, toks: int, name_tok: int): str {
+    if name_tok == tk_diva_kernel_launch() { return "diva_kernel_launch" }
     if name_pool_is_synthetic(name_tok) == 1 {
         var pool = mod_name_pool(m)
         if pool >= 0 {
@@ -788,6 +789,14 @@ func emit_qword(out: int, val: int): int {
 }
 
 func find_func_index_by_tok(m: int, src: str, toks: int, call_tok: int): int {
+    if call_tok == tk_diva_kernel_launch() {
+        var fi = 0
+        while fi < mod_func_count(m) {
+            if func_name_tok(mod_get_func(m, fi)) == call_tok { return fi }
+            fi = fi + 1
+        }
+        return 0 - 1
+    }
     if name_pool_is_synthetic(call_tok) == 1 {
         var ali = mod_alias_lookup(m, call_tok)
         if ali >= 0 {

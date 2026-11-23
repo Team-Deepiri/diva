@@ -82,6 +82,8 @@ func tk_null(): int     { return 77 }
 func tk_hash(): int     { return 78 }
 func tk_caret(): int    { return 79 }
 func tk_at(): int       { return 80 }
+func tk_launch(): int   { return 81 }
+func tk_diva_kernel_launch(): int { return 2000000 }
 
 // --- Token stream ---
 
@@ -400,5 +402,6 @@ func tk_name(kind: int): str {
     if kind == 78 { return "HASH" }
     if kind == 79 { return "CARET" }
     if kind == 80 { return "AT" }
+    if kind == 81 { return "KW_LAUNCH" }
     return "???"
 }

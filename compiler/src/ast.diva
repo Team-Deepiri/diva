@@ -61,6 +61,7 @@ func nd_type_ref(): int    { return 52 }
 func nd_if_expr(): int     { return 53 }
 func nd_type_dyn(): int    { return 54 }
 func nd_type_tensor(): int { return 55 }
+func nd_launch(): int      { return 56 }
 
 // --- Pattern sub-kinds (stored in pattern payload) ---
 
@@ -182,6 +183,21 @@ func ast_func_type_params(node: int): int {
     return ast_child(node, 4)
 }
 
+// Kernel marker appended by `#[kernel]`. Older func nodes simply lack slot 6.
+func ast_func_set_kernel(node: int, flag: int): int {
+    if int_vec_len(node) < 7 {
+        int_vec_push(node, flag)
+    }
+    return 0
+}
+
+func ast_func_is_kernel(node: int): int {
+    if int_vec_len(node) < 7 {
+        return 0
+    }
+    return int_vec_get(node, 6)
+}
+
 // Extern func: [kind, name_tok, params_handle, ret_type_node]
 func ast_extern_func(name_tok: int, params: int, ret_type: int): int {
     var n = int_vec_new()
@@ -270,6 +286,17 @@ func ast_block(stmts: int): int {
     var n = int_vec_new()
     int_vec_push(n, nd_block())
     int_vec_push(n, stmts)
+    return n
+}
+
+// Launch: [kind, name_tok, grid_node, block_node, args_handle]
+func ast_launch(name_tok: int, grid: int, block: int, args: int): int {
+    var n = int_vec_new()
+    int_vec_push(n, nd_launch())
+    int_vec_push(n, name_tok)
+    int_vec_push(n, grid)
+    int_vec_push(n, block)
+    int_vec_push(n, args)
     return n
 }
 

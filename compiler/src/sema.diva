@@ -262,6 +262,8 @@ func sctx_new(): int {
     int_vec_push(c, mut_new(int_vec_new())) // [22] moved-value cells per local (Issue #88)
     int_vec_push(c, int_vec_new())          // [23] struct type name tokens (Issue #88)
     int_vec_push(c, mut_new(int_vec_new())) // [24] tensor rank per local (Issue #112)
+    int_vec_push(c, mut_new(int_vec_new())) // [25] kernel flag per top-level func (#117)
+    int_vec_push(c, mut_new(0))             // [26] currently checking a kernel body (#117)
     return c
 }
 
@@ -309,6 +311,12 @@ func sctx_struct_type_toks(c: int): int { return int_vec_get(c, 23) }
 
 func sctx_tensor_ranks(c: int): int { return mut_get(int_vec_get(c, 24)) }
 func sctx_set_tensor_ranks(c: int, v: int): int { return mut_set(int_vec_get(c, 24), v) }
+
+// Kernel metadata (#117): [25] mirrors sctx_fn_names, [26] gates thread_idx/block_idx.
+func sctx_fn_kernels(c: int): int { return mut_get(int_vec_get(c, 25)) }
+func sctx_set_fn_kernels(c: int, v: int): int { return mut_set(int_vec_get(c, 25), v) }
+func sctx_in_kernel(c: int): int { return mut_get(int_vec_get(c, 26)) }
+func sctx_set_in_kernel(c: int, v: int): int { return mut_set(int_vec_get(c, 26), v) }
 
 // Remember the result type of a checked match expression.
 func sema_cache_match_type(c: int, node: int, ty: int): int {
@@ -1082,6 +1090,8 @@ func sema_builtin_arity(nm: str): int {
     if str_eq(nm, "atomic_xchg") == 1 { return 2 }
     if str_eq(nm, "atomic_cas") == 1 { return 3 }
     if str_eq(nm, "fence") == 1 { return 0 }
+    if str_eq(nm, "thread_idx") == 1 { return 0 }
+    if str_eq(nm, "block_idx") == 1 { return 0 }
     if str_eq(nm, "vec4_splat") == 1 { return 1 }
     if str_eq(nm, "vec4_load") == 1 { return 4 }
     if str_eq(nm, "vec4_get") == 1 { return 2 }
@@ -1187,6 +1197,45 @@ func sctx_add_fn(c: int, src: str, toks: int, name_tok: int, arity: int, ret_ty:
     int_vec_push(sctx_fn_names(c), name_tok)
     int_vec_push(sctx_fn_arities(c), arity)
     int_vec_push(sctx_fn_ret_types(c), ret_ty)
+    int_vec_push(sctx_fn_kernels(c), 0)
+    return 0
+}
+
+// Index of a declared function by name, or -1. Used by `launch` validation (#117).
+func sctx_fn_index(c: int, src: str, toks: int, name: str): int {
+    var names = sctx_fn_names(c)
+    var i = 0
+    while i < int_vec_len(names) {
+        if str_eq(tok_text(src, toks, int_vec_get(names, i)), name) == 1 {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func sctx_fn_is_kernel(c: int, idx: int): int {
+    if (idx < 0) | (idx >= int_vec_len(sctx_fn_kernels(c))) {
+        return 0
+    }
+    return int_vec_get(sctx_fn_kernels(c), idx)
+}
+
+func sctx_mark_fn_kernel(c: int, src: str, toks: int, name_tok: int): int {
+    var idx = sctx_fn_index(c, src, toks, tok_text(src, toks, name_tok))
+    if idx < 0 { return 1 }
+    var old = sctx_fn_kernels(c)
+    var out = int_vec_new()
+    var i = 0
+    while i < int_vec_len(old) {
+        if i == idx {
+            int_vec_push(out, 1)
+        } else {
+            int_vec_push(out, int_vec_get(old, i))
+        }
+        i = i + 1
+    }
+    sctx_set_fn_kernels(c, out)
     return 0
 }
 
@@ -1667,6 +1716,11 @@ func sema_check_tensor_builtin(c: int, src: str, toks: int, ctok: int, nm: str, 
 }
 
 func sema_check_builtin_call(c: int, src: str, toks: int, ctok: int, nm: str, args: int): int {
+    if (str_eq(nm, "thread_idx") == 1) | (str_eq(nm, "block_idx") == 1) {
+        if sctx_in_kernel(c) == 0 {
+            return sema_err_at(src, tok_start(toks, ctok), "kernel index builtin used outside a kernel")
+        }
+    }
     if sema_tensor_builtin(nm) > 0 {
         return sema_check_tensor_builtin(c, src, toks, ctok, nm, args)
     }
@@ -1917,9 +1971,60 @@ func sema_check_obj_lit(c: int, src: str, toks: int, node: int): int {
     return 0
 }
 
+// `launch name(grid: g, block: b, args...)` validation (#117).
+func sema_check_launch_stmt(c: int, src: str, toks: int, node: int): int {
+    var name_tok = ast_child(node, 0)
+    var nm = tok_text(src, toks, name_tok)
+    var idx = sctx_fn_index(c, src, toks, nm)
+    if idx < 0 {
+        return sema_err_at(src, tok_start(toks, name_tok), "launch target is not a declared function")
+    }
+    if sctx_fn_is_kernel(c, idx) == 0 {
+        return sema_err_at(src, tok_start(toks, name_tok), "launch target is not a kernel function")
+    }
+    var grid = ast_child(node, 1)
+    var block = ast_child(node, 2)
+    if sema_check_expr(c, src, toks, grid) != 0 { return 1 }
+    if sema_check_expr(c, src, toks, block) != 0 { return 1 }
+    var gty = sema_expr_type(c, src, toks, grid)
+    var bty = sema_expr_type(c, src, toks, block)
+    if gty != ir_ty_int() {
+        return sema_type_mismatch_at(src, toks, name_tok, ir_ty_int(), gty)
+    }
+    if bty != ir_ty_int() {
+        return sema_type_mismatch_at(src, toks, name_tok, ir_ty_int(), bty)
+    }
+    var args = ast_child(node, 3)
+    var got = int_vec_len(args)
+    var want = int_vec_get(sctx_fn_arities(c), idx)
+    if got != want {
+        diag_emit_loc(src, tok_start(toks, name_tok))
+        stderr("sema: wrong number of arguments for kernel '")
+        stderr(nm)
+        stderr("': expected ")
+        stderr(int_to_str(want))
+        stderr(", got ")
+        stderr(int_to_str(got))
+        stderr(char_to_str(10))
+        return 1
+    }
+    if want > 4 {
+        return sema_err_at(src, tok_start(toks, name_tok), "kernel accepts at most four explicit arguments")
+    }
+    var i = 0
+    while i < got {
+        if sema_check_expr(c, src, toks, int_vec_get(args, i)) != 0 { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
 func sema_check_stmt(c: int, src: str, toks: int, node: int): int {
     if (node < 0) { return 0 }
     var kind = ast_kind(node)
+    if kind == nd_launch() {
+        return sema_check_launch_stmt(c, src, toks, node)
+    }
     if kind == nd_var_decl() {
         var name_tok = ast_child(node, 0)
         var type_node = ast_child(node, 1)
@@ -2107,11 +2212,13 @@ func sema_check_block_or_stmt(c: int, src: str, toks: int, node: int): int {
 func sema_check_func_node(c: int, src: str, toks: int, fn: int): int {
     sctx_scope_push(c)
     sctx_set_unsafe(c, 0)
+    sctx_set_in_kernel(c, ast_func_is_kernel(fn))
     var ret_node = ast_child(fn, 2)
     var rty = sema_type_from_node(c, ret_node, src, toks)
     if rty == ir_ty_vec4() {
         diag_emit_loc(src, tok_start(toks, ast_child(fn, 0)))
         stderr("sema: vec4 function return types are not supported\n")
+        sctx_set_in_kernel(c, 0)
         return 1
     }
     sctx_set_cur_ret_ty(c, rty)
@@ -2124,6 +2231,7 @@ func sema_check_func_node(c: int, src: str, toks: int, fn: int): int {
         if pty == ir_ty_vec4() {
             diag_emit_loc(src, tok_start(toks, ast_child(p, 0)))
             stderr("sema: vec4 function parameters are not supported\n")
+            sctx_set_in_kernel(c, 0)
             return 1
         }
         if (ptnode >= 0) & (ast_kind(ptnode) == nd_type_ref()) {
@@ -2144,6 +2252,7 @@ func sema_check_func_node(c: int, src: str, toks: int, fn: int): int {
         rc = sema_check_block_or_stmt(c, src, toks, body)
     }
     sctx_scope_pop(c)
+    sctx_set_in_kernel(c, 0)
     return rc
 }
 
@@ -2347,6 +2456,11 @@ func sema_collect_toplevel(c: int, src: str, toks: int, file_node: int): int {
             var f_ret = sema_type_from_node(c, ast_child(ch, 2), src, toks)
             if sctx_add_fn(c, src, toks, ast_child(ch, 0), int_vec_len(ast_child(ch, 1)), f_ret) != 0 {
                 return 1
+            }
+            if ast_func_is_kernel(ch) == 1 {
+                if sctx_mark_fn_kernel(c, src, toks, ast_child(ch, 0)) != 0 {
+                    return 1
+                }
             }
         }
         if k == nd_extern_func() {

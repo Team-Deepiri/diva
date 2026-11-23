@@ -23,6 +23,7 @@ func ps_new(toks: int, quiet: int): int {
     int_vec_push(ps, mut_new(1))
     int_vec_push(ps, mut_new(0))
     int_vec_push(ps, int_vec_new())
+    int_vec_push(ps, mut_new(0))      // [8] kernel attribute pending
     return ps
 }
 
@@ -42,6 +43,10 @@ func ps_set_struct_ok(ps: int, v: int): int { return mut_set(int_vec_get(ps, 5),
 func ps_ad_pending(ps: int): int { return mut_get(int_vec_get(ps, 6)) }
 func ps_set_ad_pending(ps: int, v: int): int { return mut_set(int_vec_get(ps, 6), v) }
 func ps_ad_funcs(ps: int): int { return int_vec_get(ps, 7) }
+
+// `#[kernel]` marks the next top-level function as a GPU-kernel-style entry.
+func ps_kernel_pending(ps: int): int { return mut_get(int_vec_get(ps, 8)) }
+func ps_set_kernel_pending(ps: int, v: int): int { return mut_set(int_vec_get(ps, 8), v) }
 
 // --- Core helpers ---
 
@@ -866,8 +871,61 @@ func parse_return_stmt(ps: int, src: str): int {
     return ast_return(parse_expr(ps, src))
 }
 
+func p_launch_error(ps: int, src: str, msg: str): int {
+    if ps_quiet(ps) == 0 {
+        p_diag(ps, src)
+        stderr("parse error: ")
+        stderr(msg)
+        stderr("\n")
+    }
+    ps_set_err(ps)
+    return ast_launch(0, 0, 0, int_vec_new())
+}
+
+// `launch name(grid: <expr>, block: <expr>, arg, ...)` — host-side launch of a
+// `#[kernel] func`. Indices are labels, not positional, so the form is explicit.
+func parse_launch_stmt(ps: int, src: str): int {
+    p_advance(ps)
+    var name_tok = p_expect(ps, src, tk_ident())
+    p_expect(ps, src, tk_lparen())
+    if p_cur(ps) != tk_ident() {
+        return p_launch_error(ps, src, "launch expects a grid: label")
+    }
+    var grid_label = p_advance(ps)
+    if str_eq(p_text(ps, src, grid_label), "grid") == 0 {
+        return p_launch_error(ps, src, "launch expects a grid: label")
+    }
+    p_expect(ps, src, tk_colon())
+    var grid = parse_expr(ps, src)
+    p_expect(ps, src, tk_comma())
+    if p_cur(ps) != tk_ident() {
+        return p_launch_error(ps, src, "launch expects a block: label")
+    }
+    var block_label = p_advance(ps)
+    if str_eq(p_text(ps, src, block_label), "block") == 0 {
+        return p_launch_error(ps, src, "launch expects a block: label")
+    }
+    p_expect(ps, src, tk_colon())
+    var block = parse_expr(ps, src)
+    var args = int_vec_new()
+    var want_arg = 1
+    while (p_cur(ps) == tk_comma()) & (want_arg == 1) {
+        p_advance(ps)
+        if p_cur(ps) == tk_rparen() {
+            want_arg = 0
+        } else {
+            int_vec_push(args, parse_expr(ps, src))
+        }
+    }
+    p_expect(ps, src, tk_rparen())
+    return ast_launch(name_tok, grid, block, args)
+}
+
 func parse_stmt(ps: int, src: str): int {
     var kind = p_cur(ps)
+    if kind == tk_launch() {
+        return parse_launch_stmt(ps, src)
+    }
     if kind == tk_var() | kind == tk_let() {
         return parse_var_decl(ps, src)
     }
@@ -1274,6 +1332,9 @@ func p_parse_attributes(ps: int, src: str): int {
         if str_eq(name, "differentiate") == 1 {
             ps_set_ad_pending(ps, 1)
         }
+        if str_eq(name, "kernel") == 1 {
+            ps_set_kernel_pending(ps, 1)
+        }
         if str_eq(name, "repr") == 1 {
             if p_cur(ps) != tk_lparen() {
                 p_attr_error(ps, src, "repr expects a layout name (C or i8/i16/i32/i64/u8/u16/u32/u64/isize/usize)")
@@ -1297,6 +1358,7 @@ func parse_top_level(ps: int, src: str): int {
         if ps_err(ps) != 0 { return ast_file(children) }
         p_skip_semi(ps)
         ps_set_ad_pending(ps, 0)
+        ps_set_kernel_pending(ps, 0)
         p_parse_attributes(ps, src)
         if ps_err(ps) != 0 { return ast_file(children) }
         var kind = p_cur(ps)
@@ -1305,6 +1367,9 @@ func parse_top_level(ps: int, src: str): int {
             p_parse_attributes(ps, src)
             if ps_err(ps) != 0 { return ast_file(children) }
             kind = p_cur(ps)
+        }
+        if (ps_kernel_pending(ps) == 1) & (kind != tk_func()) {
+            return p_attr_error(ps, src, "kernel attribute requires a func declaration")
         }
 
         if kind == tk_import() {
@@ -1328,6 +1393,10 @@ func parse_top_level(ps: int, src: str): int {
         } else {
         if kind == tk_func() {
             var fnode = parse_func_decl(ps, src)
+            if ps_kernel_pending(ps) == 1 {
+                ast_func_set_kernel(fnode, 1)
+                ps_set_kernel_pending(ps, 0)
+            }
             if ps_ad_pending(ps) == 1 {
                 int_vec_push(ps_ad_funcs(ps), ast_child(fnode, 0))
                 ps_set_ad_pending(ps, 0)
