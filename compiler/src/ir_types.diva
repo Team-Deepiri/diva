@@ -56,7 +56,7 @@ func ity_report_warn(warn_cell: int): int {
 
 func ity_is_known_op(op: int): int {
     if op < 0 { return 0 }
-    if op > ir_fence() { return 0 }
+    if op > ir_tensor_shape() { return 0 }
     return 1
 }
 
@@ -75,6 +75,7 @@ func ity_is_value_def(op: int): int {
     if op == ir_trap() { return 0 }
     if op == ir_fence() { return 0 }
     if op == ir_atomic_store() { return 0 }
+    if op == ir_tensor_shape() { return 0 }
     return 1
 }
 
@@ -183,6 +184,9 @@ func ity_base_type(inst: int, m: int, src: str, toks: int): int {
     if op == ir_atomic_add() { return ir_ty_int() }
     if op == ir_atomic_xchg() { return ir_ty_int() }
     if op == ir_atomic_cas() { return ir_ty_int() }
+    if op == ir_tensor_add() { return ir_ty_tensor() }
+    if op == ir_tensor_dot() { return ir_ty_int() }
+    if op == ir_tensor_matmul() { return ir_ty_tensor() }
     if op == ir_alloca() { return ir_ty_ptr() }
     if op == ir_alloc() { return ir_ty_ptr() }
     if op == ir_addr_of() { return ir_ty_ptr() }

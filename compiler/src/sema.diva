@@ -600,6 +600,9 @@ func sema_tensor_builtin(nm: str): int {
     if str_eq(nm, "tensor_set") == 1 { return 4 }
     if str_eq(nm, "tensor_len") == 1 { return 5 }
     if str_eq(nm, "tensor_rank") == 1 { return 6 }
+    if str_eq(nm, "tensor_add") == 1 { return 7 }
+    if str_eq(nm, "tensor_dot") == 1 { return 8 }
+    if str_eq(nm, "tensor_matmul") == 1 { return 9 }
     return 0
 }
 
@@ -610,6 +613,8 @@ func sema_tensor_init_rank(src: str, toks: int, node: int): int {
     if ast_kind(callee) != nd_ident() { return 0 }
     var nm = tok_text(src, toks, ast_child(callee, 0))
     var tb = sema_tensor_builtin(nm)
+    if tb == 7 { return 1 }
+    if tb == 9 { return 2 }
     if (tb != 1) & (tb != 2) { return 0 }
     var args = ast_child(node, 1)
     var shape_n = int_vec_len(args)
@@ -1070,6 +1075,7 @@ func sema_builtin_arity(nm: str): int {
     if tb == 4 { return 3 }
     if tb == 5 { return 1 }
     if tb == 6 { return 1 }
+    if (tb == 7) | (tb == 8) | (tb == 9) { return 2 }
     if str_eq(nm, "atomic_load") == 1 { return 1 }
     if str_eq(nm, "atomic_store") == 1 { return 2 }
     if str_eq(nm, "atomic_add") == 1 { return 2 }
@@ -1094,7 +1100,8 @@ func sema_builtin_ret(nm: str): int {
     var tb = sema_tensor_builtin(nm)
     if (tb == 1) | (tb == 2) { return ir_ty_tensor() }
     if tb == 4 { return ir_ty_void() }
-    if (tb == 3) | (tb == 5) | (tb == 6) { return ir_ty_int() }
+    if (tb == 3) | (tb == 5) | (tb == 6) | (tb == 8) { return ir_ty_int() }
+    if (tb == 7) | (tb == 9) { return ir_ty_tensor() }
     if str_eq(nm, "atomic_store") == 1 { return ir_ty_void() }
     if str_eq(nm, "fence") == 1 { return ir_ty_void() }
     if str_eq(nm, "vec4_splat") == 1 { return ir_ty_vec4() }
@@ -1524,6 +1531,42 @@ func sema_tensor_index_result(c: int, src: str, toks: int, ctok: int, bad: int):
     return 0
 }
 
+func sema_tensor_expr_rank(c: int, src: str, toks: int, node: int): int {
+    if ast_kind(node) == nd_ident() {
+        return sctx_lookup_var_rank(c, src, toks, tok_text(src, toks, ast_child(node, 0)))
+    }
+    if ast_kind(node) == nd_call() {
+        var callee = ast_child(node, 0)
+        if ast_kind(callee) != nd_ident() { return 0 }
+        var nm = tok_text(src, toks, ast_child(callee, 0))
+        var tb = sema_tensor_builtin(nm)
+        var argc = int_vec_len(ast_child(node, 1))
+        if tb == 1 {
+            if argc == 1 { return 1 }
+            if argc == 2 { return 2 }
+        }
+        if tb == 2 {
+            if argc == 2 { return 1 }
+            if argc == 3 { return 2 }
+        }
+        if tb == 7 { return 1 }
+        if tb == 9 { return 2 }
+    }
+    return 0
+}
+
+func sema_tensor_rank_error(src: str, toks: int, ctok: int, nm: str, want: int, got: int): int {
+    diag_emit_loc(src, tok_start(toks, ctok))
+    stderr("sema: ")
+    stderr(nm)
+    stderr(" rank mismatch: expected rank ")
+    stderr(int_to_str(want))
+    stderr(" tensor, got rank ")
+    stderr(int_to_str(got))
+    stderr(char_to_str(10))
+    return 1
+}
+
 func sema_check_tensor_builtin(c: int, src: str, toks: int, ctok: int, nm: str, args: int): int {
     var tb = sema_tensor_builtin(nm)
     var argc = int_vec_len(args)
@@ -1583,6 +1626,28 @@ func sema_check_tensor_builtin(c: int, src: str, toks: int, ctok: int, nm: str, 
             if vty != ir_ty_int() {
                 return sema_type_mismatch_at(src, toks, ctok, ir_ty_int(), vty)
             }
+        }
+        return 0
+    }
+    if (tb == 7) | (tb == 8) | (tb == 9) {
+        if argc != 2 {
+            return sema_tensor_arity_error(src, toks, ctok, nm, "2", argc)
+        }
+        var want_rank = 1
+        if tb == 9 { want_rank = 2 }
+        var ai = 0
+        while ai < 2 {
+            var anode = int_vec_get(args, ai)
+            if sema_check_expr(c, src, toks, anode) != 0 { return 1 }
+            var aty = sema_expr_type(c, src, toks, anode)
+            if aty != ir_ty_tensor() {
+                return sema_type_mismatch_at(src, toks, ctok, ir_ty_tensor(), aty)
+            }
+            var arank = sema_tensor_expr_rank(c, src, toks, anode)
+            if (arank > 0) & (arank != want_rank) {
+                return sema_tensor_rank_error(src, toks, ctok, nm, want_rank, arank)
+            }
+            ai = ai + 1
         }
         return 0
     }

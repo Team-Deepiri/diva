@@ -18,6 +18,7 @@ func mlir_ctx_new(m: int, toks: int): int {
     int_vec_push(ctx, toks)
     int_vec_push(ctx, mut_new(0 - 1))
     int_vec_push(ctx, mut_new(ir_ty_int()))
+    int_vec_push(ctx, mut_new(0 - 1))
     return ctx
 }
 
@@ -28,6 +29,10 @@ func mlir_ctx_module(ctx: int): int { return int_vec_get(ctx, 3) }
 func mlir_ctx_toks(ctx: int): int { return int_vec_get(ctx, 4) }
 func mlir_ftypes(ctx: int): int { return mut_get(int_vec_get(ctx, 5)) }
 func mlir_ret(ctx: int): int { return mut_get(int_vec_get(ctx, 6)) }
+func mlir_shapes(ctx: int): int { return mut_get(int_vec_get(ctx, 7)) }
+func mlir_set_shapes(ctx: int, shapes: int): int {
+    return mut_set(int_vec_get(ctx, 7), shapes)
+}
 
 func mlir_nl(): str { return char_to_str(10) }
 
@@ -50,11 +55,45 @@ func mlir_type_name(t: int): str {
     if t == ir_ty_ptr()    { return "!diva.ptr" }
     if t == ir_ty_slice()  { return "!diva.slice" }
     if t == ir_ty_vec4()   { return "vector<4xi64>" }
+    if t == ir_ty_tensor() { return "tensor<?xi64>" }
     return "!diva.opaque"
 }
 
-func mlir_value_type(v: int, ftypes: int): str {
+func mlir_shape_encode(rank: int, d0: int, d1: int): int {
+    return rank * 1000000 + d0 * 1000 + d1
+}
+
+func mlir_shape_rank(shape: int): int { return shape / 1000000 }
+func mlir_shape_d0(shape: int): int { return (shape / 1000) % 1000 }
+func mlir_shape_d1(shape: int): int { return shape % 1000 }
+
+func mlir_tensor_type(shape: int): str {
+    var rank = mlir_shape_rank(shape)
+    if rank == 1 {
+        return str_concat(str_concat("tensor<", int_to_str(mlir_shape_d0(shape))), "xi64>")
+    }
+    if rank == 2 {
+        var b = str_builder_new()
+        str_builder_append(b, "tensor<")
+        str_builder_append(b, int_to_str(mlir_shape_d0(shape)))
+        str_builder_append(b, "x")
+        str_builder_append(b, int_to_str(mlir_shape_d1(shape)))
+        str_builder_append(b, "xi64>")
+        var s = str_builder_to_str(b)
+        str_builder_free(b)
+        return s
+    }
+    return "tensor<?xi64>"
+}
+
+func mlir_value_type(ctx: int, v: int): str {
     if v < 0 { return "i64" }
+    var shapes = mlir_shapes(ctx)
+    if shapes >= 0 {
+        var shape = mem_get(shapes, v)
+        if shape > 0 { return mlir_tensor_type(shape) }
+    }
+    var ftypes = mlir_ftypes(ctx)
     if ftypes < 0 { return "i64" }
     var t = mem_get(ftypes, v)
     if t == ity_unknown() { return "i64" }
@@ -151,7 +190,7 @@ func mlir_emit_cmp(ctx: int, depth: int, inst: int, pred: str): int {
     str_builder_append(b, ", ")
     str_builder_append(b, mlir_value(inst_b(inst)))
     str_builder_append(b, " : ")
-    str_builder_append(b, mlir_value_type(inst_a(inst), mlir_ftypes(ctx)))
+    str_builder_append(b, mlir_value_type(ctx, inst_a(inst)))
     mlir_emit_line_value(ctx, depth, inst_result(inst), str_builder_to_str(b))
     str_builder_free(b)
     return 0
@@ -192,6 +231,49 @@ func mlir_emit_not(ctx: int, depth: int, inst: int): int {
     str_builder_append(b, " : i1")
     mlir_emit_line_value(ctx, depth, res, str_builder_to_str(b))
     str_builder_free(b)
+    return 0
+}
+
+func mlir_emit_linalg(ctx: int, depth: int, inst: int, opname: str): int {
+    var res = inst_result(inst)
+    var a = inst_a(inst)
+    var b = inst_b(inst)
+    var ta = mlir_value_type(ctx, a)
+    var tb = mlir_value_type(ctx, b)
+    var tr = mlir_value_type(ctx, res)
+    var init = str_concat(mlir_value(res), "_init")
+    var ib = str_builder_new()
+    str_builder_append(ib, init)
+    if str_eq(opname, "linalg.dot") == 1 {
+        str_builder_append(ib, " = arith.constant 0 : ")
+    } else {
+        str_builder_append(ib, " = arith.constant dense<0> : ")
+    }
+    str_builder_append(ib, tr)
+    mlir_line(ctx, depth, str_builder_to_str(ib))
+    str_builder_free(ib)
+    var lb = str_builder_new()
+    str_builder_append(lb, mlir_value(res))
+    str_builder_append(lb, " = ")
+    str_builder_append(lb, opname)
+    str_builder_append(lb, " ins(")
+    str_builder_append(lb, mlir_value(a))
+    str_builder_append(lb, ", ")
+    str_builder_append(lb, mlir_value(b))
+    str_builder_append(lb, " : ")
+    str_builder_append(lb, ta)
+    str_builder_append(lb, ", ")
+    str_builder_append(lb, tb)
+    str_builder_append(lb, ") outs(")
+    str_builder_append(lb, init)
+    str_builder_append(lb, " : ")
+    str_builder_append(lb, tr)
+    str_builder_append(lb, ") -> ")
+    str_builder_append(lb, tr)
+    str_builder_append(lb, " // diva.tensor ")
+    str_builder_append(lb, opname)
+    mlir_line(ctx, depth, str_builder_to_str(lb))
+    str_builder_free(lb)
     return 0
 }
 
@@ -265,7 +347,7 @@ func mlir_emit_call(ctx: int, src: str, inst: int, depth: int): int {
             } else {
                 av = int_vec_get(args, i)
             }
-            str_builder_append(b, mlir_value_type(av, ftypes))
+            str_builder_append(b, mlir_value_type(ctx, av))
             i = i + 1
         }
         str_builder_append(b, ") -> ")
@@ -280,6 +362,7 @@ func mlir_emit_inst(ctx: int, src: str, inst: int, depth: int): int {
     var op = inst_op(inst)
     var ftypes = mlir_ftypes(ctx)
     if op == ir_param() { return 0 }
+    if op == ir_tensor_shape() { return 0 }
     if op == ir_nop() {
         mlir_line(ctx, depth, "// diva.nop")
         return 0
@@ -300,13 +383,13 @@ func mlir_emit_inst(ctx: int, src: str, inst: int, depth: int): int {
     if op == ir_div() { return mlir_emit_binary(ctx, depth, inst, "arith.divsi", "i64") }
     if op == ir_mod() { return mlir_emit_binary(ctx, depth, inst, "arith.remsi", "i64") }
     if op == ir_and() {
-        return mlir_emit_binary(ctx, depth, inst, "arith.andi", mlir_value_type(inst_a(inst), ftypes))
+        return mlir_emit_binary(ctx, depth, inst, "arith.andi", mlir_value_type(ctx, inst_a(inst)))
     }
     if op == ir_or() {
-        return mlir_emit_binary(ctx, depth, inst, "arith.ori", mlir_value_type(inst_a(inst), ftypes))
+        return mlir_emit_binary(ctx, depth, inst, "arith.ori", mlir_value_type(ctx, inst_a(inst)))
     }
     if op == ir_xor() {
-        return mlir_emit_binary(ctx, depth, inst, "arith.xori", mlir_value_type(inst_a(inst), ftypes))
+        return mlir_emit_binary(ctx, depth, inst, "arith.xori", mlir_value_type(ctx, inst_a(inst)))
     }
     if op == ir_shl() { return mlir_emit_binary(ctx, depth, inst, "arith.shli", "i64") }
     if op == ir_shr() { return mlir_emit_binary(ctx, depth, inst, "arith.shrui", "i64") }
@@ -320,6 +403,9 @@ func mlir_emit_inst(ctx: int, src: str, inst: int, depth: int): int {
     if op == ir_neg() { return mlir_emit_neg(ctx, depth, inst) }
     if op == ir_not() { return mlir_emit_not(ctx, depth, inst) }
     if op == ir_call() { return mlir_emit_call(ctx, src, inst, depth) }
+    if op == ir_tensor_add() { return mlir_emit_linalg(ctx, depth, inst, "linalg.add") }
+    if op == ir_tensor_dot() { return mlir_emit_linalg(ctx, depth, inst, "linalg.dot") }
+    if op == ir_tensor_matmul() { return mlir_emit_linalg(ctx, depth, inst, "linalg.matmul") }
     if op == ir_br() {
         var bb = str_builder_new()
         str_builder_append(bb, "cf.br ")
@@ -377,6 +463,48 @@ func mlir_find_param_vreg(f: int, pi: int): int {
     return 0 - 1
 }
 
+func mlir_collect_shapes(m: int): int {
+    var fc = mod_func_count(m)
+    var limit = 0
+    var fi = 0
+    while fi < fc {
+        var mx = ity_func_max(mod_get_func(m, fi))
+        if mx > limit { limit = mx }
+        fi = fi + 1
+    }
+    var shapes = mem_alloc((limit + 1) * 8)
+    if shapes == 0 { return 0 - 1 }
+    var i = 0
+    while i <= limit {
+        mem_set(shapes, i, 0)
+        i = i + 1
+    }
+    fi = 0
+    while fi < fc {
+        var blocks = func_blocks(mod_get_func(m, fi))
+        var bc = int_vec_len(blocks)
+        var bi = 0
+        while bi < bc {
+            var insts = block_insts(int_vec_get(blocks, bi))
+            var ic = int_vec_len(insts)
+            var ii = 0
+            while ii < ic {
+                var inst = int_vec_get(insts, ii)
+                if inst_op(inst) == ir_tensor_shape() {
+                    var r = inst_result(inst)
+                    if (r >= 0) & (r <= limit) {
+                        mem_set(shapes, r, mlir_shape_encode(inst_a(inst), inst_b(inst), inst_extra(inst)))
+                    }
+                }
+                ii = ii + 1
+            }
+            bi = bi + 1
+        }
+        fi = fi + 1
+    }
+    return shapes
+}
+
 func mlir_set_func_state(ctx: int, ftypes: int, ret_ty: int): int {
     mut_set(int_vec_get(ctx, 5), ftypes)
     mut_set(int_vec_get(ctx, 6), ret_ty)
@@ -397,7 +525,8 @@ func mlir_emit_func(ctx: int, src: str, f: int): int {
         var v = mlir_find_param_vreg(f, i)
         if v < 0 { v = i }
         str_builder_append(hb, mlir_value(v))
-        str_builder_append(hb, ": i64")
+        str_builder_append(hb, ": ")
+        str_builder_append(hb, mlir_value_type(ctx, v))
         i = i + 1
     }
     str_builder_append(hb, ")")
@@ -447,6 +576,8 @@ func mlir_emit_module(m: int, src: str, toks: int): int {
     var err_cell = mut_new(0)
     var warn_cell = mut_new(0)
     var types = ity_infer_module(m, src, toks, err_cell, warn_cell)
+    var shapes = mlir_collect_shapes(m)
+    mlir_set_shapes(ctx, shapes)
     print_str("// Diva -> MLIR textual lowering (partial; issue #119)")
     print_str(mlir_nl())
     mlir_line(ctx, 0, "module {")
@@ -464,6 +595,7 @@ func mlir_emit_module(m: int, src: str, toks: int): int {
     print_str(mlir_nl())
     mlir_emit_summary(ctx)
     str_builder_free(mlir_ctx_text(ctx))
+    if shapes >= 0 { mem_free(shapes) }
     ity_free_types(types)
     int_vec_free(ctx)
     int_vec_free(err_cell)

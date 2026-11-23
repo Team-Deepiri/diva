@@ -1363,6 +1363,9 @@ func cg_tensor_error_msg(msg: int): str {
     if msg == 1 { return "tensor: shape dimensions must be positive\n" }
     if msg == 2 { return "tensor_get: index out of bounds\n" }
     if msg == 3 { return "tensor_set: index out of bounds\n" }
+    if msg == 4 { return "tensor_matmul: inner dimensions must match\n" }
+    if msg == 5 { return "tensor_add: shapes must match\n" }
+    if msg == 6 { return "tensor_dot: shapes must match\n" }
     return "tensor: runtime error\n"
 }
 

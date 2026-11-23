@@ -1578,7 +1578,7 @@ func cmd_emit_mlir(path: str): int {
     }
     var ast = int_vec_get(pr, 0)
     if sema_check_file(src_hold, stream, ast) != 0 { return 1 }
-    var ir_result = build_ir(src_hold, stream, ast)
+    var ir_result = build_ir_with_mode(src_hold, stream, ast, 1)
     var m = int_vec_get(ir_result, 0)
     return mlir_emit_module(m, src_hold, stream)
 }

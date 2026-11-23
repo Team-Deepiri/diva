@@ -1,0 +1,6 @@
+func main(): int {
+    var a: tensor<int, 2, 2> = tensor_new(2, 2)
+    var b: tensor<int, 2, 2> = tensor_new(2, 2)
+    var c: tensor<int, 2, 2> = tensor_add(a, b)
+    return 0
+}
