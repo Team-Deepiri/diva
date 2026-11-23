@@ -26,6 +26,7 @@ func ir_ty_slice(): int { return 1099 }
 func ir_ty_vec4(): int  { return 1100 }
 // Forward-AD dual number: a two-word [value, tangent] aggregate (#121).
 func ir_ty_dual(): int  { return 1101 }
+func ir_ty_tensor(): int { return 1102 }
 
 // --- IR opcodes ---
 

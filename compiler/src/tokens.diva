@@ -81,6 +81,7 @@ func tk_unsafe(): int   { return 76 }
 func tk_null(): int     { return 77 }
 func tk_hash(): int     { return 78 }
 func tk_caret(): int    { return 79 }
+func tk_at(): int       { return 80 }
 
 // --- Token stream ---
 
@@ -397,5 +398,7 @@ func tk_name(kind: int): str {
     if kind == 76 { return "KW_UNSAFE" }
     if kind == 77 { return "KW_NULL" }
     if kind == 78 { return "HASH" }
+    if kind == 79 { return "CARET" }
+    if kind == 80 { return "AT" }
     return "???"
 }

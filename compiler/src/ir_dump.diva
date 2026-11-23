@@ -168,6 +168,7 @@ func dump_func_t(f: int, src: str, toks: int, types: int): int {
     if rt == ir_ty_bool() { str_builder_append(b, " -> bool") }
     if rt == ir_ty_vec4() { str_builder_append(b, " -> vec4") }
     if rt == ir_ty_dual() { str_builder_append(b, " -> dual") }
+    if rt == ir_ty_tensor() { str_builder_append(b, " -> tensor") }
     str_builder_append(b, " {")
     print_str(str_builder_to_str(b))
     str_builder_free(b)

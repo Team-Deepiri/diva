@@ -112,7 +112,75 @@ func p_skip_semi(ps: int): int {
     return 0
 }
 
-// --- Type parsing ---
+func parse_tensor_type(ps: int, src: str, tensor_tok: int): int {
+    p_advance(ps)
+    p_expect(ps, src, tk_lt())
+    if p_cur(ps) != tk_int_kw() {
+        if ps_quiet(ps) == 0 {
+            p_diag(ps, src)
+            stderr("parse error: tensor element type must be int\n")
+        }
+        ps_set_err(ps)
+        return 0 - 1
+    }
+    p_advance(ps)
+    var elem = ast_type_name(tensor_tok)
+    p_expect(ps, src, tk_comma())
+    if p_cur(ps) != tk_int_lit() {
+        if ps_quiet(ps) == 0 {
+            p_diag(ps, src)
+            stderr("parse error: tensor shape dimensions must be positive integer literals\n")
+        }
+        ps_set_err(ps)
+        return 0 - 1
+    }
+    var dim0_tok = p_advance(ps)
+    if tok_int_value(src, ps_toks(ps), dim0_tok) < 1 {
+        if ps_quiet(ps) == 0 {
+            p_diag(ps, src)
+            stderr("parse error: tensor shape dimensions must be positive\n")
+        }
+        ps_set_err(ps)
+        return 0 - 1
+    }
+    var dim1_tok = 0 - 1
+    if p_cur(ps) == tk_comma() {
+        p_advance(ps)
+        if p_cur(ps) != tk_int_lit() {
+            if ps_quiet(ps) == 0 {
+                p_diag(ps, src)
+                stderr("parse error: tensor shape dimensions must be positive integer literals\n")
+            }
+            ps_set_err(ps)
+            return 0 - 1
+        }
+        dim1_tok = p_advance(ps)
+        if tok_int_value(src, ps_toks(ps), dim1_tok) < 1 {
+            if ps_quiet(ps) == 0 {
+                p_diag(ps, src)
+                stderr("parse error: tensor shape dimensions must be positive\n")
+            }
+            ps_set_err(ps)
+            return 0 - 1
+        }
+    }
+    p_expect(ps, src, tk_gt())
+    var device_tok = 0 - 1
+    if p_cur(ps) == tk_at() {
+        p_advance(ps)
+        device_tok = p_expect(ps, src, tk_ident())
+        var dev = p_text(ps, src, device_tok)
+        if (str_eq(dev, "cpu") == 0) & (str_eq(dev, "gpu") == 0) {
+            if ps_quiet(ps) == 0 {
+                p_diag(ps, src)
+                stderr("parse error: tensor device must be cpu or gpu\n")
+            }
+            ps_set_err(ps)
+            return 0 - 1
+        }
+    }
+    return ast_type_tensor(elem, dim0_tok, dim1_tok, device_tok)
+}
 
 func parse_type(ps: int, src: str): int {
     var kind = p_cur(ps)
@@ -174,6 +242,9 @@ func parse_type(ps: int, src: str): int {
     }
     if kind == tk_void()    { p_advance(ps) return ast_type_name(tok) }
     if kind == tk_ident() {
+        if str_eq(p_text(ps, src, tok), "tensor") == 1 {
+            return parse_tensor_type(ps, src, tok)
+        }
         // `dyn Trait` trait-object type (Issue #135). `dyn` is a contextual
         // identifier so the lexer stays unchanged.
         if str_eq(p_text(ps, src, tok), "dyn") == 1 {
