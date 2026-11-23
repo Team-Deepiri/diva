@@ -132,7 +132,8 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, mut_new(int_vec_new())) // [20] reference flag per local (Issue #90)
     int_vec_push(ctx, mut_new(int_vec_new())) // [21] reference pointee struct type tok per local
     int_vec_push(ctx, int_vec_new())          // [22] trait-impl dispatch map (Issue #135)
-    int_vec_push(ctx, mut_new(int_vec_new()))
+    int_vec_push(ctx, mut_new(int_vec_new())) // [23] vec4 flag per local
+    int_vec_push(ctx, int_vec_new())          // [24] dual value base slots (#121)
     return ctx
 }
 
@@ -172,6 +173,12 @@ func bctx_dispatch_map(ctx: int): int {
 
 func bctx_vec4_flags(ctx: int): int {
     return mut_get(int_vec_get(ctx, 23))
+}
+
+// Base slots of two-word dual locals. A set rather than a parallel array so
+// existing local-definition paths stay unchanged.
+func bctx_dual_slots(ctx: int): int {
+    return int_vec_get(ctx, 24)
 }
 
 func bctx_struct_ty(ctx: int): int {
@@ -739,6 +746,164 @@ func ib_vec4_tmp(ctx: int): int {
     return base
 }
 
+// --- Forward-mode dual numbers (Issue #121) ---
+// A Dual is two consecutive stack slots: [value, tangent]. Every builtin emits
+// ordinary IR loads, stores and arithmetic; no new opcode or backend change.
+
+func ib_define_dual_local(ctx: int, def_name_tok: int): int {
+    var base = ib_fresh_vreg(ctx)
+    ib_fresh_vreg(ctx)
+    int_vec_push(bctx_names(ctx), def_name_tok)
+    int_vec_push(bctx_slots(ctx), base)
+    int_vec_push(bctx_array_lens(ctx), 2)
+    int_vec_push(bctx_struct_ty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_array_strides(ctx), 0)
+    int_vec_push(bctx_enum_ty(ctx), ib_enum_ty_none())
+    int_vec_push(bctx_slice_flags(ctx), 0)
+    int_vec_push(bctx_ref_flags(ctx), 0)
+    int_vec_push(bctx_ref_sty(ctx), ib_struct_ty_none())
+    int_vec_push(bctx_vec4_flags(ctx), 0)
+    int_vec_push(bctx_dual_slots(ctx), base)
+    return base
+}
+
+func ib_dual_tmp(ctx: int): int {
+    var base = ib_fresh_vreg(ctx)
+    ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_alloca(), base, 0, 0, 0))
+    ib_emit(ctx, ir_inst(ir_alloca(), base + 1, 0, 0, 0))
+    return base
+}
+
+func ib_slot_is_dual(ctx: int, slot: int): int {
+    var slots = bctx_dual_slots(ctx)
+    var i = 0
+    while (i < int_vec_len(slots)) {
+        if int_vec_get(slots, i) == slot { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+func ib_lookup_is_dual_tok(ctx: int, src: str, use_tok: int): int {
+    var slot = ib_lookup_by_name_tok(ctx, src, use_tok)
+    if slot < 0 { return 0 }
+    return ib_slot_is_dual(ctx, slot)
+}
+
+func ib_dual_builtin(nm: str): int {
+    if str_eq(nm, "dual") == 1 { return 1 }
+    if str_eq(nm, "dual_val") == 1 { return 2 }
+    if str_eq(nm, "dual_tan") == 1 { return 3 }
+    if str_eq(nm, "dual_add") == 1 { return 4 }
+    if str_eq(nm, "dual_sub") == 1 { return 5 }
+    if str_eq(nm, "dual_mul") == 1 { return 6 }
+    if str_eq(nm, "dual_scale") == 1 { return 7 }
+    return 0
+}
+
+func ib_expr_is_dual(ctx: int, src: str, node: int): int {
+    if node < 0 { return 0 }
+    var k = ast_kind(node)
+    if k == nd_ident() {
+        return ib_lookup_is_dual_tok(ctx, src, ast_child(node, 0))
+    }
+    if k == nd_call() {
+        var callee = ast_child(node, 0)
+        if ast_kind(callee) != nd_ident() { return 0 }
+        var bop = ib_dual_builtin(ib_tok_text(ctx, src, ast_child(callee, 0)))
+        if (bop == 1) | (bop == 4) | (bop == 5) | (bop == 6) | (bop == 7) { return 1 }
+        return 0
+    }
+    if k == nd_if_expr() { return ib_expr_is_dual(ctx, src, ast_child(node, 1)) }
+    return 0
+}
+
+func ib_dual_load(ctx: int, base: int, which: int): int {
+    var r = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_load(), r, base + which, 0, 0))
+    return r
+}
+
+func ib_dual_store(ctx: int, base: int, which: int, v: int): int {
+    ib_emit(ctx, ir_inst(ir_store(), base + which, v, 0, 0))
+    return 0
+}
+
+func ib_dual_combine(ctx: int, vop: int, dop: int, lb: int, rb: int): int {
+    var dst = ib_dual_tmp(ctx)
+    var lv = ib_dual_load(ctx, lb, 0)
+    var rv = ib_dual_load(ctx, rb, 0)
+    var nv = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(vop, nv, lv, rv, 0))
+    ib_dual_store(ctx, dst, 0, nv)
+    var ld = ib_dual_load(ctx, lb, 1)
+    var rd = ib_dual_load(ctx, rb, 1)
+    var nd = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(dop, nd, ld, rd, 0))
+    ib_dual_store(ctx, dst, 1, nd)
+    return dst
+}
+
+func ib_lower_dual_builtin(ctx: int, src: str, args_h: int, op: int): int {
+    if op == 1 {
+        var v = lower_expr(ctx, src, int_vec_get(args_h, 0))
+        var d = lower_expr(ctx, src, int_vec_get(args_h, 1))
+        var dst = ib_dual_tmp(ctx)
+        ib_dual_store(ctx, dst, 0, v)
+        ib_dual_store(ctx, dst, 1, d)
+        return dst
+    }
+    if op == 2 { return ib_dual_load(ctx, lower_expr(ctx, src, int_vec_get(args_h, 0)), 0) }
+    if op == 3 { return ib_dual_load(ctx, lower_expr(ctx, src, int_vec_get(args_h, 0)), 1) }
+    if op == 4 { return ib_dual_combine(ctx, ir_add(), ir_add(), lower_expr(ctx, src, int_vec_get(args_h, 0)), lower_expr(ctx, src, int_vec_get(args_h, 1))) }
+    if op == 5 { return ib_dual_combine(ctx, ir_sub(), ir_sub(), lower_expr(ctx, src, int_vec_get(args_h, 0)), lower_expr(ctx, src, int_vec_get(args_h, 1))) }
+    if op == 7 {
+        var base = lower_expr(ctx, src, int_vec_get(args_h, 0))
+        var k = lower_expr(ctx, src, int_vec_get(args_h, 1))
+        var dst2 = ib_dual_tmp(ctx)
+        var v2 = ib_dual_load(ctx, base, 0)
+        var nv2 = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_mul(), nv2, v2, k, 0))
+        ib_dual_store(ctx, dst2, 0, nv2)
+        var d2 = ib_dual_load(ctx, base, 1)
+        var nd2 = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_mul(), nd2, d2, k, 0))
+        ib_dual_store(ctx, dst2, 1, nd2)
+        return dst2
+    }
+    // Product rule: (av*bv, ad*bv + av*bd).
+    var lb = lower_expr(ctx, src, int_vec_get(args_h, 0))
+    var rb = lower_expr(ctx, src, int_vec_get(args_h, 1))
+    var dst3 = ib_dual_tmp(ctx)
+    var av = ib_dual_load(ctx, lb, 0)
+    var bv = ib_dual_load(ctx, rb, 0)
+    var vv = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_mul(), vv, av, bv, 0))
+    ib_dual_store(ctx, dst3, 0, vv)
+    var ad = ib_dual_load(ctx, lb, 1)
+    var bd = ib_dual_load(ctx, rb, 1)
+    var t1 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_mul(), t1, ad, bv, 0))
+    var t2 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_mul(), t2, av, bd, 0))
+    var td = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), td, t1, t2, 0))
+    ib_dual_store(ctx, dst3, 1, td)
+    return dst3
+}
+
+func lower_stmt_var_dual(ctx: int, src: str, name_tok: int, init: int): int {
+    var base = ib_define_dual_local(ctx, name_tok)
+    ib_emit(ctx, ir_inst(ir_alloca(), base, 0, 0, 0))
+    ib_emit(ctx, ir_inst(ir_alloca(), base + 1, 0, 0, 0))
+    if init < 0 { return 0 }
+    var src_base = lower_expr(ctx, src, init)
+    ib_dual_store(ctx, base, 0, ib_dual_load(ctx, src_base, 0))
+    ib_dual_store(ctx, base, 1, ib_dual_load(ctx, src_base, 1))
+    return 0
+}
+
 // Trait-object locals (Issue #135) reuse the struct_ty column with a negative
 // encoding: -(trait_name_tok + 2). ib_lookup_struct_ty hides these from the
 // ordinary struct paths; ib_lookup_dyn_trait decodes them.
@@ -1110,6 +1275,7 @@ func lower_expr_ident(ctx: int, src: str, node: int): int {
         return r
     }
     if ib_lookup_is_vec4_tok(ctx, src, tok_idx) == 1 { return slot }
+    if ib_slot_is_dual(ctx, slot) == 1 { return slot }
     var r = ib_fresh_vreg(ctx)
     ib_emit(ctx, ir_inst(ir_load(), r, slot, 0, 0))
     // Auto-deref on read: a reference expression yields the pointee value
@@ -1431,6 +1597,10 @@ func lower_expr_call(ctx: int, src: str, node: int): int {
         var vop = ib_vec4_builtin(cnm)
         if vop > 0 {
             return ib_lower_vec4_builtin(ctx, src, args_h, vop)
+        }
+        var dop = ib_dual_builtin(cnm)
+        if dop > 0 {
+            return ib_lower_dual_builtin(ctx, src, args_h, dop)
         }
         var bop = ib_atomic_op(cnm)
         if bop >= 0 {
@@ -3095,6 +3265,12 @@ func lower_stmt_assign(ctx: int, src: str, node: int): int {
                 }
                 return 0
             }
+            if ib_slot_is_dual(ctx, slot) == 1 {
+                var dbase = lower_expr(ctx, src, value)
+                ib_dual_store(ctx, slot, 0, ib_dual_load(ctx, dbase, 0))
+                ib_dual_store(ctx, slot, 1, ib_dual_load(ctx, dbase, 1))
+                return 0
+            }
             // dyn local: `d = <concrete>` rewrites tag + payload (#135).
             var dyn_trait_tok = ib_lookup_dyn_trait(ctx, src, ib_tok_text(ctx, src, name_tok))
             if dyn_trait_tok >= 0 {
@@ -3282,6 +3458,10 @@ func lower_stmt(ctx: int, src: str, node: int): int {
                     lower_stmt_var_vec4(ctx, src, name_tok, init)
                     return 0
                 }
+                if str_eq(ib_tok_text(ctx, src, type_name_tok), "Dual") == 1 {
+                    lower_stmt_var_dual(ctx, src, name_tok, init)
+                    return 0
+                }
                 if (init < 0) == 0 {
                     if lower_stmt_var_struct(ctx, src, name_tok, type_name_tok, init) == 1 { return 0 }
                 }
@@ -3290,6 +3470,10 @@ func lower_stmt(ctx: int, src: str, node: int): int {
         if (type_node < 0) & (init >= 0) {
             if ib_expr_is_vec4(ctx, src, init) == 1 {
                 lower_stmt_var_vec4(ctx, src, name_tok, init)
+                return 0
+            }
+            if ib_expr_is_dual(ctx, src, init) == 1 {
+                lower_stmt_var_dual(ctx, src, name_tok, init)
                 return 0
             }
         }

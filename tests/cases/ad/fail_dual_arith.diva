@@ -1,0 +1,5 @@
+func main(): int {
+    var d: Dual = dual(1, 1)
+    var e: Dual = dual(2, 0)
+    return dual_val(d + e)
+}

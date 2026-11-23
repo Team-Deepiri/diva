@@ -31,6 +31,7 @@ func ity_type_name(t: int): str {
     if t == ir_ty_text() { return "text" }
     if t == ir_ty_slice() { return "slice" }
     if t == ir_ty_vec4() { return "vec4" }
+    if t == ir_ty_dual() { return "dual" }
     if t > ir_ty_text() { return "enum" }
     return "?"
 }

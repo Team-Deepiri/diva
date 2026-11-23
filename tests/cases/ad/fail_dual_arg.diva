@@ -1,0 +1,3 @@
+func main(): int {
+    return dual_tan(3)
+}
