@@ -14,6 +14,7 @@ import "parser.diva"
 import "ir.diva"
 import "ir_builder.diva"
 import "ir_dump.diva"
+import "mlir_emit.diva"
 import "ir_opt.diva"
 import "ir_types.diva"
 import "cfg.diva"
@@ -87,7 +88,8 @@ func cmd_print_usage(): int {
     stderr("  lex <file.diva> | parse <file.diva> | ir [--types] <file.diva> | asm <file.diva>\n")
     stderr("  analyze [--escape] <file.diva>\n")
     stderr("  opt [--no-opt] [--no-inline] <file.diva> (dump optimized / unoptimized IR)\n")
-    stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g|--debug-info|--no-inline]\n")
+    stderr("  emit-ir <file.diva|package-dir> | emit-mlir [--auto] <file.diva>\n")
+    stderr("  build <file.diva|package-dir> [--ast|-g|--debug-info|--no-inline]\n")
     stderr("  run [--no-inline] <file.diva|package-dir>\n")
     stderr("  watch <file.diva|package-dir> | check <package-dir> | new <path> [--lib|--kernel]\n")
     stderr("  compiler-version | pipeline | target <list|current>\n")
@@ -1505,6 +1507,52 @@ func cmd_emit_ir(path: str): int {
     return 0
 }
 
+func mlir_pick_path(): str {
+    var path = ""
+    var i = 2
+    while i < host_argc() {
+        var a = host_argv(i)
+        if str_eq(a, "--auto") == 1 {
+            i = i + 1
+        } else {
+            if str_eq(a, "--target") == 1 {
+                i = i + 2
+            } else {
+                if str_byte(a, 0) != 45 {
+                    if str_len(path) == 0 {
+                        path = a
+                    }
+                }
+                i = i + 1
+            }
+        }
+    }
+    return path
+}
+
+func cmd_emit_mlir(path: str): int {
+    if path_is_diva_file(path) == 0 {
+        err_line("emit-mlir: expected a .diva file")
+        return 1
+    }
+    var src = merge_file_sources(path)
+    var src_hold = src
+    var src_len = str_len(src_hold)
+    if src_len == 0 { return 1 }
+    var stream = lex_source(src_hold)
+    if stream == 0 { return 1 }
+    var pr = parse_source(src_hold, stream, 1)
+    if int_vec_get(pr, 1) != 0 {
+        err_line("emit-mlir: parse failed")
+        return 1
+    }
+    var ast = int_vec_get(pr, 0)
+    if sema_check_file(src_hold, stream, ast) != 0 { return 1 }
+    var ir_result = build_ir(src_hold, stream, ast)
+    var m = int_vec_get(ir_result, 0)
+    return mlir_emit_module(m, src_hold, stream)
+}
+
 func cmd_build_ast(path: str): int {
     var src = read_source(path)
     var src_hold = src
@@ -2350,6 +2398,15 @@ func main(): int {
         }
         var p = host_argv(2)
         return cmd_emit_ir(p)
+    }
+
+    if str_eq(a1, "emit-mlir") == 1 {
+        var mp = mlir_pick_path()
+        if str_len(mp) == 0 {
+            err_line("usage: diva emit-mlir [--auto] <file.diva>")
+            return 1
+        }
+        return cmd_emit_mlir(mp)
     }
 
     if str_eq(a1, "build") == 1 {

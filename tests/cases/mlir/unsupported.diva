@@ -1,0 +1,11 @@
+import "std/text.diva"
+
+func join(a: text, b: text): text {
+    return text_concat(a, b)
+}
+
+func main(): int {
+    var t = text"a"
+    var u = text_concat(t, text"b")
+    return 0
+}

@@ -1,0 +1,9 @@
+func compute(x: int, y: int): int {
+    var sum = x + y
+    var prod = sum * x
+    return prod
+}
+
+func main(): int {
+    return compute(2, 3)
+}
