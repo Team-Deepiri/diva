@@ -204,17 +204,23 @@ func block_get_inst(blk: int, idx: int): int {
     return int_vec_get(int_vec_get(blk, 1), idx)
 }
 
-// --- Function: [name_tok, param_count, ret_type, blocks_handle, local_count] ---
+// --- Function: [name_tok, param_count, ret_type, blocks_handle, local_count, is_kernel, kernel_id] ---
 // name_tok = lexer token index for the function name (for codegen labels + dumps).
 
-func ir_func_new(name_tok: int, param_count: int, ret_type: int): int {
+func ir_func_new_flags(name_tok: int, param_count: int, ret_type: int, is_kernel: int, kernel_id: int): int {
     var f = int_vec_new()
     int_vec_push(f, name_tok)
     int_vec_push(f, param_count)
     int_vec_push(f, ret_type)
     int_vec_push(f, int_vec_new())
     int_vec_push(f, 0)
+    int_vec_push(f, is_kernel)
+    int_vec_push(f, kernel_id)
     return f
+}
+
+func ir_func_new(name_tok: int, param_count: int, ret_type: int): int {
+    return ir_func_new_flags(name_tok, param_count, ret_type, 0, 0 - 1)
 }
 
 func func_name_tok(f: int): int    { return int_vec_get(f, 0) }
@@ -222,6 +228,14 @@ func func_param_count(f: int): int { return int_vec_get(f, 1) }
 func func_ret_type(f: int): int    { return int_vec_get(f, 2) }
 func func_blocks(f: int): int      { return int_vec_get(f, 3) }
 func func_local_count(f: int): int { return int_vec_get(f, 4) }
+func func_is_kernel(f: int): int   {
+    if int_vec_len(f) < 6 { return 0 }
+    return int_vec_get(f, 5)
+}
+func func_kernel_id(f: int): int   {
+    if int_vec_len(f) < 7 { return 0 - 1 }
+    return int_vec_get(f, 6)
+}
 
 func func_add_block(f: int, blk: int): int {
     int_vec_push(int_vec_get(f, 3), blk)

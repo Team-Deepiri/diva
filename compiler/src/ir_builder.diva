@@ -138,6 +138,12 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, mut_new(0))             // [26] linalg emission mode
     int_vec_push(ctx, mut_new(int_vec_new())) // [27] tensor shape map
     int_vec_push(ctx, mut_new(int_vec_new())) // [28] tensor shape names
+    int_vec_push(ctx, int_vec_new())          // [29] kernel AST nodes (#117)
+    int_vec_push(ctx, int_vec_new())          // [30] kernel descriptor ids (#117)
+    int_vec_push(ctx, mut_new(0 - 1))         // [31] thread_idx slot (#117)
+    int_vec_push(ctx, mut_new(0 - 1))         // [32] block_idx slot (#117)
+    int_vec_push(ctx, mut_new(0 - 1))         // [33] launch stub token (#117)
+    int_vec_push(ctx, mut_new(0 - 1))         // [34] current kernel id (#117)
     return ctx
 }
 
@@ -212,6 +218,18 @@ func bctx_set_shape_map(ctx: int, v: int): int {
 func bctx_shape_names(ctx: int): int {
     return mut_get(int_vec_get(ctx, 28))
 }
+
+// Kernel launch state (#117).
+func bctx_kernel_nodes(ctx: int): int { return int_vec_get(ctx, 29) }
+func bctx_kernel_ids(ctx: int): int { return int_vec_get(ctx, 30) }
+func bctx_thread_slot(ctx: int): int { return mut_get(int_vec_get(ctx, 31)) }
+func bctx_block_slot(ctx: int): int { return mut_get(int_vec_get(ctx, 32)) }
+func bctx_launch_stub_tok(ctx: int): int { return mut_get(int_vec_get(ctx, 33)) }
+func bctx_cur_kernel_id(ctx: int): int { return mut_get(int_vec_get(ctx, 34)) }
+func bctx_set_thread_slot(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 31), v) }
+func bctx_set_block_slot(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 32), v) }
+func bctx_set_launch_stub_tok(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 33), v) }
+func bctx_set_cur_kernel_id(ctx: int, v: int): int { return mut_set(int_vec_get(ctx, 34), v) }
 
 func bctx_struct_ty(ctx: int): int {
     return mut_get(int_vec_get(ctx, 14))
@@ -1712,6 +1730,245 @@ func lower_expr_builtin_call(ctx: int, src: str, args_h: int, op: int): int {
     return r
 }
 
+// --- Kernel launch support (#117) ---
+
+func ib_const_int(ctx: int, v: int): int {
+    var r = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), r, v, 0, 0))
+    return r
+}
+
+func ib_kernel_id_for_node(ctx: int, node: int): int {
+    var nodes = bctx_kernel_nodes(ctx)
+    var i = 0
+    while i < int_vec_len(nodes) {
+        if int_vec_get(nodes, i) == node {
+            return int_vec_get(bctx_kernel_ids(ctx), i)
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func ib_is_kernel_name(ctx: int, src: str, name_tok: int): int {
+    if name_pool_is_synthetic(name_tok) == 1 { return 0 }
+    var want = ib_tok_text(ctx, src, name_tok)
+    var nodes = bctx_kernel_nodes(ctx)
+    var i = 0
+    while i < int_vec_len(nodes) {
+        var nt = ast_child(int_vec_get(nodes, i), 0)
+        if str_eq(ib_tok_text(ctx, src, nt), want) == 1 { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+func ib_kernel_id_for_name(ctx: int, src: str, name_tok: int): int {
+    var want = ib_tok_text(ctx, src, name_tok)
+    var nodes = bctx_kernel_nodes(ctx)
+    var i = 0
+    while i < int_vec_len(nodes) {
+        var nt = ast_child(int_vec_get(nodes, i), 0)
+        if str_eq(ib_tok_text(ctx, src, nt), want) == 1 {
+            return int_vec_get(bctx_kernel_ids(ctx), i)
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func ib_lower_kernel_index(ctx: int, slot: int): int {
+    if slot < 0 { return ib_const_int(ctx, 0) }
+    var r = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_load(), r, slot, 0, 0))
+    return r
+}
+
+// Lower `launch name(grid: g, block: b, args...)` into a heap descriptor and a
+// call to the generated `diva_kernel_launch` host stub.
+func ib_emit_launch(ctx: int, src: str, node: int): int {
+    var name_tok = ast_child(node, 0)
+    var kid = ib_kernel_id_for_name(ctx, src, name_tok)
+    var grid = lower_expr(ctx, src, ast_child(node, 1))
+    var block = lower_expr(ctx, src, ast_child(node, 2))
+    var args = ast_child(node, 3)
+    var argc = int_vec_len(args)
+    var desc = ib_slice_alloc(ctx, 32 + (argc * 8))
+    ib_slice_store_word(ctx, ib_slice_ptr_off(ctx, desc, 0), ib_const_int(ctx, kid))
+    ib_slice_store_word(ctx, ib_slice_ptr_off(ctx, desc, 8), grid)
+    ib_slice_store_word(ctx, ib_slice_ptr_off(ctx, desc, 16), block)
+    ib_slice_store_word(ctx, ib_slice_ptr_off(ctx, desc, 24), ib_const_int(ctx, argc))
+    var i = 0
+    while i < argc {
+        var av = lower_expr(ctx, src, int_vec_get(args, i))
+        ib_slice_store_word(ctx, ib_slice_ptr_off(ctx, desc, 32 + (i * 8)), av)
+        i = i + 1
+    }
+    var r = ib_fresh_vreg(ctx)
+    var cinst = int_vec_new()
+    int_vec_push(cinst, ir_call())
+    int_vec_push(cinst, r)
+    int_vec_push(cinst, bctx_launch_stub_tok(ctx))
+    int_vec_push(cinst, 1)
+    int_vec_push(cinst, desc)
+    ib_emit(ctx, cinst)
+    return 0
+}
+
+func ib_launch_desc_field(ctx: int, desc: int, off: int): int {
+    return ib_slice_load_word(ctx, ib_slice_ptr_off(ctx, desc, off))
+}
+
+func ib_launch_new_slot(ctx: int): int {
+    var slot = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_alloca(), slot, 0, 0, 0))
+    return slot
+}
+
+func ib_launch_store(ctx: int, slot: int, val: int): int {
+    ib_emit(ctx, ir_inst(ir_store(), slot, val, 0, 0))
+    return 0
+}
+
+// Generate the host stub that serially executes every kernel launch. No GPU
+// APIs are involved; this is the honest CPU fallback documented in #117.
+func ib_emit_launch_stub(ctx: int, src: str): int {
+    var nodes = bctx_kernel_nodes(ctx)
+    var kn = int_vec_len(nodes)
+    if kn == 0 { return 0 }
+
+    var stub = ir_func_new(bctx_launch_stub_tok(ctx), 1, ir_ty_void())
+    bctx_set_func(ctx, stub)
+    bctx_set_vreg(ctx, 0)
+    bctx_set_label(ctx, 0)
+    bctx_set_text_vregs(ctx, int_vec_new())
+    bctx_set_thread_slot(ctx, 0 - 1)
+    bctx_set_block_slot(ctx, 0 - 1)
+    var scope = ib_scope_push(ctx)
+
+    var outer_cond_lbl = ib_fresh_label(ctx)
+    var inner_init_lbl = ib_fresh_label(ctx)
+    var inner_cond_lbl = ib_fresh_label(ctx)
+    var dispatch_lbl = ib_fresh_label(ctx)
+    var inc_thread_lbl = ib_fresh_label(ctx)
+    var inc_block_lbl = ib_fresh_label(ctx)
+    var end_lbl = ib_fresh_label(ctx)
+    var kernel_lbls = int_vec_new()
+    var test_lbls = int_vec_new()
+    var li = 0
+    while li < kn {
+        int_vec_push(kernel_lbls, ib_fresh_label(ctx))
+        int_vec_push(test_lbls, ib_fresh_label(ctx))
+        li = li + 1
+    }
+
+    var entry = ir_block_new(ib_fresh_label(ctx))
+    ib_add_blk(ctx, entry)
+    ib_set_blk(ctx, entry)
+    var desc = ib_define_local(ctx, 0)
+    ib_emit(ctx, ir_inst(ir_param(), desc, 0, 0, 0))
+    var fid = ib_launch_desc_field(ctx, desc, 0)
+    var grid = ib_launch_desc_field(ctx, desc, 8)
+    var blocks = ib_launch_desc_field(ctx, desc, 16)
+    var bslot = ib_launch_new_slot(ctx)
+    var tslot = ib_launch_new_slot(ctx)
+    ib_launch_store(ctx, bslot, ib_const_int(ctx, 0))
+    ib_emit(ctx, ir_inst(ir_br(), 0, outer_cond_lbl, 0, 0))
+
+    ib_set_blk(ctx, ib_add_label_block(ctx, outer_cond_lbl))
+    var bv = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_load(), bv, bslot, 0, 0))
+    var outer_ok = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_lt(), outer_ok, bv, grid, 0))
+    ib_emit(ctx, ir_inst(ir_br_cond(), outer_ok, inner_init_lbl, end_lbl, 0))
+
+    ib_set_blk(ctx, ib_add_label_block(ctx, inner_init_lbl))
+    ib_launch_store(ctx, tslot, ib_const_int(ctx, 0))
+    ib_emit(ctx, ir_inst(ir_br(), 0, inner_cond_lbl, 0, 0))
+
+    ib_set_blk(ctx, ib_add_label_block(ctx, inner_cond_lbl))
+    var tv = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_load(), tv, tslot, 0, 0))
+    var inner_ok = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_lt(), inner_ok, tv, blocks, 0))
+    ib_emit(ctx, ir_inst(ir_br_cond(), inner_ok, dispatch_lbl, inc_block_lbl, 0))
+
+    ib_set_blk(ctx, ib_add_label_block(ctx, dispatch_lbl))
+    ib_emit(ctx, ir_inst(ir_br(), 0, int_vec_get(test_lbls, 0), 0, 0))
+    var di = 0
+    while di < kn {
+        ib_set_blk(ctx, ib_add_label_block(ctx, int_vec_get(test_lbls, di)))
+        var kid_const = ib_const_int(ctx, di)
+        var match = ib_fresh_vreg(ctx)
+        ib_emit(ctx, ir_inst(ir_eq(), match, fid, kid_const, 0))
+        var next_lbl = inc_thread_lbl
+        if (di + 1) < kn { next_lbl = int_vec_get(test_lbls, di + 1) }
+        ib_emit(ctx, ir_inst(ir_br_cond(), match, int_vec_get(kernel_lbls, di), next_lbl, 0))
+        di = di + 1
+    }
+
+    var ki = 0
+    while ki < kn {
+        ib_set_blk(ctx, ib_add_label_block(ctx, int_vec_get(kernel_lbls, ki)))
+        ib_emit_launch_kernel_call(ctx, src, int_vec_get(nodes, ki), desc, bv, tv)
+        ib_emit(ctx, ir_inst(ir_br(), 0, inc_thread_lbl, 0, 0))
+        ki = ki + 1
+    }
+
+    ib_set_blk(ctx, ib_add_label_block(ctx, inc_thread_lbl))
+    var tv2 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_load(), tv2, tslot, 0, 0))
+    var one_t = ib_const_int(ctx, 1)
+    var next_t = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), next_t, tv2, one_t, 0))
+    ib_launch_store(ctx, tslot, next_t)
+    ib_emit(ctx, ir_inst(ir_br(), 0, inner_cond_lbl, 0, 0))
+
+    ib_set_blk(ctx, ib_add_label_block(ctx, inc_block_lbl))
+    var bv2 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_load(), bv2, bslot, 0, 0))
+    var one_b = ib_const_int(ctx, 1)
+    var next_b = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), next_b, bv2, one_b, 0))
+    ib_launch_store(ctx, bslot, next_b)
+    ib_emit(ctx, ir_inst(ir_br(), 0, outer_cond_lbl, 0, 0))
+
+    ib_set_blk(ctx, ib_add_label_block(ctx, end_lbl))
+    ib_emit(ctx, ir_inst(ir_ret_void(), 0, 0, 0, 0))
+
+    ib_scope_pop(ctx, scope)
+    mod_add_func(bctx_mod(ctx), stub)
+    return 0
+}
+
+func ib_add_label_block(ctx: int, lbl: int): int {
+    var blk = ir_block_new(lbl)
+    ib_add_blk(ctx, blk)
+    return blk
+}
+
+func ib_emit_launch_kernel_call(ctx: int, src: str, knode: int, desc: int, bv: int, tv: int): int {
+    var name_tok = ast_child(knode, 0)
+    var argc = int_vec_len(ast_child(knode, 1))
+    var args = int_vec_new()
+    var i = 0
+    while i < argc {
+        int_vec_push(args, ib_launch_desc_field(ctx, desc, 32 + (i * 8)))
+        i = i + 1
+    }
+    int_vec_push(args, bv)
+    int_vec_push(args, tv)
+    var r = ib_fresh_vreg(ctx)
+    var cinst = int_vec_new()
+    int_vec_push(cinst, ir_call())
+    int_vec_push(cinst, r)
+    int_vec_push(cinst, name_tok)
+    int_vec_push(cinst, argc + 2)
+    int_vec_push(cinst, args)
+    ib_emit(ctx, cinst)
+    return 0
+}
+
 // Lower nd_call node. Handles single-arg and multi-arg calls.
 func lower_expr_call(ctx: int, src: str, node: int): int {
     var callee = ast_child(node, 0)
@@ -1743,6 +2000,12 @@ func lower_expr_call(ctx: int, src: str, node: int): int {
         if bop >= 0 {
             return lower_expr_builtin_call(ctx, src, args_h, bop)
         }
+        if str_eq(cnm, "thread_idx") == 1 {
+            return ib_lower_kernel_index(ctx, bctx_thread_slot(ctx))
+        }
+        if str_eq(cnm, "block_idx") == 1 {
+            return ib_lower_kernel_index(ctx, bctx_block_slot(ctx))
+        }
     }
     var fname_idx = 0 - 1
     if ckind == nd_ident() { fname_idx = ast_child(callee, 0) }
@@ -1753,7 +2016,11 @@ func lower_expr_call(ctx: int, src: str, node: int): int {
         return r_bad
     }
     var r = ib_fresh_vreg(ctx)
-    if argc == 1 {
+    var kernel_call = 0
+    if ckind == nd_ident() {
+        if ib_is_kernel_name(ctx, src, fname_idx) == 1 { kernel_call = 1 }
+    }
+    if (argc == 1) & (kernel_call == 0) {
         var only_node = int_vec_get(args_h, 0)
         var only_av = lower_expr(ctx, src, only_node)
         var c1 = int_vec_new()
@@ -1772,11 +2039,17 @@ func lower_expr_call(ctx: int, src: str, node: int): int {
         int_vec_push(arg_regs, av)
         i = i + 1
     }
+    var total_args = argc
+    if kernel_call == 1 {
+        int_vec_push(arg_regs, ib_const_int(ctx, 0))
+        int_vec_push(arg_regs, ib_const_int(ctx, 0))
+        total_args = argc + 2
+    }
     var cinst = int_vec_new()
     int_vec_push(cinst, ir_call())
     int_vec_push(cinst, r)
     int_vec_push(cinst, fname_idx)
-    int_vec_push(cinst, argc)
+    int_vec_push(cinst, total_args)
     int_vec_push(cinst, arg_regs)
     ib_emit(ctx, cinst)
     return r
@@ -1798,6 +2071,7 @@ func ib_mangle_generic(ctx: int, src: str, base_tok: int, targs: int): str {
 }
 
 func ib_func_name_str(ctx: int, src: str, name_tok: int): str {
+    if name_tok == tk_diva_kernel_launch() { return "diva_kernel_launch" }
     if name_pool_is_synthetic(name_tok) == 1 {
         var pool = mod_name_pool(bctx_mod(ctx))
         return name_pool_text(pool, name_tok)
@@ -3988,6 +4262,9 @@ func ib_lower_tensor_call(ctx: int, src: str, args_h: int, tb: int): int {
 func lower_stmt(ctx: int, src: str, node: int): int {
     var kind = ast_kind(node)
 
+    if kind == nd_launch() {
+        return ib_emit_launch(ctx, src, node)
+    }
     if kind == nd_var_decl() {
         var name_tok = ast_child(node, 0)
         var type_node = ast_child(node, 1)
@@ -4220,6 +4497,10 @@ func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_
     if inject_self == 1 {
         total_params = pcount + 1
     }
+    var kernel_id = bctx_cur_kernel_id(ctx)
+    if kernel_id >= 0 {
+        total_params = total_params + 2
+    }
 
     var ret_ty = ir_ty_int()
     if (ret_type < 0) == 0 {
@@ -4233,10 +4514,15 @@ func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_
     }
 
     var f = ir_func_new(name_tok, total_params, ret_ty)
+    if kernel_id >= 0 {
+        f = ir_func_new_flags(name_tok, total_params, ret_ty, 1, kernel_id)
+    }
     bctx_set_func(ctx, f)
     bctx_set_vreg(ctx, 0)
     bctx_set_label(ctx, 0)
     bctx_set_text_vregs(ctx, int_vec_new())
+    bctx_set_thread_slot(ctx, 0 - 1)
+    bctx_set_block_slot(ctx, 0 - 1)
 
     var scope = ib_scope_push(ctx)
 
@@ -4291,6 +4577,16 @@ func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_
         }
         pi = pi + 1
         i = i + 1
+    }
+
+    if kernel_id >= 0 {
+        var bslot = ib_define_local(ctx, 0)
+        ib_emit(ctx, ir_inst(ir_param(), bslot, pi, 0, 0))
+        bctx_set_block_slot(ctx, bslot)
+        pi = pi + 1
+        var tslot = ib_define_local(ctx, 0)
+        ib_emit(ctx, ir_inst(ir_param(), tslot, pi, 0, 0))
+        bctx_set_thread_slot(ctx, tslot)
     }
 
     lower_block(ctx, src, body)
@@ -4625,6 +4921,17 @@ func lower_file(ctx: int, src: str, file_node: int): int {
     // Pre-pass: assign IR names to trait impl methods so dispatchers know the
     // mangled tokens before any function body is lowered (#135).
     ib_plan_impls(ctx, src, file_node)
+    // Pre-pass: enumerate kernels and pin the host-stub name token (#117).
+    bctx_set_launch_stub_tok(ctx, tk_diva_kernel_launch())
+    var ki = 0
+    while ki < n {
+        var kn = int_vec_get(children, ki)
+        if (ast_kind(kn) == nd_func()) & (ast_func_is_kernel(kn) == 1) {
+            int_vec_push(bctx_kernel_nodes(ctx), kn)
+            int_vec_push(bctx_kernel_ids(ctx), int_vec_len(bctx_kernel_ids(ctx)))
+        }
+        ki = ki + 1
+    }
     var i = 0
     while (i < n) {
         var child = int_vec_get(children, i)
@@ -4637,7 +4944,9 @@ func lower_file(ctx: int, src: str, file_node: int): int {
             // bogus di_runtime_* calls at codegen.
         }
         if kind == nd_func() {
+            bctx_set_cur_kernel_id(ctx, ib_kernel_id_for_node(ctx, child))
             lower_func(ctx, src, child)
+            bctx_set_cur_kernel_id(ctx, 0 - 1)
         }
         if kind == nd_impl() {
             var methods = ast_child(child, 2)
@@ -4679,6 +4988,7 @@ func lower_file(ctx: int, src: str, file_node: int): int {
         }
         i = i + 1
     }
+    ib_emit_launch_stub(ctx, src)
     return bctx_mod(ctx)
 }
 

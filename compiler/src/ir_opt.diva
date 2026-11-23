@@ -779,6 +779,7 @@ func il_can_inline(ctx: int, src: str, call: int, callee_idx: int): int {
     var toks = int_vec_get(ctx, 1)
     if il_is_entry(m, src, toks, callee_idx) == 1 { return 0 }
     var callee = mod_get_func(m, callee_idx)
+    if func_is_kernel(callee) == 1 { return 0 }
     if il_func_eligible(callee) == 0 { return 0 }
     var argc = inst_b(call)
     if argc != func_param_count(callee) { return 0 }
