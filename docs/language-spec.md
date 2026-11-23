@@ -618,6 +618,14 @@ func main(): int {
 - **Incremental builds (Issue #115):** content-addressed whole-program build
   cache under `.diva-cache/`; disable with `--no-cache` or `DIVA_NO_CACHE=1`.
   See `docs/incremental.md`.
+- **Typed MIR (Issue #100):** vreg type inference with optional `diva ir --types`;
+  see `docs/typed-mir.md`.
+- **Escape analysis (Issue #101):** `diva analyze --escape` classifies
+  address-taken locals; see `docs/escape-analysis.md`.
+- **Targets (Issue #108):** `--target <triple>`, `diva target list|current`;
+  only `x86_64-linux-gnu` is implemented; see `docs/targets.md`.
+- **Debug info (Issue #114):** DWARF line tables behind `--debug-info`/`-g`;
+  see `docs/debug-info.md`.
 - explicit generic functions with call-site type arguments like `identity[int](7)`
 - class declarations with methods
 - `enum` declarations with unit and single-payload variants, bare-name and
