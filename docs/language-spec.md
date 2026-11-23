@@ -626,6 +626,13 @@ func main(): int {
   only `x86_64-linux-gnu` is implemented; see `docs/targets.md`.
 - **Debug info (Issue #114):** DWARF line tables behind `--debug-info`/`-g`;
   see `docs/debug-info.md`.
+- **Tensors (Issue #112):** `tensor<int, N>` / `tensor<int, N, M>` with
+  `@cpu`/`@gpu` annotations, heap-backed descriptors, and get/set/len/rank
+  builtins; see `docs/tensor-type.md`.
+- **MLIR emitter (Issue #119):** `diva emit-mlir` lowers IR to textual MLIR;
+  see `docs/mlir-architecture.md`.
+- **Forward-mode AD (Issue #121):** `Dual` builtins, `#[differentiate]`, and
+  `diva grad`; see `docs/autodiff.md`.
 - explicit generic functions with call-site type arguments like `identity[int](7)`
 - class declarations with methods
 - `enum` declarations with unit and single-payload variants, bare-name and
