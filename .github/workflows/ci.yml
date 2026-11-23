@@ -232,6 +232,42 @@ jobs:
       - name: Run incremental cache gate (builds driver from seed)
         run: bash tests/incremental.sh
 
+  mirtypes:
+    name: typed MIR (#100)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run typed MIR gate (builds driver from seed)
+        run: sh tests/mirtypes.sh
+
+  escape:
+    name: escape analysis (#101)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run escape analysis gate (builds driver from seed)
+        run: sh tests/escape.sh
+
+  cross:
+    name: target triples (#108)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run target gate (builds driver from seed)
+        run: sh tests/cross.sh
+
+  dwarf:
+    name: DWARF line tables (#114)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run DWARF gate (builds driver from seed)
+        run: bash tests/dwarf.sh
+
   selfhost-consistency:
     name: selfhost consistency (stage2 = stage3)
     runs-on: ubuntu-latest
