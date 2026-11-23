@@ -1,0 +1,471 @@
+// Typed MIR layer (Issue #100).
+//
+// Infers a type tag for each virtual register from its defining instruction and
+// verifies that no register has two incompatible definitions. The IR is already
+// in single-assignment form: vregs are numbered monotonically by the builder and
+// never reassigned, so no SSA renaming pass is needed. types are a view over the
+// existing IR, not a rewrite of it.
+//
+// Unknown/erased information (loads, calls to externs, ...) is handled with
+// weak tags that may be refined by later evidence. Unsupported opcodes are
+// counted and reported as warnings, never as errors.
+
+import "std/vec.diva"
+import "std/mem.diva"
+import "std/host.diva"
+import "std/io.diva"
+import "std/conv.diva"
+import "cell.diva"
+import "tokens.diva"
+import "ir.diva"
+
+func ity_unknown(): int { return 0 - 1 }
+
+func ity_type_name(t: int): str {
+    if t == ity_unknown() { return "?" }
+    if t == ir_ty_void() { return "void" }
+    if t == ir_ty_int() { return "int" }
+    if t == ir_ty_bool() { return "bool" }
+    if t == ir_ty_str() { return "str" }
+    if t == ir_ty_ptr() { return "ptr" }
+    if t == ir_ty_text() { return "text" }
+    if t == ir_ty_slice() { return "slice" }
+    if t == ir_ty_vec4() { return "vec4" }
+    if t > ir_ty_text() { return "enum" }
+    return "?"
+}
+
+func ity_error(msg: str): int {
+    stderr("sema: MIR type error: ")
+    stderr(msg)
+    stderr(char_to_str(10))
+    return 0
+}
+
+func ity_report_warn(warn_cell: int): int {
+    var n = mut_get(warn_cell)
+    if n == 0 { return 0 }
+    stderr("warn: ir_types: ")
+    stderr(int_to_str(n))
+    stderr(" unsupported instruction(s) ignored; MIR typing is partial")
+    stderr(char_to_str(10))
+    return 0
+}
+
+func ity_is_known_op(op: int): int {
+    if op < 0 { return 0 }
+    if op > ir_fence() { return 0 }
+    return 1
+}
+
+// Instructions whose `result` field is a real value definition. Stores,
+// returns and branches reuse an existing vreg as an operand; counting those as
+// definitions would report false conflicts (e.g. `v0 = const 41; v0 = ret v0`).
+func ity_is_value_def(op: int): int {
+    if op == ir_nop() { return 0 }
+    if op == ir_store() { return 0 }
+    if op == ir_global_store() { return 0 }
+    if op == ir_ptr_store() { return 0 }
+    if op == ir_ret() { return 0 }
+    if op == ir_ret_void() { return 0 }
+    if op == ir_br() { return 0 }
+    if op == ir_br_cond() { return 0 }
+    if op == ir_trap() { return 0 }
+    if op == ir_fence() { return 0 }
+    if op == ir_atomic_store() { return 0 }
+    return 1
+}
+
+// A strong tag comes from the opcode itself (or a registered function return
+// type). Weak tags are defaults/refinements and never trigger a hard error.
+func ity_is_strong(op: int): int {
+    if op == ir_load() { return 0 }
+    if op == ir_ptr_load() { return 0 }
+    if op == ir_array_load() { return 0 }
+    if op == ir_copy() { return 0 }
+    if op == ir_phi() { return 0 }
+    if op == ir_call() { return 0 }
+    return 1
+}
+
+func ity_inst_max(inst: int, cur: int): int {
+    var op = inst_op(inst)
+    var r = inst_result(inst)
+    if r > cur { cur = r }
+    if (op == ir_const()) | (op == ir_const_str()) | (op == ir_const_text()) { return cur }
+    if (op == ir_br()) | (op == ir_br_cond()) { return cur }
+    if op == ir_call() {
+        var ac = inst_b(inst)
+        var args = inst_extra(inst)
+        var i = 0
+        while i < ac {
+            var v = int_vec_get(args, i)
+            if v > cur { cur = v }
+            i = i + 1
+        }
+        return cur
+    }
+    var a = inst_a(inst)
+    var b = inst_b(inst)
+    if a > cur { cur = a }
+    if b > cur { cur = b }
+    if op == ir_atomic_cas() {
+        var ex = inst_extra(inst)
+        if ex > cur { cur = ex }
+    }
+    return cur
+}
+
+func ity_func_max(f: int): int {
+    var cur = 0
+    var blocks = func_blocks(f)
+    var bc = int_vec_len(blocks)
+    var bi = 0
+    while bi < bc {
+        var insts = block_insts(int_vec_get(blocks, bi))
+        var ic = int_vec_len(insts)
+        var ii = 0
+        while ii < ic {
+            cur = ity_inst_max(int_vec_get(insts, ii), cur)
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+    return cur
+}
+
+func ity_find_func(m: int, src: str, toks: int, name_tok: int): int {
+    if name_tok < 0 { return 0 - 1 }
+    var want = tok_text(src, toks, name_tok)
+    var fc = mod_func_count(m)
+    var i = 0
+    while i < fc {
+        var f = mod_get_func(m, i)
+        if str_eq(tok_text(src, toks, func_name_tok(f)), want) == 1 { return i }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// Type produced by a defining instruction. -1 means the opcode alone cannot
+// determine a type; those cases are refined from stores/copies below.
+func ity_base_type(inst: int, m: int, src: str, toks: int): int {
+    var op = inst_op(inst)
+    if op == ir_const() { return ir_ty_int() }
+    if op == ir_const_str() { return ir_ty_str() }
+    if op == ir_const_text() { return ir_ty_text() }
+    if op == ir_text_concat() { return ir_ty_text() }
+    if op == ir_text_slice() { return ir_ty_text() }
+    if op == ir_text_cmp() { return ir_ty_bool() }
+    if op == ir_str_eq() { return ir_ty_bool() }
+    if op == ir_eq() { return ir_ty_bool() }
+    if op == ir_ne() { return ir_ty_bool() }
+    if op == ir_lt() { return ir_ty_bool() }
+    if op == ir_le() { return ir_ty_bool() }
+    if op == ir_gt() { return ir_ty_bool() }
+    if op == ir_ge() { return ir_ty_bool() }
+    if op == ir_not() { return ir_ty_bool() }
+    if op == ir_add() { return ir_ty_int() }
+    if op == ir_sub() { return ir_ty_int() }
+    if op == ir_mul() { return ir_ty_int() }
+    if op == ir_div() { return ir_ty_int() }
+    if op == ir_mod() { return ir_ty_int() }
+    if op == ir_neg() { return ir_ty_int() }
+    if op == ir_and() { return ir_ty_int() }
+    if op == ir_or() { return ir_ty_int() }
+    if op == ir_xor() { return ir_ty_int() }
+    if op == ir_shl() { return ir_ty_int() }
+    if op == ir_shr() { return ir_ty_int() }
+    if op == ir_sar() { return ir_ty_int() }
+    if op == ir_atomic_load() { return ir_ty_int() }
+    if op == ir_atomic_add() { return ir_ty_int() }
+    if op == ir_atomic_xchg() { return ir_ty_int() }
+    if op == ir_atomic_cas() { return ir_ty_int() }
+    if op == ir_alloca() { return ir_ty_ptr() }
+    if op == ir_alloc() { return ir_ty_ptr() }
+    if op == ir_addr_of() { return ir_ty_ptr() }
+    if op == ir_global() { return ir_ty_ptr() }
+    if op == ir_param() { return ir_ty_ptr() }
+    if op == ir_str_arg() { return ir_ty_str() }
+    if op == ir_global_load() {
+        var gi = inst_a(inst)
+        if (gi >= 0) & (gi < mod_global_count(m)) {
+            return global_type(mod_get_global(m, gi))
+        }
+        return ir_ty_int()
+    }
+    if op == ir_call() {
+        var name_tok = inst_a(inst)
+        var fi = mod_alias_lookup(m, name_tok)
+        if fi < 0 { fi = ity_find_func(m, src, toks, name_tok) }
+        if (fi >= 0) & (fi < mod_func_count(m)) {
+            return func_ret_type(mod_get_func(m, fi))
+        }
+        // Extern calls have no registered return type in the module. Void is
+        // the conservative default and stays weak (it can be refined).
+        return ir_ty_void()
+    }
+    return ity_unknown()
+}
+
+func ity_conflict_message(vreg: int, old_ty: int, new_ty: int, op: int): str {
+    var b = str_builder_new()
+    str_builder_append(b, "v")
+    str_builder_append(b, int_to_str(vreg))
+    str_builder_append(b, " defined as ")
+    str_builder_append(b, ity_type_name(old_ty))
+    str_builder_append(b, " but also as ")
+    str_builder_append(b, ity_type_name(new_ty))
+    str_builder_append(b, " by ")
+    str_builder_append(b, ir_op_name(op))
+    var s = str_builder_to_str(b)
+    str_builder_free(b)
+    return s
+}
+
+// Return a single mem block with six vreg-indexed arrays:
+// [types, strong, counts, links, slot_values, ptr_values].
+func ity_infer_func(m: int, f: int, src: str, toks: int, err_cell: int, warn_cell: int): int {
+    var limit = ity_func_max(f) + 1
+    var base = mem_alloc(limit * 8 * 6)
+    if base == 0 {
+        mut_set(warn_cell, mut_get(warn_cell) + 1)
+        return 0 - 1
+    }
+    var types = base
+    var strong = base + limit * 8
+    var counts = base + limit * 16
+    var links = base + limit * 24
+    var slots = base + limit * 32
+    var ptrs = base + limit * 40
+    var i = 0
+    while i < limit {
+        mem_set(types, i, ity_unknown())
+        mem_set(strong, i, 0)
+        mem_set(counts, i, 0)
+        mem_set(links, i, 0 - 1)
+        mem_set(slots, i, ity_unknown())
+        mem_set(ptrs, i, ity_unknown())
+        i = i + 1
+    }
+
+    var blocks = func_blocks(f)
+    var bc = int_vec_len(blocks)
+    var bi = 0
+    while bi < bc {
+        var insts = block_insts(int_vec_get(blocks, bi))
+        var ic = int_vec_len(insts)
+        var ii = 0
+        while ii < ic {
+            var inst = int_vec_get(insts, ii)
+            var op = inst_op(inst)
+            if ity_is_known_op(op) == 0 {
+                mut_set(warn_cell, mut_get(warn_cell) + 1)
+            }
+            if ity_is_value_def(op) == 1 {
+                var r = inst_result(inst)
+                if (r >= 0) & (r < limit) {
+                    mem_set(counts, r, mem_get(counts, r) + 1)
+                    var t = ity_base_type(inst, m, src, toks)
+                    var s = ity_is_strong(op)
+                    if op == ir_call() {
+                        var name_tok = inst_a(inst)
+                        var fi = mod_alias_lookup(m, name_tok)
+                        if fi < 0 { fi = ity_find_func(m, src, toks, name_tok) }
+                        if fi >= 0 { s = 1 }
+                    }
+                    if t >= 0 {
+                        var old = mem_get(types, r)
+                        if (s == 1) & (old >= 0) & (mem_get(strong, r) == 1) & (old != t) {
+                            ity_error(ity_conflict_message(r, old, t, op))
+                            mut_set(err_cell, 1)
+                        } else {
+                            if (old < 0) | (s == 1) {
+                                mem_set(types, r, t)
+                                mem_set(strong, r, s)
+                            }
+                        }
+                    }
+                    if (op == ir_copy()) | (op == ir_phi()) {
+                        mem_set(links, r, inst_a(inst))
+                    }
+                }
+            }
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
+
+    // Stores determine the value type of a stack slot; addr.of transfers that
+    // pointee type to a pointer vreg, which ptr.load can then reuse.
+    bi = 0
+    while bi < bc {
+        var insts2 = block_insts(int_vec_get(blocks, bi))
+        var ic2 = int_vec_len(insts2)
+        var ii2 = 0
+        while ii2 < ic2 {
+            var inst2 = int_vec_get(insts2, ii2)
+            var op2 = inst_op(inst2)
+            if op2 == ir_store() {
+                var slot = inst_result(inst2)
+                var val = inst_a(inst2)
+                if (slot >= 0) & (slot < limit) & (val >= 0) & (val < limit) {
+                    if (mem_get(slots, slot) < 0) & (mem_get(types, val) >= 0) {
+                        mem_set(slots, slot, mem_get(types, val))
+                    }
+                }
+            }
+            if op2 == ir_ptr_store() {
+                var pv = inst_a(inst2)
+                var pval = inst_b(inst2)
+                if (pv >= 0) & (pv < limit) & (pval >= 0) & (pval < limit) {
+                    if (mem_get(ptrs, pv) < 0) & (mem_get(types, pval) >= 0) {
+                        mem_set(ptrs, pv, mem_get(types, pval))
+                    }
+                }
+            }
+            ii2 = ii2 + 1
+        }
+        bi = bi + 1
+    }
+
+    bi = 0
+    while bi < bc {
+        var insts3 = block_insts(int_vec_get(blocks, bi))
+        var ic3 = int_vec_len(insts3)
+        var ii3 = 0
+        while ii3 < ic3 {
+            var inst3 = int_vec_get(insts3, ii3)
+            var op3 = inst_op(inst3)
+            if op3 == ir_addr_of() {
+                var pres = inst_result(inst3)
+                var aslot = inst_a(inst3)
+                if (pres >= 0) & (pres < limit) & (aslot >= 0) & (aslot < limit) {
+                    if (mem_get(ptrs, pres) < 0) & (mem_get(slots, aslot) >= 0) {
+                        mem_set(ptrs, pres, mem_get(slots, aslot))
+                    }
+                }
+            }
+            if (op3 == ir_load()) | (op3 == ir_ptr_load()) | (op3 == ir_array_load()) {
+                var lr = inst_result(inst3)
+                if (lr >= 0) & (lr < limit) {
+                    var lt = ir_ty_int()
+                    var src_vreg = inst_a(inst3)
+                    if op3 == ir_load() {
+                        if (src_vreg >= 0) & (src_vreg < limit) {
+                            if mem_get(slots, src_vreg) >= 0 { lt = mem_get(slots, src_vreg) }
+                        }
+                    }
+                    if op3 == ir_ptr_load() {
+                        if (src_vreg >= 0) & (src_vreg < limit) {
+                            if mem_get(ptrs, src_vreg) >= 0 { lt = mem_get(ptrs, src_vreg) }
+                        }
+                    }
+                    if (mem_get(types, lr) < 0) {
+                        mem_set(types, lr, lt)
+                        mem_set(strong, lr, 0)
+                    }
+                }
+            }
+            ii3 = ii3 + 1
+        }
+        bi = bi + 1
+    }
+
+    // copy/phi chains inherit their source type (bounded rounds break cycles).
+    var changed = 1
+    var rounds = 0
+    while (changed == 1) & (rounds < 8) {
+        changed = 0
+        rounds = rounds + 1
+        bi = 0
+        while bi < bc {
+            var insts4 = block_insts(int_vec_get(blocks, bi))
+            var ic4 = int_vec_len(insts4)
+            var ii4 = 0
+            while ii4 < ic4 {
+                var inst4 = int_vec_get(insts4, ii4)
+                var op4 = inst_op(inst4)
+                if (op4 == ir_copy()) | (op4 == ir_phi()) {
+                    var dst = inst_result(inst4)
+                    var src4 = mem_get(links, dst)
+                    if (dst >= 0) & (dst < limit) & (src4 >= 0) & (src4 < limit) {
+                        if (mem_get(types, dst) < 0) | (mem_get(strong, dst) == 0) {
+                            if mem_get(types, src4) >= 0 {
+                                mem_set(types, dst, mem_get(types, src4))
+                                mem_set(strong, dst, mem_get(strong, src4))
+                                changed = 1
+                            }
+                        }
+                    }
+                }
+                ii4 = ii4 + 1
+            }
+            bi = bi + 1
+        }
+    }
+
+    // Every vreg gets a tag; untyped leftovers default to int (weak), which is
+    // the backend-neutral IR's natural integer word type.
+    i = 0
+    while i < limit {
+        if mem_get(types, i) < 0 {
+            mem_set(types, i, ir_ty_int())
+            mem_set(strong, i, 0)
+        }
+        i = i + 1
+    }
+    return base
+}
+
+func ity_infer_module(m: int, src: str, toks: int, err_cell: int, warn_cell: int): int {
+    var out = int_vec_new()
+    var fc = mod_func_count(m)
+    var i = 0
+    while i < fc {
+        int_vec_push(out, ity_infer_func(m, mod_get_func(m, i), src, toks, err_cell, warn_cell))
+        i = i + 1
+    }
+    return out
+}
+
+func ity_free_types(types: int): int {
+    if types <= 0 { return 0 }
+    var n = int_vec_len(types)
+    var i = 0
+    while i < n {
+        var p = int_vec_get(types, i)
+        if p > 0 { mem_free(p) }
+        i = i + 1
+    }
+    int_vec_free(types)
+    return 0
+}
+
+func ity_verify_module(m: int, src: str, toks: int): int {
+    var err_cell = mut_new(0)
+    var warn_cell = mut_new(0)
+    var types = ity_infer_module(m, src, toks, err_cell, warn_cell)
+    ity_free_types(types)
+    ity_report_warn(warn_cell)
+    return mut_get(err_cell)
+}
+
+// Synthetic module used by `diva ir --selftest-type-conflict`: v0 is defined
+// once as an int constant and once as a pointer. No frontend source can produce
+// this because sema rejects it before IR building, so it exercises the check.
+func ity_conflict_module(): int {
+    var m = ir_module_new()
+    var f = ir_func_new(0, 0, ir_ty_int())
+    var blk = ir_block_new(0)
+    block_append(blk, ir_inst(ir_const(), 0, 41, 0, 0))
+    block_append(blk, ir_inst(ir_addr_of(), 0, 3, 0, 0))
+    block_append(blk, ir_inst(ir_ret(), 0, 0, 0, 0))
+    func_add_block(f, blk)
+    mod_add_func(m, f)
+    return m
+}
+
+func ity_verify_conflict_selftest(): int {
+    return ity_verify_module(ity_conflict_module(), "", 0)
+}

@@ -15,6 +15,7 @@ import "ir.diva"
 import "ir_builder.diva"
 import "ir_dump.diva"
 import "ir_opt.diva"
+import "ir_types.diva"
 import "cfg.diva"
 import "escape.diva"
 import "codegen_x86.diva"
@@ -83,7 +84,7 @@ func target_from_args(): str {
 
 func cmd_print_usage(): int {
     stderr("usage: diva <command> [args]\n")
-    stderr("  lex <file.diva> | parse <file.diva> | ir <file.diva> | asm <file.diva>\n")
+    stderr("  lex <file.diva> | parse <file.diva> | ir [--types] <file.diva> | asm <file.diva>\n")
     stderr("  analyze [--escape] <file.diva>\n")
     stderr("  opt [--no-opt] [--no-inline] <file.diva> (dump optimized / unoptimized IR)\n")
     stderr("  emit-ir <file.diva|package-dir> | build <file.diva|package-dir> [--ast|-g|--debug-info|--no-inline]\n")
@@ -849,6 +850,7 @@ func native_compile_and_link(merged_src: str, quiet: int, exe_out: str, debug_in
     if sema_check_file(merged_src, stream, ast) != 0 { return 1 }
     var ir_result = build_ir(merged_src, stream, ast)
     var m = int_vec_get(ir_result, 0)
+    if verify_ir_module(m, merged_src, stream) != 0 { return 1 }
     var strv = int_vec_get(ir_result, 1)
     var inline_on = 1
     if opt_wants_no_inline() == 1 { inline_on = 0 }
@@ -1272,7 +1274,11 @@ func cmd_parse(path: str): int {
     return 0
 }
 
-func cmd_ir(path: str): int {
+func verify_ir_module(m: int, src: str, toks: int): int {
+    return ity_verify_module(m, src, toks)
+}
+
+func cmd_ir(path: str, want_types: int): int {
     var path_p = path
     var dbg = native_cmd_ir_debug()
     var src = merge_file_sources(path_p)
@@ -1293,7 +1299,21 @@ func cmd_ir(path: str): int {
     var ir_result = build_ir(src_hold, stream, ast)
     if dbg == 1 { err_line("native cmd_ir: build_ir ok") }
     var m = int_vec_get(ir_result, 0)
-    dump_module(m, src_hold, stream)
+    if want_types == 0 {
+        if verify_ir_module(m, src_hold, stream) != 0 { return 1 }
+        dump_module(m, src_hold, stream)
+        return 0
+    }
+    var err_cell = mut_new(0)
+    var warn_cell = mut_new(0)
+    var types = ity_infer_module(m, src_hold, stream, err_cell, warn_cell)
+    ity_report_warn(warn_cell)
+    if mut_get(err_cell) != 0 {
+        ity_free_types(types)
+        return 1
+    }
+    dump_module_t(m, src_hold, stream, types)
+    ity_free_types(types)
     return 0
 }
 
@@ -1356,6 +1376,7 @@ func cmd_opt(): int {
     if sema_check_file(src_hold, stream, ast) != 0 { return 1 }
     var ir_result = build_ir(src_hold, stream, ast)
     var m = int_vec_get(ir_result, 0)
+    if verify_ir_module(m, src_hold, stream) != 0 { return 1 }
     var inline_on = 1
     if opt_wants_no_inline() == 1 { inline_on = 0 }
     if opt_wants_no_opt() == 0 {
@@ -1431,6 +1452,7 @@ func cmd_analyze(): int {
     if sema_check_file(src_hold, stream, ast) != 0 { return 1 }
     var ir_result = build_ir(src_hold, stream, ast)
     var m = int_vec_get(ir_result, 0)
+    if verify_ir_module(m, src_hold, stream) != 0 { return 1 }
     return cfg_analyze_module(m, src_hold, stream)
 }
 
@@ -1448,6 +1470,7 @@ func cmd_asm(path: str): int {
     if sema_check_file(src_hold, stream, ast) != 0 { return 1 }
     var ir_result = build_ir(src_hold, stream, ast)
     var m = int_vec_get(ir_result, 0)
+    if verify_ir_module(m, src_hold, stream) != 0 { return 1 }
     cg_module_print(m, src_hold, stream, int_vec_get(ir_result, 1), newline_str())
     return 0
 }
@@ -1477,6 +1500,7 @@ func cmd_emit_ir(path: str): int {
     if sema_check_file(src_hold, stream, ast) != 0 { return 1 }
     var ir_result = build_ir(src_hold, stream, ast)
     var m = int_vec_get(ir_result, 0)
+    if verify_ir_module(m, src_hold, stream) != 0 { return 1 }
     dump_module(m, src_hold, stream)
     return 0
 }
@@ -2276,12 +2300,24 @@ func main(): int {
         if str_len(target_from_args()) == 0 {
             return 1
         }
+        if host_argc() >= 3 {
+            var ir_probe = host_argv(2)
+            if str_eq(ir_probe, "--selftest-type-conflict") == 1 {
+                return ity_verify_conflict_selftest()
+            }
+        }
+        var want_ir_types = 0
+        var ir_i = 2
+        while ir_i < host_argc() {
+            if str_eq(host_argv(ir_i), "--types") == 1 { want_ir_types = 1 }
+            ir_i = ir_i + 1
+        }
         var ir_path = opt_pick_path()
         if str_len(ir_path) == 0 {
-            err_line("usage: diva ir [--target <triple>] <file.diva>")
+            err_line("usage: diva ir [--types|--target <triple>] <file.diva>")
             return 1
         }
-        return cmd_ir(ir_path)
+        return cmd_ir(ir_path, want_ir_types)
     }
 
     if str_eq(a1, "opt") == 1 {

@@ -1,0 +1,12 @@
+extern func print_int(x: int): void
+
+func forty_one(): int {
+    return 41
+}
+
+func main(): int {
+    let x: int = forty_one()
+    let y: int = x + 1
+    print_int(y)
+    return 0
+}
