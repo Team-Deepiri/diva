@@ -2,15 +2,21 @@
 
 import "std/host.diva"
 import "std/io.diva"
+import "std/mem.diva"
 import "std/vec.diva"
 import "tokens.diva"
 import "ir.diva"
+import "ir_types.diva"
 
 func dump_vreg_str(n: int): str {
     return int_to_str(n)
 }
 
 func dump_block(blk: int, src: str, toks: int): int {
+    return dump_block_t(blk, src, toks, 0 - 1)
+}
+
+func dump_block_t(blk: int, src: str, toks: int, types: int): int {
     print_str("  bb")
     print_str(int_to_str(block_label(blk)))
     print_str(":")
@@ -19,7 +25,7 @@ func dump_block(blk: int, src: str, toks: int): int {
     var ic = int_vec_len(insts)
     var i = 0
     while (i < ic) {
-        dump_inst(int_vec_get(insts, i), src, toks)
+        dump_inst_t(int_vec_get(insts, i), src, toks, types)
         i = i + 1
     }
     return 0
@@ -86,6 +92,10 @@ func dump_inst_opname(b: int, op: int, a: int, bv: int, src: str, toks: int): in
 }
 
 func dump_inst(inst: int, src: str, toks: int): int {
+    return dump_inst_t(inst, src, toks, 0 - 1)
+}
+
+func dump_inst_t(inst: int, src: str, toks: int, types: int): int {
     var op = inst_op(inst)
     var res = inst_result(inst)
     var a = inst_a(inst)
@@ -93,6 +103,10 @@ func dump_inst(inst: int, src: str, toks: int): int {
     var b = str_builder_new()
     str_builder_append(b, "    v")
     str_builder_append(b, dump_vreg_str(res))
+    if (types > 0) & (res >= 0) {
+        str_builder_append(b, ": ")
+        str_builder_append(b, ity_type_name(mem_get(types, res)))
+    }
     str_builder_append(b, " = ")
     if op == ir_const() {
         str_builder_append(b, "const ")
@@ -131,6 +145,10 @@ func dump_inst(inst: int, src: str, toks: int): int {
 }
 
 func dump_func(f: int, src: str, toks: int): int {
+    return dump_func_t(f, src, toks, 0 - 1)
+}
+
+func dump_func_t(f: int, src: str, toks: int, types: int): int {
     var b = str_builder_new()
     str_builder_append(b, "func ")
     str_builder_append(b, tok_text(src, toks, func_name_tok(f)))
@@ -156,7 +174,7 @@ func dump_func(f: int, src: str, toks: int): int {
     var bc = func_block_count(f)
     i = 0
     while (i < bc) {
-        dump_block(func_get_block(f, i), src, toks)
+        dump_block_t(func_get_block(f, i), src, toks, types)
         i = i + 1
     }
     print_str("}")
@@ -165,6 +183,10 @@ func dump_func(f: int, src: str, toks: int): int {
 }
 
 func dump_module(m: int, src: str, toks: int): int {
+    return dump_module_t(m, src, toks, 0)
+}
+
+func dump_module_t(m: int, src: str, toks: int, all_types: int): int {
     print_str("; Diva IR dump")
     print_str("")
     
@@ -202,7 +224,11 @@ func dump_module(m: int, src: str, toks: int): int {
     var fc = mod_func_count(m)
     var k = 0
     while (k < fc) {
-        dump_func(mod_get_func(m, k), src, toks)
+        var ftypes = 0 - 1
+        if (all_types > 0) & (k < int_vec_len(all_types)) {
+            ftypes = int_vec_get(all_types, k)
+        }
+        dump_func_t(mod_get_func(m, k), src, toks, ftypes)
         k = k + 1
     }
     return 0
