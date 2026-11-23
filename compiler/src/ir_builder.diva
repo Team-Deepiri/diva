@@ -135,6 +135,9 @@ func bctx_new(src: str, toks: int): int {
     int_vec_push(ctx, mut_new(int_vec_new())) // [23] vec4 flag per local
     int_vec_push(ctx, int_vec_new())          // [24] dual value base slots (#121)
     int_vec_push(ctx, mut_new(0))             // [25] tensor device
+    int_vec_push(ctx, mut_new(0))             // [26] linalg emission mode
+    int_vec_push(ctx, mut_new(int_vec_new())) // [27] tensor shape map
+    int_vec_push(ctx, mut_new(int_vec_new())) // [28] tensor shape names
     return ctx
 }
 
@@ -188,6 +191,26 @@ func bctx_tensor_device(ctx: int): int {
 
 func bctx_set_tensor_device(ctx: int, v: int): int {
     return mut_set(int_vec_get(ctx, 25), v)
+}
+
+func bctx_linalg_mode(ctx: int): int {
+    return mut_get(int_vec_get(ctx, 26))
+}
+
+func bctx_set_linalg_mode(ctx: int, v: int): int {
+    return mut_set(int_vec_get(ctx, 26), v)
+}
+
+func bctx_shape_map(ctx: int): int {
+    return mut_get(int_vec_get(ctx, 27))
+}
+
+func bctx_set_shape_map(ctx: int, v: int): int {
+    return mut_set(int_vec_get(ctx, 27), v)
+}
+
+func bctx_shape_names(ctx: int): int {
+    return mut_get(int_vec_get(ctx, 28))
 }
 
 func bctx_struct_ty(ctx: int): int {
@@ -278,6 +301,106 @@ func ib_fresh_label(ctx: int): int {
     var l = bctx_label(ctx)
     bctx_set_label(ctx, l + 1)
     return l
+}
+
+func ib_shape_encode(rank: int, d0: int, d1: int): int {
+    return rank * 1000000 + d0 * 1000 + d1
+}
+
+func ib_shape_rank(shape: int): int { return shape / 1000000 }
+func ib_shape_d0(shape: int): int { return (shape / 1000) % 1000 }
+func ib_shape_d1(shape: int): int { return shape % 1000 }
+
+func ib_shape_bind(ctx: int, src: str, name_tok: int, shape: int): int {
+    if name_tok < 0 { return 0 }
+    if shape <= 0 { return 0 }
+    var map = bctx_shape_map(ctx)
+    var names = bctx_shape_names(ctx)
+    int_vec_push(map, shape)
+    int_vec_push(names, ib_tok_text(ctx, src, name_tok))
+    return 0
+}
+
+func ib_shape_lookup(ctx: int, src: str, name_tok: int): int {
+    if name_tok < 0 { return 0 }
+    var map = bctx_shape_map(ctx)
+    var names = bctx_shape_names(ctx)
+    var nm = ib_tok_text(ctx, src, name_tok)
+    var i = int_vec_len(map) - 1
+    while i >= 0 {
+        var stored = int_vec_get(names, i)
+        if str_eq(stored, nm) == 1 { return int_vec_get(map, i) }
+        i = i - 1
+    }
+    return 0
+}
+
+func ib_shape_lit_tok(ctx: int, src: str, tok: int): int {
+    if tok < 0 { return 0 }
+    if tok_kind(bctx_toks(ctx), tok) != tk_int_lit() { return 0 }
+    return tok_int_value(src, bctx_toks(ctx), tok)
+}
+
+func ib_shape_lit_expr(node: int): int {
+    if node < 0 { return 0 }
+    if ast_kind(node) != nd_int_lit() { return 0 }
+    return ast_child(node, 1)
+}
+
+func ib_shape_from_type_node(ctx: int, src: str, type_node: int): int {
+    if type_node < 0 { return 0 }
+    if ast_kind(type_node) != nd_type_tensor() { return 0 }
+    var d0 = ib_shape_lit_tok(ctx, src, ast_child(type_node, 1))
+    var d1tok = ast_child(type_node, 2)
+    var rank = 1
+    var d1 = 0
+    if d1tok >= 0 {
+        rank = 2
+        d1 = ib_shape_lit_tok(ctx, src, d1tok)
+    }
+    if (d0 <= 0) | (d0 >= 1000) { return 0 }
+    if (rank == 2) & ((d1 <= 0) | (d1 >= 1000)) { return 0 }
+    return ib_shape_encode(rank, d0, d1)
+}
+
+func ib_shape_from_args(args_h: int, base: int, count: int): int {
+    if count < 1 { return 0 }
+    if count > 2 { return 0 }
+    var d0 = ib_shape_lit_expr(int_vec_get(args_h, base))
+    if (d0 <= 0) | (d0 >= 1000) { return 0 }
+    if count == 1 { return ib_shape_encode(1, d0, 0) }
+    var d1 = ib_shape_lit_expr(int_vec_get(args_h, base + 1))
+    if (d1 <= 0) | (d1 >= 1000) { return 0 }
+    return ib_shape_encode(2, d0, d1)
+}
+
+func ib_shape_of_expr(ctx: int, src: str, node: int): int {
+    if node < 0 { return 0 }
+    if ast_kind(node) == nd_ident() {
+        return ib_shape_lookup(ctx, src, ast_child(node, 0))
+    }
+    if ast_kind(node) != nd_call() { return 0 }
+    var callee = ast_child(node, 0)
+    if ast_kind(callee) != nd_ident() { return 0 }
+    var nm = ib_tok_text(ctx, src, ast_child(callee, 0))
+    var args_h = ast_child(node, 1)
+    if str_eq(nm, "tensor_new") == 1 { return ib_shape_from_args(args_h, 0, int_vec_len(args_h)) }
+    if str_eq(nm, "tensor_fill") == 1 { return ib_shape_from_args(args_h, 1, int_vec_len(args_h) - 1) }
+    if str_eq(nm, "tensor_add") == 1 { return ib_shape_of_expr(ctx, src, int_vec_get(args_h, 0)) }
+    if str_eq(nm, "tensor_matmul") == 1 {
+        var shape_a = ib_shape_of_expr(ctx, src, int_vec_get(args_h, 0))
+        var shape_b = ib_shape_of_expr(ctx, src, int_vec_get(args_h, 1))
+        if (shape_a <= 0) | (shape_b <= 0) { return 0 }
+        return ib_shape_encode(2, ib_shape_d0(shape_a), ib_shape_d1(shape_b))
+    }
+    return 0
+}
+
+func ib_emit_shape(ctx: int, vreg: int, shape: int): int {
+    if bctx_linalg_mode(ctx) == 0 { return 0 }
+    if shape <= 0 { return 0 }
+    ib_emit(ctx, ir_inst(ir_tensor_shape(), vreg, ib_shape_rank(shape), ib_shape_d0(shape), ib_shape_d1(shape)))
+    return 0
 }
 
 func ib_emit(ctx: int, inst: int): int {
@@ -1287,6 +1410,7 @@ func lower_expr_ident(ctx: int, src: str, node: int): int {
     if ib_slot_is_dual(ctx, slot) == 1 { return slot }
     var r = ib_fresh_vreg(ctx)
     ib_emit(ctx, ir_inst(ir_load(), r, slot, 0, 0))
+    ib_emit_shape(ctx, r, ib_shape_lookup(ctx, src, tok_idx))
     // Auto-deref on read: a reference expression yields the pointee value
     // (Issue #90). Mutability is syntax-only in this slice.
     if ib_lookup_is_ref(ctx, src, ib_tok_text(ctx, src, tok_idx)) == 1 {
@@ -3411,6 +3535,9 @@ func ib_tensor_builtin(nm: str): int {
     if str_eq(nm, "tensor_set") == 1 { return 4 }
     if str_eq(nm, "tensor_len") == 1 { return 5 }
     if str_eq(nm, "tensor_rank") == 1 { return 6 }
+    if str_eq(nm, "tensor_add") == 1 { return 7 }
+    if str_eq(nm, "tensor_dot") == 1 { return 8 }
+    if str_eq(nm, "tensor_matmul") == 1 { return 9 }
     return 0
 }
 
@@ -3455,6 +3582,234 @@ func ib_tensor_positive(ctx: int, val: int): int {
 func ib_tensor_desc_field(ctx: int, desc: int, off: int): int {
     var addr = ib_slice_ptr_off(ctx, desc, off)
     return ib_slice_load_word(ctx, addr)
+}
+
+func ib_tensor_elem_addr(ctx: int, data: int, byte_off: int): int {
+    var addr = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), addr, data, byte_off, 0))
+    return addr
+}
+
+func ib_tensor_read(ctx: int, data: int, byte_off: int): int {
+    return ib_slice_load_word(ctx, ib_tensor_elem_addr(ctx, data, byte_off))
+}
+
+func ib_tensor_write(ctx: int, data: int, byte_off: int, val: int): int {
+    ib_slice_store_word(ctx, ib_tensor_elem_addr(ctx, data, byte_off), val)
+    return 0
+}
+
+func ib_tensor_offset(ctx: int, row: int, col: int, stride: int): int {
+    var scaled = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_mul(), scaled, row, stride, 0))
+    var flat = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), flat, scaled, col, 0))
+    var c8 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), c8, 8, 0, 0))
+    var byte_off = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_mul(), byte_off, flat, c8, 0))
+    return byte_off
+}
+
+func ib_tensor_alloc_result(ctx: int, d0: int, d1: int, n: int): int {
+    var c8 = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), c8, 8, 0, 0))
+    var nbytes = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_mul(), nbytes, n, c8, 0))
+    var data = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_alloc(), data, nbytes, 0, 0))
+    var desc = ib_slice_alloc(ctx, 40)
+    ib_slice_store_word(ctx, desc, data)
+    var d0a = ib_slice_ptr_off(ctx, desc, 8)
+    ib_slice_store_word(ctx, d0a, d0)
+    var d1a = ib_slice_ptr_off(ctx, desc, 16)
+    ib_slice_store_word(ctx, d1a, d1)
+    var la = ib_slice_ptr_off(ctx, desc, 24)
+    ib_slice_store_word(ctx, la, n)
+    var deva = ib_slice_ptr_off(ctx, desc, 32)
+    var dev = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), dev, 0, 0, 0))
+    ib_slice_store_word(ctx, deva, dev)
+    return desc
+}
+
+func ib_tensor_add_cpu(ctx: int, a: int, b: int): int {
+    var da = ib_tensor_desc_field(ctx, a, 0)
+    var db = ib_tensor_desc_field(ctx, b, 0)
+    var n = ib_tensor_desc_field(ctx, a, 24)
+    var nb = ib_tensor_desc_field(ctx, b, 24)
+    var shapes_ok = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_eq(), shapes_ok, n, nb, 0))
+    ib_tensor_guard(ctx, shapes_ok, 5)
+    var d0 = ib_tensor_desc_field(ctx, a, 8)
+    var d1 = ib_tensor_desc_field(ctx, a, 16)
+    var out = ib_tensor_alloc_result(ctx, d0, d1, n)
+    var dc = ib_tensor_desc_field(ctx, out, 0)
+    var idx = ib_fresh_vreg(ctx)
+    var zero = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), zero, 0, 0, 0))
+    ib_emit(ctx, ir_inst(ir_copy(), idx, zero, 0, 0))
+    var cond_lbl = ib_fresh_label(ctx)
+    var body_lbl = ib_fresh_label(ctx)
+    var end_lbl = ib_fresh_label(ctx)
+    ib_add_blk(ctx, ir_block_new(cond_lbl))
+    ib_add_blk(ctx, ir_block_new(body_lbl))
+    ib_add_blk(ctx, ir_block_new(end_lbl))
+    ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, cond_lbl))
+    var more = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_lt(), more, idx, n, 0))
+    ib_emit(ctx, ir_inst(ir_br_cond(), more, body_lbl, end_lbl, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, body_lbl))
+    var one = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), one, 1, 0, 0))
+    var off = ib_tensor_offset(ctx, idx, zero, one)
+    var av = ib_tensor_read(ctx, da, off)
+    var bv = ib_tensor_read(ctx, db, off)
+    var sum = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), sum, av, bv, 0))
+    ib_tensor_write(ctx, dc, off, sum)
+    var next = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), next, idx, one, 0))
+    ib_emit(ctx, ir_inst(ir_copy(), idx, next, 0, 0))
+    ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, end_lbl))
+    return out
+}
+
+func ib_tensor_dot_cpu(ctx: int, a: int, b: int): int {
+    var da = ib_tensor_desc_field(ctx, a, 0)
+    var db = ib_tensor_desc_field(ctx, b, 0)
+    var n = ib_tensor_desc_field(ctx, a, 24)
+    var nb = ib_tensor_desc_field(ctx, b, 24)
+    var shapes_ok = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_eq(), shapes_ok, n, nb, 0))
+    ib_tensor_guard(ctx, shapes_ok, 6)
+    var acc = ib_fresh_vreg(ctx)
+    var zero = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), zero, 0, 0, 0))
+    ib_emit(ctx, ir_inst(ir_copy(), acc, zero, 0, 0))
+    var idx = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_copy(), idx, zero, 0, 0))
+    var cond_lbl = ib_fresh_label(ctx)
+    var body_lbl = ib_fresh_label(ctx)
+    var end_lbl = ib_fresh_label(ctx)
+    ib_add_blk(ctx, ir_block_new(cond_lbl))
+    ib_add_blk(ctx, ir_block_new(body_lbl))
+    ib_add_blk(ctx, ir_block_new(end_lbl))
+    ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, cond_lbl))
+    var more = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_lt(), more, idx, n, 0))
+    ib_emit(ctx, ir_inst(ir_br_cond(), more, body_lbl, end_lbl, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, body_lbl))
+    var one = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), one, 1, 0, 0))
+    var off = ib_tensor_offset(ctx, idx, zero, one)
+    var av = ib_tensor_read(ctx, da, off)
+    var bv = ib_tensor_read(ctx, db, off)
+    var prod = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_mul(), prod, av, bv, 0))
+    var sum = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), sum, acc, prod, 0))
+    ib_emit(ctx, ir_inst(ir_copy(), acc, sum, 0, 0))
+    var next = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), next, idx, one, 0))
+    ib_emit(ctx, ir_inst(ir_copy(), idx, next, 0, 0))
+    ib_emit(ctx, ir_inst(ir_br(), 0, cond_lbl, 0, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, end_lbl))
+    return acc
+}
+
+func ib_tensor_matmul_cpu(ctx: int, a: int, b: int): int {
+    var da = ib_tensor_desc_field(ctx, a, 0)
+    var db = ib_tensor_desc_field(ctx, b, 0)
+    var rows = ib_tensor_desc_field(ctx, a, 8)
+    var inner = ib_tensor_desc_field(ctx, a, 16)
+    var b_rows = ib_tensor_desc_field(ctx, b, 8)
+    var cols = ib_tensor_desc_field(ctx, b, 16)
+    var shapes_ok = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_eq(), shapes_ok, inner, b_rows, 0))
+    ib_tensor_guard(ctx, shapes_ok, 4)
+    var n = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_mul(), n, rows, cols, 0))
+    var out = ib_tensor_alloc_result(ctx, rows, cols, n)
+    var dc = ib_tensor_desc_field(ctx, out, 0)
+    var zero = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), zero, 0, 0, 0))
+    var one = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_const(), one, 1, 0, 0))
+    var i = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_copy(), i, zero, 0, 0))
+    var i_cond = ib_fresh_label(ctx)
+    var i_body = ib_fresh_label(ctx)
+    var i_end = ib_fresh_label(ctx)
+    ib_add_blk(ctx, ir_block_new(i_cond))
+    ib_add_blk(ctx, ir_block_new(i_body))
+    ib_add_blk(ctx, ir_block_new(i_end))
+    ib_emit(ctx, ir_inst(ir_br(), 0, i_cond, 0, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, i_cond))
+    var i_more = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_lt(), i_more, i, rows, 0))
+    ib_emit(ctx, ir_inst(ir_br_cond(), i_more, i_body, i_end, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, i_body))
+    var j = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_copy(), j, zero, 0, 0))
+    var j_cond = ib_fresh_label(ctx)
+    var j_body = ib_fresh_label(ctx)
+    var j_end = ib_fresh_label(ctx)
+    ib_add_blk(ctx, ir_block_new(j_cond))
+    ib_add_blk(ctx, ir_block_new(j_body))
+    ib_add_blk(ctx, ir_block_new(j_end))
+    ib_emit(ctx, ir_inst(ir_br(), 0, j_cond, 0, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, j_cond))
+    var j_more = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_lt(), j_more, j, cols, 0))
+    ib_emit(ctx, ir_inst(ir_br_cond(), j_more, j_body, j_end, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, j_body))
+    var acc = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_copy(), acc, zero, 0, 0))
+    var p = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_copy(), p, zero, 0, 0))
+    var p_cond = ib_fresh_label(ctx)
+    var p_body = ib_fresh_label(ctx)
+    var p_end = ib_fresh_label(ctx)
+    ib_add_blk(ctx, ir_block_new(p_cond))
+    ib_add_blk(ctx, ir_block_new(p_body))
+    ib_add_blk(ctx, ir_block_new(p_end))
+    ib_emit(ctx, ir_inst(ir_br(), 0, p_cond, 0, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, p_cond))
+    var p_more = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_lt(), p_more, p, inner, 0))
+    ib_emit(ctx, ir_inst(ir_br_cond(), p_more, p_body, p_end, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, p_body))
+    var aoff = ib_tensor_offset(ctx, i, p, inner)
+    var boff = ib_tensor_offset(ctx, p, j, cols)
+    var av = ib_tensor_read(ctx, da, aoff)
+    var bv = ib_tensor_read(ctx, db, boff)
+    var prod = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_mul(), prod, av, bv, 0))
+    var sum = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), sum, acc, prod, 0))
+    ib_emit(ctx, ir_inst(ir_copy(), acc, sum, 0, 0))
+    var p_next = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), p_next, p, one, 0))
+    ib_emit(ctx, ir_inst(ir_copy(), p, p_next, 0, 0))
+    ib_emit(ctx, ir_inst(ir_br(), 0, p_cond, 0, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, p_end))
+    var coff = ib_tensor_offset(ctx, i, j, cols)
+    ib_tensor_write(ctx, dc, coff, acc)
+    var j_next = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), j_next, j, one, 0))
+    ib_emit(ctx, ir_inst(ir_copy(), j, j_next, 0, 0))
+    ib_emit(ctx, ir_inst(ir_br(), 0, j_cond, 0, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, j_end))
+    var i_next = ib_fresh_vreg(ctx)
+    ib_emit(ctx, ir_inst(ir_add(), i_next, i, one, 0))
+    ib_emit(ctx, ir_inst(ir_copy(), i, i_next, 0, 0))
+    ib_emit(ctx, ir_inst(ir_br(), 0, i_cond, 0, 0))
+    ib_set_blk(ctx, ib_find_blk_by_label(ctx, i_end))
+    return out
 }
 
 func ib_tensor_fill_loop(ctx: int, data: int, n: int, val: int): int {
@@ -3543,6 +3898,7 @@ func ib_lower_tensor_new(ctx: int, src: str, args_h: int, fill: int): int {
     var dev = ib_fresh_vreg(ctx)
     ib_emit(ctx, ir_inst(ir_const(), dev, bctx_tensor_device(ctx), 0, 0))
     ib_slice_store_word(ctx, deva, dev)
+    ib_emit_shape(ctx, desc, ib_shape_from_args(args_h, dim_base, int_vec_len(args_h) - dim_base))
     return desc
 }
 
@@ -3574,6 +3930,31 @@ func ib_tensor_index_offset(ctx: int, src: str, args_h: int, idxn: int, msg: int
 func ib_lower_tensor_call(ctx: int, src: str, args_h: int, tb: int): int {
     if (tb == 1) | (tb == 2) { return ib_lower_tensor_new(ctx, src, args_h, tb - 1) }
     var argc = int_vec_len(args_h)
+    if (tb >= 7) & (tb <= 9) {
+        var a_expr = int_vec_get(args_h, 0)
+        var b_expr = int_vec_get(args_h, 1)
+        var a = lower_expr(ctx, src, a_expr)
+        var b = lower_expr(ctx, src, b_expr)
+        if bctx_linalg_mode(ctx) == 0 {
+            if tb == 7 { return ib_tensor_add_cpu(ctx, a, b) }
+            if tb == 8 { return ib_tensor_dot_cpu(ctx, a, b) }
+            return ib_tensor_matmul_cpu(ctx, a, b)
+        }
+        var r = ib_fresh_vreg(ctx)
+        var op = ir_tensor_add()
+        if tb == 8 { op = ir_tensor_dot() }
+        if tb == 9 { op = ir_tensor_matmul() }
+        ib_emit(ctx, ir_inst(op, r, a, b, 0))
+        if tb == 7 { ib_emit_shape(ctx, r, ib_shape_of_expr(ctx, src, a_expr)) }
+        if tb == 9 {
+            var shape_a = ib_shape_of_expr(ctx, src, a_expr)
+            var shape_b = ib_shape_of_expr(ctx, src, b_expr)
+            if (shape_a > 0) & (shape_b > 0) {
+                ib_emit_shape(ctx, r, ib_shape_encode(2, ib_shape_d0(shape_a), ib_shape_d1(shape_b)))
+            }
+        }
+        return r
+    }
     if (tb == 3) | (tb == 4) {
         var msg = 2
         if tb == 4 { msg = 3 }
@@ -3624,6 +4005,7 @@ func lower_stmt(ctx: int, src: str, node: int): int {
 
         if (type_node < 0) == 0 {
             if ast_kind(type_node) == nd_type_tensor() {
+                ib_shape_bind(ctx, src, name_tok, ib_shape_from_type_node(ctx, src, type_node))
                 var dev_tok = ast_child(type_node, 3)
                 var dev = 0
                 if dev_tok >= 0 {
@@ -3900,6 +4282,11 @@ func lower_func_opts(ctx: int, src: str, node: int, class_type_tok: int, inject_
             ib_emit(ctx, ir_inst(ir_param(), slot, pi, 0, 0))
             if ib_type_node_is_text(ctx, src, ptype) == 1 {
                 ib_mark_text(ctx, slot)
+            }
+            if ast_kind(ptype) == nd_type_tensor() {
+                var pshape = ib_shape_from_type_node(ctx, src, ptype)
+                ib_shape_bind(ctx, src, ast_child(p, 0), pshape)
+                ib_emit_shape(ctx, slot, pshape)
             }
         }
         pi = pi + 1
@@ -4298,12 +4685,17 @@ func lower_file(ctx: int, src: str, file_node: int): int {
 // --- Public entry point ---
 // Returns int_vec: [module_handle, str_vec_handle]
 
-func build_ir(src: str, toks: int, file_node: int): int {
+func build_ir_with_mode(src: str, toks: int, file_node: int, linalg_mode: int): int {
     var ctx = bctx_new(src, toks)
+    bctx_set_linalg_mode(ctx, linalg_mode)
     mut_set(int_vec_get(ctx, 13), file_node)
     var m = lower_file(ctx, src, file_node)
     var result = int_vec_new()
     int_vec_push(result, m)
     int_vec_push(result, bctx_str_vec(ctx))
     return result
+}
+
+func build_ir(src: str, toks: int, file_node: int): int {
+    return build_ir_with_mode(src, toks, file_node, 0)
 }

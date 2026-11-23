@@ -87,6 +87,10 @@ func ir_atomic_add(): int   { return 51 }
 func ir_atomic_xchg(): int  { return 52 }
 func ir_atomic_cas(): int   { return 53 }
 func ir_fence(): int        { return 54 }
+func ir_tensor_add(): int    { return 55 }
+func ir_tensor_dot(): int    { return 56 }
+func ir_tensor_matmul(): int { return 57 }
+func ir_tensor_shape(): int  { return 58 }
 
 
 func ir_op_name(op: int): str {
@@ -145,6 +149,10 @@ func ir_op_name(op: int): str {
     if op == 52 { return "atomic.xchg" }
     if op == 53 { return "atomic.cas" }
     if op == 54 { return "fence" }
+    if op == 55 { return "tensor.add" }
+    if op == 56 { return "tensor.dot" }
+    if op == 57 { return "tensor.matmul" }
+    if op == 58 { return "tensor.shape" }
     return "???"
 }
 
