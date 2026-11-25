@@ -1,0 +1,6 @@
+output y
+const a 4 1 2 3 4
+const b 4 2 2 2 2
+const c 4 10 10 10 10
+node Mul a b -> m
+node Add m c -> y

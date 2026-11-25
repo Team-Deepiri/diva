@@ -1,0 +1,4 @@
+output y
+const a 4 1 2 3 4
+const a 4 1 1 1 1
+node Add a a -> y

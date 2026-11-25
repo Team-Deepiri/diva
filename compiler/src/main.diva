@@ -15,6 +15,7 @@ import "ir.diva"
 import "ir_builder.diva"
 import "ir_dump.diva"
 import "mlir_emit.diva"
+import "onnx.diva"
 import "ir_opt.diva"
 import "ir_types.diva"
 import "cfg.diva"
@@ -97,6 +98,7 @@ func cmd_print_usage(): int {
     stderr("  compiler-version | pipeline | target <list|current>\n")
     stderr("  build|ir|opt [--target <triple>] ...   (native: x86_64-linux-gnu)\n")
     stderr("  text <inspect|count|upper|lower|width|lines|words|contains> <file>\n")
+    stderr("  onnx-check <file.onnx.txt> | onnx-run <file.onnx.txt> | onnx-mlir <file.onnx.txt>\n")
     stderr("Environment: DI_STDLIB_DIR (stdlib search path)\n")
     stderr("  DIVA_WATCH_MAX_ITERS=N exits after N poll cycles (CI smoke)\n")
     stderr("  diva build --debug-info emits native DWARF v4 line tables (no python3 needed)\n")
@@ -2344,6 +2346,97 @@ func cmd_run_file(path: str): int {
     return system_exit_code(rc)
 }
 
+func cmd_onnx_load(path: str, g: int): str {
+    if file_size(path) < 0 {
+        err_line("error: cannot read ONNX text file")
+        return ""
+    }
+    var src = read_source(path)
+    var src_hold = src
+    onnx_parse(src_hold, g)
+    onnx_validate(src_hold, g)
+    if onnx_error_count(g) > 0 {
+        stderr(str_builder_to_str(onnx_errors(g)))
+        return ""
+    }
+    return src
+}
+
+func cmd_onnx_check(path: str): int {
+    var g = onnx_graph_new()
+    var src = cmd_onnx_load(path, g)
+    if str_len(src) == 0 {
+        onnx_free(g)
+        return 1
+    }
+    print_str("ok: ")
+    print_str(int_to_str(onnx_node_count(g)))
+    print_str(" nodes\n")
+    onnx_free(g)
+    return 0
+}
+
+func cmd_onnx_run(path: str): int {
+    var g = onnx_graph_new()
+    var src = cmd_onnx_load(path, g)
+    if str_len(src) == 0 {
+        onnx_free(g)
+        return 1
+    }
+    if onnx_has_input(g) == 1 {
+        err_line("error: runtime inputs are deferred; onnx-run supports constant-only graphs")
+        onnx_free(g)
+        return 1
+    }
+    var di_src = onnx_emit_diva(src, g)
+    var exe = host_getenv("DIVA_NATIVE_EXE_OUT")
+    if str_len(exe) == 0 {
+        mkdir("build")
+        exe = native_default_exe_out()
+    }
+    var rc = native_compile_and_link(di_src, 0, exe, 0, "", 0)
+    if rc != 0 {
+        onnx_free(g)
+        return rc
+    }
+    var r = host_system(exe)
+    onnx_free(g)
+    return system_exit_code(r)
+}
+
+func cmd_onnx_mlir(path: str): int {
+    var g = onnx_graph_new()
+    var src = cmd_onnx_load(path, g)
+    if str_len(src) == 0 {
+        onnx_free(g)
+        return 1
+    }
+    var di_src = onnx_emit_diva(src, g)
+    var stream = lex_source(di_src)
+    if stream == 0 {
+        err_line("error: generated Diva source failed to lex")
+        onnx_free(g)
+        return 1
+    }
+    var pr = parse_source(di_src, stream, 1)
+    if int_vec_get(pr, 1) != 0 {
+        err_line("error: generated Diva source failed to parse")
+        onnx_free(g)
+        return 1
+    }
+    var ast = int_vec_get(pr, 0)
+    if sema_check_file(di_src, stream, ast) != 0 {
+        onnx_free(g)
+        return 1
+    }
+    var ir_result = build_ir_with_mode(di_src, stream, ast, 1)
+    var m = int_vec_get(ir_result, 0)
+    print_str(onnx_mlir_prologue(src, g))
+    var rc = mlir_emit_module(m, di_src, stream)
+    onnx_free(g)
+    return rc
+}
+
 func main(): int {
     if (host_argc() < 2) {
         return cmd_print_usage()
@@ -2492,6 +2585,30 @@ func main(): int {
         if str_eq(sub_hold, "current") == 1 { return target_current() }
         err_line("usage: diva target <list|current>")
         return 1
+    }
+
+    if str_eq(a1, "onnx-check") == 1 {
+        if host_argc() < 3 {
+            err_line("usage: diva onnx-check <file.onnx.txt>")
+            return 1
+        }
+        return cmd_onnx_check(host_argv(2))
+    }
+
+    if str_eq(a1, "onnx-run") == 1 {
+        if host_argc() < 3 {
+            err_line("usage: diva onnx-run <file.onnx.txt>")
+            return 1
+        }
+        return cmd_onnx_run(host_argv(2))
+    }
+
+    if str_eq(a1, "onnx-mlir") == 1 {
+        if host_argc() < 3 {
+            err_line("usage: diva onnx-mlir <file.onnx.txt>")
+            return 1
+        }
+        return cmd_onnx_mlir(host_argv(2))
     }
 
     err_line("unknown command; try: diva (no args shows usage)")

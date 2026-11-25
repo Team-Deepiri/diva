@@ -1,0 +1,8 @@
+output c
+output z
+const a 3 1 2 3
+const b 3 4 5 6
+const m 2x2 1 2 3 4
+const n 2x2 5 6 7 8
+node Add a b -> c
+node MatMul m n -> z
