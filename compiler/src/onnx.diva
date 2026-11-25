@@ -1,0 +1,869 @@
+import "std/host.diva"
+import "std/io.diva"
+import "std/str.diva"
+import "std/vec.diva"
+import "cell.diva"
+
+func onnx_bad(): int { return 0 - 1000000000 }
+
+func onnx_shape(rank: int, d0: int, d1: int): int {
+    return rank * 1000000 + d0 * 1000 + d1
+}
+
+func onnx_shape_rank(shape: int): int { return shape / 1000000 }
+func onnx_shape_d0(shape: int): int { return (shape / 1000) % 1000 }
+func onnx_shape_d1(shape: int): int { return shape % 1000 }
+
+func onnx_op_add(): int { return 1 }
+func onnx_op_mul(): int { return 2 }
+func onnx_op_matmul(): int { return 3 }
+func onnx_op_relu(): int { return 4 }
+
+func onnx_graph_new(): int {
+    var g = int_vec_new()
+    int_vec_push(g, int_vec_new())
+    int_vec_push(g, int_vec_new())
+    int_vec_push(g, int_vec_new())
+    int_vec_push(g, int_vec_new())
+    int_vec_push(g, str_builder_new())
+    int_vec_push(g, mut_new(0))
+    return g
+}
+
+func onnx_values(g: int): int { return int_vec_get(g, 0) }
+func onnx_nodes(g: int): int { return int_vec_get(g, 1) }
+func onnx_consts(g: int): int { return int_vec_get(g, 2) }
+func onnx_outputs(g: int): int { return int_vec_get(g, 3) }
+func onnx_errors(g: int): int { return int_vec_get(g, 4) }
+func onnx_error_count(g: int): int { return mut_get(int_vec_get(g, 5)) }
+
+func onnx_error(g: int, line: int, msg: str): int {
+    var b = onnx_errors(g)
+    if line > 0 {
+        str_builder_append(b, "error: line ")
+        str_builder_append(b, int_to_str(line))
+        str_builder_append(b, ": ")
+    } else {
+        str_builder_append(b, "error: ")
+    }
+    str_builder_append(b, msg)
+    str_builder_append(b, "\n")
+    mut_set(int_vec_get(g, 5), onnx_error_count(g) + 1)
+    return 1
+}
+
+func onnx_error_name(g: int, line: int, what: str, src: str, s: int, l: int): int {
+    var b = str_builder_new()
+    str_builder_append(b, what)
+    str_builder_append(b, " '")
+    str_builder_append(b, str_slice(src, s, l))
+    str_builder_append(b, "'")
+    var msg = str_builder_to_str(b)
+    str_builder_free(b)
+    return onnx_error(g, line, msg)
+}
+
+func onnx_is_space(c: int): int {
+    if c == 32 { return 1 }
+    if c == 9 { return 1 }
+    if c == 13 { return 1 }
+    return 0
+}
+
+func onnx_is_alpha(c: int): int {
+    if (c >= 65) & (c <= 90) { return 1 }
+    if (c >= 97) & (c <= 122) { return 1 }
+    return 0
+}
+
+func onnx_is_digit(c: int): int {
+    if (c >= 48) & (c <= 57) { return 1 }
+    return 0
+}
+
+func onnx_valid_name(src: str, s: int, l: int): int {
+    if l <= 0 { return 0 }
+    if onnx_is_alpha(str_byte(src, s)) == 0 {
+        if str_byte(src, s) != 95 { return 0 }
+    }
+    var i = s + 1
+    while i < s + l {
+        var c = str_byte(src, i)
+        if onnx_is_alpha(c) == 0 {
+            if onnx_is_digit(c) == 0 {
+                if c != 95 { return 0 }
+            }
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+func onnx_name_eq(src: str, a: int, al: int, b: int, bl: int): int {
+    if al != bl { return 0 }
+    var i = 0
+    while i < al {
+        if str_byte(src, a + i) != str_byte(src, b + i) { return 0 }
+        i = i + 1
+    }
+    return 1
+}
+
+func onnx_lookup(src: str, values: int, s: int, l: int): int {
+    var n = int_vec_len(values) / 8
+    var i = 0
+    while i < n {
+        var base = i * 8
+        if onnx_name_eq(src, int_vec_get(values, base), int_vec_get(values, base + 1), s, l) == 1 {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+func onnx_parse_int(src: str, s: int, l: int): int {
+    if l <= 0 { return onnx_bad() }
+    var i = s
+    var sign = 1
+    if str_byte(src, s) == 45 {
+        sign = 0 - 1
+        i = i + 1
+    }
+    if i >= s + l { return onnx_bad() }
+    var value = 0
+    while i < s + l {
+        var c = str_byte(src, i)
+        if onnx_is_digit(c) == 0 { return onnx_bad() }
+        value = value * 10 + (c - 48)
+        i = i + 1
+    }
+    return sign * value
+}
+
+func onnx_parse_shape(src: str, s: int, l: int): int {
+    if l <= 0 { return onnx_bad() }
+    var k = s
+    var found = 0
+    while (k < s + l) & (found == 0) {
+        if str_byte(src, k) == 120 { found = 1 }
+        if found == 0 { k = k + 1 }
+    }
+    if found == 0 {
+        var d0 = onnx_parse_int(src, s, l)
+        if d0 == onnx_bad() { return onnx_bad() }
+        if (d0 <= 0) | (d0 > 999) { return onnx_bad() }
+        return onnx_shape(1, d0, 0)
+    }
+    if (k == s) | (k + 1 >= s + l) { return onnx_bad() }
+    var a = onnx_parse_int(src, s, k - s)
+    var b = onnx_parse_int(src, k + 1, s + l - k - 1)
+    if (a == onnx_bad()) | (b == onnx_bad()) { return onnx_bad() }
+    if (a <= 0) | (a > 999) | (b <= 0) | (b > 999) { return onnx_bad() }
+    return onnx_shape(2, a, b)
+}
+
+func onnx_split_fields(src: str, s: int, e: int, fields: int): int {
+    var i = s
+    var active = 0
+    var start = 0
+    while i < e {
+        var c = str_byte(src, i)
+        if onnx_is_space(c) == 1 {
+            if active == 1 {
+                int_vec_push(fields, start)
+                int_vec_push(fields, i - start)
+                active = 0
+            }
+        } else {
+            if active == 0 {
+                start = i
+                active = 1
+            }
+        }
+        i = i + 1
+    }
+    if active == 1 {
+        int_vec_push(fields, start)
+        int_vec_push(fields, e - start)
+    }
+    return 0
+}
+
+func onnx_field_start(fields: int, i: int): int { return int_vec_get(fields, i * 2) }
+func onnx_field_len(fields: int, i: int): int { return int_vec_get(fields, i * 2 + 1) }
+
+func onnx_field_eq(src: str, fields: int, i: int, kw: str): int {
+    return str_eq(str_slice(src, onnx_field_start(fields, i), onnx_field_len(fields, i)), kw)
+}
+
+func onnx_field_int(src: str, fields: int, i: int): int {
+    return onnx_parse_int(src, onnx_field_start(fields, i), onnx_field_len(fields, i))
+}
+
+func onnx_value_count(g: int): int { return int_vec_len(onnx_values(g)) / 8 }
+func onnx_node_count(g: int): int { return int_vec_len(onnx_nodes(g)) / 6 }
+
+func onnx_value_pending(kind: int, shape: int, data: int, count: int): int {
+    var p = int_vec_new()
+    int_vec_push(p, kind)
+    int_vec_push(p, shape)
+    int_vec_push(p, data)
+    int_vec_push(p, count)
+    return p
+}
+
+func onnx_add_value(g: int, src: str, s: int, l: int, pending: int): int {
+    if onnx_valid_name(src, s, l) == 0 {
+        onnx_error_name(g, 0, "invalid value name", src, s, l)
+        return 0 - 1
+    }
+    if onnx_lookup(src, onnx_values(g), s, l) >= 0 {
+        onnx_error_name(g, 0, "duplicate value name", src, s, l)
+        return 0 - 1
+    }
+    var values = onnx_values(g)
+    int_vec_push(values, s)
+    int_vec_push(values, l)
+    int_vec_push(values, int_vec_get(pending, 0))
+    int_vec_push(values, int_vec_get(pending, 1))
+    int_vec_push(values, int_vec_get(pending, 2))
+    int_vec_push(values, int_vec_get(pending, 3))
+    int_vec_push(values, 0)
+    int_vec_push(values, 0)
+    return onnx_value_count(g) - 1
+}
+
+func onnx_value_shape(g: int, vi: int): int {
+    return int_vec_get(onnx_values(g), vi * 8 + 3)
+}
+
+func onnx_value_kind(g: int, vi: int): int {
+    return int_vec_get(onnx_values(g), vi * 8 + 2)
+}
+
+func onnx_value_count_of(g: int, vi: int): int {
+    var shape = onnx_value_shape(g, vi)
+    var rank = onnx_shape_rank(shape)
+    if rank == 2 { return onnx_shape_d0(shape) * onnx_shape_d1(shape) }
+    return onnx_shape_d0(shape)
+}
+
+func onnx_add_node(g: int, op: int, a: int, b: int, out: int, line: int): int {
+    var nodes = onnx_nodes(g)
+    int_vec_push(nodes, op)
+    int_vec_push(nodes, a)
+    int_vec_push(nodes, b)
+    int_vec_push(nodes, out)
+    int_vec_push(nodes, line)
+    int_vec_push(nodes, 0)
+    return onnx_node_count(g) - 1
+}
+
+func onnx_op_code(src: str, s: int, l: int): int {
+    var name = str_slice(src, s, l)
+    if str_eq(name, "Add") == 1 { return onnx_op_add() }
+    if str_eq(name, "Mul") == 1 { return onnx_op_mul() }
+    if str_eq(name, "MatMul") == 1 { return onnx_op_matmul() }
+    if str_eq(name, "Relu") == 1 { return onnx_op_relu() }
+    return 0
+}
+
+func onnx_op_name(op: int): str {
+    if op == onnx_op_add() { return "Add" }
+    if op == onnx_op_mul() { return "Mul" }
+    if op == onnx_op_matmul() { return "MatMul" }
+    if op == onnx_op_relu() { return "Relu" }
+    return "Unknown"
+}
+
+func onnx_op_arity(op: int): int {
+    if op == onnx_op_relu() { return 1 }
+    if op == 0 { return 0 }
+    return 2
+}
+
+func onnx_result_shape(g: int, line: int, op: int, a: int, b: int): int {
+    var sa = onnx_value_shape(g, a)
+    if op == onnx_op_relu() { return sa }
+    var sb = onnx_value_shape(g, b)
+    if (op == onnx_op_add()) | (op == onnx_op_mul()) {
+        if sa != sb {
+            onnx_error(g, line, str_concat(onnx_op_name(op), " shape mismatch: expected equal rank-1 or rank-2 shapes"))
+            return sa
+        }
+        return sa
+    }
+    var ra = onnx_shape_rank(sa)
+    var rb = onnx_shape_rank(sb)
+    if (ra != 2) | (rb != 2) {
+        onnx_error(g, line, "MatMul rank mismatch: expected two rank-2 tensors")
+        return onnx_shape(2, 1, 1)
+    }
+    if onnx_shape_d1(sa) != onnx_shape_d0(sb) {
+        onnx_error(g, line, "MatMul inner dimensions must match")
+        return onnx_shape(2, onnx_shape_d0(sa), onnx_shape_d1(sb))
+    }
+    return onnx_shape(2, onnx_shape_d0(sa), onnx_shape_d1(sb))
+}
+
+func onnx_parse_input(g: int, src: str, fields: int, line: int): int {
+    var fc = int_vec_len(fields) / 2
+    if (fc < 3) | (fc > 4) {
+        onnx_error(g, line, "input expects: input <name> <d0> [<d0x d1>]")
+        return 0
+    }
+    var shape = onnx_parse_shape(src, onnx_field_start(fields, 2), onnx_field_len(fields, 2))
+    if shape == onnx_bad() {
+        onnx_error(g, line, "invalid input shape (use N or NxM with 1..999 dimensions)")
+        return 0
+    }
+    var pending = onnx_value_pending(1, shape, 0 - 1, 0)
+    onnx_add_value(g, src, onnx_field_start(fields, 1), onnx_field_len(fields, 1), pending)
+    int_vec_free(pending)
+    return 0
+}
+
+func onnx_parse_const(g: int, src: str, fields: int, line: int): int {
+    var fc = int_vec_len(fields) / 2
+    if fc < 4 {
+        onnx_error(g, line, "const expects: const <name> <shape> <v> ...")
+        return 0
+    }
+    var shape = onnx_parse_shape(src, onnx_field_start(fields, 2), onnx_field_len(fields, 2))
+    if shape == onnx_bad() {
+        onnx_error(g, line, "invalid const shape (use N or NxM with 1..999 dimensions)")
+        return 0
+    }
+    var rank = onnx_shape_rank(shape)
+    var want = onnx_shape_d0(shape)
+    if rank == 2 { want = want * onnx_shape_d1(shape) }
+    var got = fc - 3
+    if got != want {
+        var msg = str_builder_new()
+        str_builder_append(msg, "const element count mismatch: expected ")
+        str_builder_append(msg, int_to_str(want))
+        str_builder_append(msg, ", got ")
+        str_builder_append(msg, int_to_str(got))
+        onnx_error(g, line, str_builder_to_str(msg))
+        str_builder_free(msg)
+        return 0
+    }
+    var base = int_vec_len(onnx_consts(g))
+    var i = 0
+    var bad = 0
+    while i < got {
+        var v = onnx_field_int(src, fields, i + 3)
+        if v == onnx_bad() { bad = 1 }
+        int_vec_push(onnx_consts(g), v)
+        i = i + 1
+    }
+    if bad == 1 {
+        onnx_error(g, line, "const value must be an integer")
+        return 0
+    }
+    var pending = onnx_value_pending(2, shape, base, want)
+    onnx_add_value(g, src, onnx_field_start(fields, 1), onnx_field_len(fields, 1), pending)
+    int_vec_free(pending)
+    return 0
+}
+
+func onnx_parse_node(g: int, src: str, fields: int, line: int): int {
+    var fc = int_vec_len(fields) / 2
+    if fc < 5 {
+        onnx_error(g, line, "node expects: node <op> <in> [<in>] -> <out>")
+        return 0
+    }
+    var arrow = fc - 2
+    if onnx_field_eq(src, fields, arrow, "->") == 0 {
+        onnx_error(g, line, "node expects '->' before the output name")
+        return 0
+    }
+    var op = onnx_op_code(src, onnx_field_start(fields, 1), onnx_field_len(fields, 1))
+    if op == 0 {
+        onnx_error_name(g, line, "unsupported op", src, onnx_field_start(fields, 1), onnx_field_len(fields, 1))
+        return 0
+    }
+    var want = onnx_op_arity(op)
+    var got = arrow - 2
+    if got != want {
+        onnx_error(g, line, str_concat(onnx_op_name(op), " expects a different number of inputs"))
+        return 0
+    }
+    var a = onnx_lookup(src, onnx_values(g), onnx_field_start(fields, 2), onnx_field_len(fields, 2))
+    if a < 0 {
+        onnx_error_name(g, line, "node input is not defined", src, onnx_field_start(fields, 2), onnx_field_len(fields, 2))
+        return 0
+    }
+    var b = 0 - 1
+    if want == 2 {
+        b = onnx_lookup(src, onnx_values(g), onnx_field_start(fields, 3), onnx_field_len(fields, 3))
+        if b < 0 {
+            onnx_error_name(g, line, "node input is not defined", src, onnx_field_start(fields, 3), onnx_field_len(fields, 3))
+            return 0
+        }
+    }
+    var shape = onnx_result_shape(g, line, op, a, b)
+    var pending = onnx_value_pending(3, shape, 0 - 1, 0)
+    var out = onnx_add_value(g, src, onnx_field_start(fields, arrow + 1), onnx_field_len(fields, arrow + 1), pending)
+    int_vec_free(pending)
+    if out < 0 { return 0 }
+    onnx_add_node(g, op, a, b, out, line)
+    return 0
+}
+
+func onnx_parse(src: str, g: int): int {
+    var n = str_len(src)
+    var i = 0
+    var line = 1
+    while i < n {
+        var e = i
+        while (e < n) & (str_byte(src, e) != 10) { e = e + 1 }
+        var s = i
+        while (s < e) & (onnx_is_space(str_byte(src, s)) == 1) { s = s + 1 }
+        var t = e
+        while (t > s) & (onnx_is_space(str_byte(src, t - 1)) == 1) { t = t - 1 }
+        if (t > s) & (str_byte(src, s) != 35) {
+            var fields = int_vec_new()
+            onnx_split_fields(src, s, t, fields)
+            var fc = int_vec_len(fields) / 2
+            if fc > 0 {
+                if onnx_field_eq(src, fields, 0, "input") == 1 {
+                    onnx_parse_input(g, src, fields, line)
+                } else {
+                    if onnx_field_eq(src, fields, 0, "const") == 1 {
+                        onnx_parse_const(g, src, fields, line)
+                    } else {
+                        if onnx_field_eq(src, fields, 0, "output") == 1 {
+                            if fc != 2 {
+                                onnx_error(g, line, "output expects: output <name>")
+                            } else {
+                                int_vec_push(onnx_outputs(g), onnx_field_start(fields, 1))
+                                int_vec_push(onnx_outputs(g), onnx_field_len(fields, 1))
+                            }
+                        } else {
+                            if onnx_field_eq(src, fields, 0, "node") == 1 {
+                                onnx_parse_node(g, src, fields, line)
+                            } else {
+                                onnx_error(g, line, "unknown statement (expected input, output, const or node)")
+                            }
+                        }
+                    }
+                }
+            }
+            int_vec_free(fields)
+        }
+        if e < n {
+            i = e + 1
+            line = line + 1
+        } else {
+            i = e
+        }
+    }
+    return onnx_error_count(g)
+}
+
+func onnx_validate(src: str, g: int): int {
+    var outs = onnx_outputs(g)
+    var n = int_vec_len(outs) / 2
+    if n == 0 { onnx_error(g, 0, "graph has no output declaration") }
+    var i = 0
+    while i < n {
+        var s = int_vec_get(outs, i * 2)
+        var l = int_vec_get(outs, i * 2 + 1)
+        if onnx_lookup(src, onnx_values(g), s, l) < 0 {
+            onnx_error_name(g, 0, "output is not defined", src, s, l)
+        }
+        i = i + 1
+    }
+    return onnx_error_count(g)
+}
+
+func onnx_has_input(g: int): int {
+    var n = onnx_value_count(g)
+    var i = 0
+    while i < n {
+        if onnx_value_kind(g, i) == 1 { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+func onnx_vname(vi: int): str {
+    return str_concat("v", int_to_str(vi))
+}
+
+func onnx_tensor_type(shape: int): str {
+    var b = str_builder_new()
+    str_builder_append(b, "tensor<int, ")
+    str_builder_append(b, int_to_str(onnx_shape_d0(shape)))
+    if onnx_shape_rank(shape) == 2 {
+        str_builder_append(b, ", ")
+        str_builder_append(b, int_to_str(onnx_shape_d1(shape)))
+    }
+    str_builder_append(b, ">")
+    var s = str_builder_to_str(b)
+    str_builder_free(b)
+    return s
+}
+
+func onnx_index_args(rank: int, d1: int, idx: str): str {
+    var b = str_builder_new()
+    str_builder_append(b, ", ")
+    str_builder_append(b, idx)
+    if rank == 2 {
+        str_builder_append(b, " / ")
+        str_builder_append(b, int_to_str(d1))
+        str_builder_append(b, ", ")
+        str_builder_append(b, idx)
+        str_builder_append(b, " % ")
+        str_builder_append(b, int_to_str(d1))
+    }
+    var s = str_builder_to_str(b)
+    str_builder_free(b)
+    return s
+}
+
+func onnx_emit_decl(b: int, vi: int, shape: int): int {
+    str_builder_append(b, "    var ")
+    str_builder_append(b, onnx_vname(vi))
+    str_builder_append(b, ": ")
+    str_builder_append(b, onnx_tensor_type(shape))
+    str_builder_append(b, " = tensor_new(")
+    str_builder_append(b, int_to_str(onnx_shape_d0(shape)))
+    if onnx_shape_rank(shape) == 2 {
+        str_builder_append(b, ", ")
+        str_builder_append(b, int_to_str(onnx_shape_d1(shape)))
+    }
+    str_builder_append(b, ")\n")
+    return 0
+}
+
+func onnx_emit_const(b: int, g: int, vi: int): int {
+    var values = onnx_values(g)
+    var base = int_vec_get(values, vi * 8 + 4)
+    var shape = onnx_value_shape(g, vi)
+    var rank = onnx_shape_rank(shape)
+    var d1 = onnx_shape_d1(shape)
+    var count = onnx_value_count_of(g, vi)
+    onnx_emit_decl(b, vi, shape)
+    var i = 0
+    while i < count {
+        str_builder_append(b, "    tensor_set(")
+        str_builder_append(b, onnx_vname(vi))
+        str_builder_append(b, onnx_index_args(rank, d1, int_to_str(i)))
+        str_builder_append(b, ", ")
+        str_builder_append(b, int_to_str(int_vec_get(onnx_consts(g), base + i)))
+        str_builder_append(b, ")\n")
+        i = i + 1
+    }
+    return 0
+}
+
+func onnx_emit_binary_node(b: int, g: int, ni: int, opname: str): int {
+    var nodes = onnx_nodes(g)
+    var base = ni * 6
+    var a = int_vec_get(nodes, base + 1)
+    var c = int_vec_get(nodes, base + 2)
+    var out = int_vec_get(nodes, base + 3)
+    var shape = onnx_value_shape(g, out)
+    var rank = onnx_shape_rank(shape)
+    var op = "+"
+    if str_eq(opname, "Mul") == 1 { op = "*" }
+    if (rank == 1) & (str_eq(opname, "Add") == 1) {
+        str_builder_append(b, "    var ")
+        str_builder_append(b, onnx_vname(out))
+        str_builder_append(b, ": ")
+        str_builder_append(b, onnx_tensor_type(shape))
+        str_builder_append(b, " = tensor_add(")
+        str_builder_append(b, onnx_vname(a))
+        str_builder_append(b, ", ")
+        str_builder_append(b, onnx_vname(c))
+        str_builder_append(b, ")\n")
+        return 0
+    }
+    onnx_emit_decl(b, out, shape)
+    var d0 = onnx_shape_d0(shape)
+    var d1 = onnx_shape_d1(shape)
+    if rank == 1 {
+        str_builder_append(b, "    var i")
+        str_builder_append(b, int_to_str(ni))
+        str_builder_append(b, " = 0\n")
+        str_builder_append(b, "    while i")
+        str_builder_append(b, int_to_str(ni))
+        str_builder_append(b, " < ")
+        str_builder_append(b, int_to_str(d0))
+        str_builder_append(b, " {\n")
+        str_builder_append(b, "      tensor_set(")
+        str_builder_append(b, onnx_vname(out))
+        str_builder_append(b, ", i")
+        str_builder_append(b, int_to_str(ni))
+        str_builder_append(b, ", tensor_get(")
+        str_builder_append(b, onnx_vname(a))
+        str_builder_append(b, ", i")
+        str_builder_append(b, int_to_str(ni))
+        str_builder_append(b, ") ")
+        str_builder_append(b, op)
+        str_builder_append(b, " tensor_get(")
+        str_builder_append(b, onnx_vname(c))
+        str_builder_append(b, ", i")
+        str_builder_append(b, int_to_str(ni))
+        str_builder_append(b, "))\n")
+        str_builder_append(b, "      i")
+        str_builder_append(b, int_to_str(ni))
+        str_builder_append(b, " = i")
+        str_builder_append(b, int_to_str(ni))
+        str_builder_append(b, " + 1\n")
+        str_builder_append(b, "    }\n")
+        return 0
+    }
+    str_builder_append(b, "    var i")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " = 0\n")
+    str_builder_append(b, "    while i")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " < ")
+    str_builder_append(b, int_to_str(d0))
+    str_builder_append(b, " {\n")
+    str_builder_append(b, "      var j")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " = 0\n")
+    str_builder_append(b, "      while j")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " < ")
+    str_builder_append(b, int_to_str(d1))
+    str_builder_append(b, " {\n")
+    str_builder_append(b, "        tensor_set(")
+    str_builder_append(b, onnx_vname(out))
+    str_builder_append(b, ", i")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, ", j")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, ", tensor_get(")
+    str_builder_append(b, onnx_vname(a))
+    str_builder_append(b, ", i")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, ", j")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, ") ")
+    str_builder_append(b, op)
+    str_builder_append(b, " tensor_get(")
+    str_builder_append(b, onnx_vname(c))
+    str_builder_append(b, ", i")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, ", j")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, "))\n")
+    str_builder_append(b, "        j")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " = j")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " + 1\n")
+    str_builder_append(b, "      }\n")
+    str_builder_append(b, "      i")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " = i")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " + 1\n")
+    str_builder_append(b, "    }\n")
+    return 0
+}
+
+func onnx_emit_matmul_node(b: int, g: int, ni: int): int {
+    var nodes = onnx_nodes(g)
+    var base = ni * 6
+    var a = int_vec_get(nodes, base + 1)
+    var c = int_vec_get(nodes, base + 2)
+    var out = int_vec_get(nodes, base + 3)
+    str_builder_append(b, "    var ")
+    str_builder_append(b, onnx_vname(out))
+    str_builder_append(b, ": ")
+    str_builder_append(b, onnx_tensor_type(onnx_value_shape(g, out)))
+    str_builder_append(b, " = tensor_matmul(")
+    str_builder_append(b, onnx_vname(a))
+    str_builder_append(b, ", ")
+    str_builder_append(b, onnx_vname(c))
+    str_builder_append(b, ")\n")
+    return 0
+}
+
+func onnx_emit_relu_node(b: int, g: int, ni: int): int {
+    var nodes = onnx_nodes(g)
+    var base = ni * 6
+    var a = int_vec_get(nodes, base + 1)
+    var out = int_vec_get(nodes, base + 3)
+    var shape = onnx_value_shape(g, out)
+    var rank = onnx_shape_rank(shape)
+    var d1 = onnx_shape_d1(shape)
+    var count = onnx_value_count_of(g, out)
+    onnx_emit_decl(b, out, shape)
+    str_builder_append(b, "    var i")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " = 0\n")
+    str_builder_append(b, "    while i")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " < ")
+    str_builder_append(b, int_to_str(count))
+    str_builder_append(b, " {\n")
+    str_builder_append(b, "      var x")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " = tensor_get(")
+    str_builder_append(b, onnx_vname(a))
+    str_builder_append(b, onnx_index_args(rank, d1, str_concat("i", int_to_str(ni))))
+    str_builder_append(b, ")\n")
+    str_builder_append(b, "      if x")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " < 0 { x")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " = 0 }\n")
+    str_builder_append(b, "      tensor_set(")
+    str_builder_append(b, onnx_vname(out))
+    str_builder_append(b, onnx_index_args(rank, d1, str_concat("i", int_to_str(ni))))
+    str_builder_append(b, ", x")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, ")\n")
+    str_builder_append(b, "      i")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " = i")
+    str_builder_append(b, int_to_str(ni))
+    str_builder_append(b, " + 1\n")
+    str_builder_append(b, "    }\n")
+    return 0
+}
+
+func onnx_emit_outputs(b: int, src: str, g: int): int {
+    var outs = onnx_outputs(g)
+    var n = int_vec_len(outs) / 2
+    var i = 0
+    while i < n {
+        var s = int_vec_get(outs, i * 2)
+        var l = int_vec_get(outs, i * 2 + 1)
+        var vi = onnx_lookup(src, onnx_values(g), s, l)
+        var shape = onnx_value_shape(g, vi)
+        var rank = onnx_shape_rank(shape)
+        var d1 = onnx_shape_d1(shape)
+        var count = onnx_value_count_of(g, vi)
+        str_builder_append(b, "    print_str(\"")
+        str_builder_append(b, str_slice(src, s, l))
+        str_builder_append(b, ": \")\n")
+        str_builder_append(b, "    var p")
+        str_builder_append(b, int_to_str(i))
+        str_builder_append(b, " = 0\n")
+        str_builder_append(b, "    while p")
+        str_builder_append(b, int_to_str(i))
+        str_builder_append(b, " < ")
+        str_builder_append(b, int_to_str(count))
+        str_builder_append(b, " {\n")
+        str_builder_append(b, "      if p")
+        str_builder_append(b, int_to_str(i))
+        str_builder_append(b, " > 0 { print_str(\" \") }\n")
+        str_builder_append(b, "      print_str(int_to_str(tensor_get(")
+        str_builder_append(b, onnx_vname(vi))
+        str_builder_append(b, onnx_index_args(rank, d1, str_concat("p", int_to_str(i))))
+        str_builder_append(b, ")))\n")
+        str_builder_append(b, "      p")
+        str_builder_append(b, int_to_str(i))
+        str_builder_append(b, " = p")
+        str_builder_append(b, int_to_str(i))
+        str_builder_append(b, " + 1\n")
+        str_builder_append(b, "    }\n")
+        str_builder_append(b, "    print_str(\"\\n\")\n")
+        i = i + 1
+    }
+    return 0
+}
+
+func onnx_emit_diva(src: str, g: int): str {
+    var b = str_builder_new()
+    str_builder_append(b, "extern func print_str(s: str): int\n")
+    str_builder_append(b, "extern func int_to_str(n: int): str\n")
+    str_builder_append(b, "\nfunc main(): int {\n")
+    var n = onnx_value_count(g)
+    var i = 0
+    while i < n {
+        if onnx_value_kind(g, i) == 2 {
+            onnx_emit_const(b, g, i)
+        } else {
+            if onnx_value_kind(g, i) == 1 {
+                onnx_emit_decl(b, i, onnx_value_shape(g, i))
+            }
+        }
+        i = i + 1
+    }
+    var nc = onnx_node_count(g)
+    i = 0
+    while i < nc {
+        var nodes = onnx_nodes(g)
+        var base = i * 6
+        var op = int_vec_get(nodes, base)
+        if op == onnx_op_add() {
+            onnx_emit_binary_node(b, g, i, "Add")
+        } else {
+            if op == onnx_op_mul() {
+                onnx_emit_binary_node(b, g, i, "Mul")
+            } else {
+                if op == onnx_op_matmul() {
+                    onnx_emit_matmul_node(b, g, i)
+                } else {
+                    onnx_emit_relu_node(b, g, i)
+                }
+            }
+        }
+        i = i + 1
+    }
+    onnx_emit_outputs(b, src, g)
+    str_builder_append(b, "    return 0\n}\n")
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func onnx_mlir_prologue(src: str, g: int): str {
+    var b = str_builder_new()
+    str_builder_append(b, "// Diva ONNX text import (issue #122): ")
+    str_builder_append(b, int_to_str(onnx_node_count(g)))
+    str_builder_append(b, " node(s)\n")
+    var nodes = onnx_nodes(g)
+    var n = onnx_node_count(g)
+    var i = 0
+    while i < n {
+        var op = int_vec_get(nodes, i * 6)
+        str_builder_append(b, "// diva.onnx node ")
+        str_builder_append(b, int_to_str(i))
+        str_builder_append(b, ": ")
+        str_builder_append(b, onnx_op_name(op))
+        str_builder_append(b, " -> ")
+        if op == onnx_op_add() {
+            str_builder_append(b, "linalg.add")
+        } else {
+            if op == onnx_op_matmul() {
+                str_builder_append(b, "linalg.matmul")
+            } else {
+                if op == onnx_op_mul() {
+                    str_builder_append(b, "linalg.mul (pending; scalar arith.mul emitted)")
+                } else {
+                    str_builder_append(b, "linalg.relu (pending; scalar arith.select emitted)")
+                }
+            }
+        }
+        str_builder_append(b, "\n")
+        i = i + 1
+    }
+    if onnx_has_input(g) == 1 {
+        str_builder_append(b, "// diva.onnx: runtime inputs are deferred; generated tensors are placeholders\n")
+    }
+    var result = str_builder_to_str(b)
+    str_builder_free(b)
+    return result
+}
+
+func onnx_free(g: int): int {
+    int_vec_free(onnx_values(g))
+    int_vec_free(onnx_nodes(g))
+    int_vec_free(onnx_consts(g))
+    int_vec_free(onnx_outputs(g))
+    str_builder_free(onnx_errors(g))
+    int_vec_free(int_vec_get(g, 5))
+    int_vec_free(g)
+    return 0
+}
