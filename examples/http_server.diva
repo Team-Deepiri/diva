@@ -1,0 +1,78 @@
+import "std/net.diva"
+import "std/http.diva"
+import "std/host.diva"
+import "std/conv.diva"
+import "std/io.diva"
+
+func main(): int {
+    var port_s = host_getenv("HTTP_PORT")
+    var port = 0
+    if str_len(port_s) > 0 {
+        port = str_to_int(port_s)
+    }
+
+    var fd = socket(2, 1, 6)
+    if fd < 0 {
+        print_str("socket failed\n")
+        return 1
+    }
+    var addr = sockaddr_any(port)
+    if addr == 0 {
+        print_str("sockaddr failed\n")
+        return 1
+    }
+    if bind(fd, addr, 16) < 0 {
+        print_str("bind failed\n")
+        return 1
+    }
+    mem_free(addr)
+    if listen(fd, 8) < 0 {
+        print_str("listen failed\n")
+        return 1
+    }
+
+    var actual = bound_port(fd)
+    if actual < 1 {
+        actual = port
+    }
+    print_int(actual)
+
+    var limit_s = host_getenv("HTTP_MAX_REQUESTS")
+    var limit = 0
+    if str_len(limit_s) > 0 {
+        limit = str_to_int(limit_s)
+    }
+    if limit < 1 {
+        limit = 1000000
+    }
+
+    var served = 0
+    while served < limit {
+        var cfd = accept(fd, 0, 0)
+        if cfd < 0 {
+            print_str("accept failed\n")
+            return 1
+        }
+        var raw = recv_text(cfd, 8192)
+        if raw != 0 {
+            var n = net_text_len(raw)
+            var req = http_parse(raw, n)
+            var response = http_not_found("404 not found\n")
+            if http_method_is(req, "GET") == 1 {
+                if http_path_is(req, "/") == 1 {
+                    response = http_ok("hello from diva\n")
+                }
+                if http_path_is(req, "/hello") == 1 {
+                    response = http_ok("hello from diva\n")
+                }
+            }
+            send(cfd, response, str_len(response), 0)
+            http_request_free(req)
+            mem_free(raw)
+        }
+        close(cfd)
+        served = served + 1
+    }
+    close(fd)
+    return 0
+}

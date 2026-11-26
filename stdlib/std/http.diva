@@ -1,0 +1,214 @@
+import "std/mem.diva"
+import "std/net.diva"
+import "std/host.diva"
+import "std/vec.diva"
+
+func http_parse(raw: int, size: int): int {
+    var r = mem_alloc(64)
+    if r == 0 {
+        return 0
+    }
+    mem_set(r, 0, raw)
+    mem_set(r, 1, size)
+
+    var i = 0
+    var found = 0
+    while (i < size) & (found == 0) {
+        if net_text_byte(raw, i) == 32 {
+            found = 1
+        }
+        if found == 0 {
+            i = i + 1
+        }
+    }
+    mem_set(r, 2, 0)
+    mem_set(r, 3, i)
+    var path_start = i + 1
+    mem_set(r, 4, path_start)
+
+    i = path_start
+    found = 0
+    while (i < size) & (found == 0) {
+        if net_text_byte(raw, i) == 32 {
+            found = 1
+        }
+        if found == 0 {
+            i = i + 1
+        }
+    }
+    var path_len = 0
+    var header_start = size
+    if found == 1 {
+        path_len = i - path_start
+        header_start = i + 1
+    } else {
+        path_len = size - path_start
+    }
+    mem_set(r, 5, path_len)
+
+    if (header_start + 1 < size) & (net_text_byte(raw, header_start) == 13) {
+        if net_text_byte(raw, header_start + 1) == 10 {
+            header_start = header_start + 2
+        }
+    }
+    if (header_start < size) & (net_text_byte(raw, header_start) == 10) {
+        header_start = header_start + 1
+    }
+    mem_set(r, 6, header_start)
+    mem_set(r, 7, size - header_start)
+    return r
+}
+
+func http_request_free(r: int): int {
+    return mem_free(r)
+}
+
+func http_method_start(r: int): int {
+    return mem_get(r, 2)
+}
+
+func http_method_len(r: int): int {
+    return mem_get(r, 3)
+}
+
+func http_path_start(r: int): int {
+    return mem_get(r, 4)
+}
+
+func http_path_len(r: int): int {
+    return mem_get(r, 5)
+}
+
+func http_header_start(r: int): int {
+    return mem_get(r, 6)
+}
+
+func http_header_len(r: int): int {
+    return mem_get(r, 7)
+}
+
+func http_lit_eq(raw: int, pos: int, lit: str, n: int): int {
+    var i = 0
+    while i < n {
+        if net_text_byte(raw, pos + i) != str_byte(lit, i) {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+func http_range_is(r: int, start_word: int, len_word: int, lit: str): int {
+    var n = str_len(lit)
+    if n != mem_get(r, len_word) {
+        return 0
+    }
+    var total = mem_get(r, 1)
+    var start = mem_get(r, start_word)
+    var i = 0
+    while i < n {
+        if (start + i < total) == 0 {
+            return 0
+        }
+        i = i + 1
+    }
+    return http_lit_eq(mem_get(r, 0), start, lit, n)
+}
+
+func http_method_is(r: int, method: str): int {
+    return http_range_is(r, 2, 3, method)
+}
+
+func http_path_is(r: int, path: str): int {
+    return http_range_is(r, 4, 5, path)
+}
+
+func http_line_named(raw: int, start: int, end: int, name: str): int {
+    var nl = str_len(name)
+    if end - start < nl + 1 {
+        return 0
+    }
+    if http_lit_eq(raw, start, name, nl) == 0 {
+        return 0
+    }
+    if net_text_byte(raw, start + nl) != 58 {
+        return 0
+    }
+    return 1
+}
+
+func http_line_value_is(raw: int, start: int, end: int, name: str, value: str): int {
+    if http_line_named(raw, start, end, name) == 0 {
+        return 0
+    }
+    var p = start + str_len(name) + 1
+    while (p < end) & (net_text_byte(raw, p) == 32) {
+        p = p + 1
+    }
+    var vlen = str_len(value)
+    if end - p < vlen {
+        return 0
+    }
+    if http_lit_eq(raw, p, value, vlen) == 0 {
+        return 0
+    }
+    var q = p + vlen
+    while (q < end) & (net_text_byte(raw, q) == 32) {
+        q = q + 1
+    }
+    if q == end {
+        return 1
+    }
+    return 0
+}
+
+func http_header_is(r: int, name: str, value: str): int {
+    var raw = mem_get(r, 0)
+    var end = mem_get(r, 6) + mem_get(r, 7)
+    var line = mem_get(r, 6)
+    while line < end {
+        var e = line
+        var found = 0
+        while (e < end) & (found == 0) {
+            var c = net_text_byte(raw, e)
+            if (c == 13) | (c == 10) {
+                found = 1
+            }
+            if found == 0 {
+                e = e + 1
+            }
+        }
+        if http_line_value_is(raw, line, e, name, value) == 1 {
+            return 1
+        }
+        line = e + 1
+        if (line < end) & (net_text_byte(raw, line) == 10) {
+            line = line + 1
+        }
+    }
+    return 0
+}
+
+func http_response(status: str, body: str): str {
+    var b = str_builder_new()
+    if b == 0 {
+        return ""
+    }
+    str_builder_append(b, status)
+    str_builder_append(b, "\r\nContent-Length: ")
+    str_builder_append(b, int_to_str(str_len(body)))
+    str_builder_append(b, "\r\nContent-Type: text/plain; charset=utf-8")
+    str_builder_append(b, "\r\nConnection: close\r\n\r\n")
+    str_builder_append(b, body)
+    var out = str_builder_to_str(b)
+    str_builder_free(b)
+    return out
+}
+
+func http_ok(body: str): str {
+    return http_response("HTTP/1.1 200 OK", body)
+}
+
+func http_not_found(body: str): str {
+    return http_response("HTTP/1.1 404 Not Found", body)
+}

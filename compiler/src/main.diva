@@ -452,6 +452,7 @@ func native_require_no_externs(m: int, src: str, toks: int): int {
         if str_eq(nm, "text_cmp") == 1 { supported = 1 }
         if str_eq(nm, "text_concat") == 1 { supported = 1 }
         if str_eq(nm, "text_slice") == 1 { supported = 1 }
+        if str_eq(nm, "host_syscall") == 1 { supported = 1 }
         if supported == 0 {
             if unresolved == 0 {
                 err_line("native build: unresolved extern runtime dependencies remain:")
