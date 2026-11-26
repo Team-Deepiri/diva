@@ -1,0 +1,17 @@
+import "std/sync.diva"
+import "std/time.diva"
+import "std/fs.diva"
+import "std/process.diva"
+import "std/fmt.diva"
+
+func main(): int {
+    var lock = 0
+    lock_init(&lock)
+    lock_acquire(&lock)
+    lock_release(&lock)
+    if now_ns() <= 0 { return 1 }
+    if str_eq(format("v={}", itoa(3)), "v=3") != 1 { return 2 }
+    if file_len("/definitely/not/a/diva/file") >= 0 { return 3 }
+    if str_len(getenv("DIVA_STDLIB_MISSING_XYZ")) != 0 { return 4 }
+    return 42
+}

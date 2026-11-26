@@ -2,6 +2,46 @@ import "std/host.diva"
 import "std/io.diva"
 import "std/vec.diva"
 
+// Issue #127: integer-to-decimal wrapper around the host builtin.
+func itoa(n: int): str {
+    return int_to_str(n)
+}
+
+func concat(a: str, b: str): str {
+    var out = str_builder_new()
+    if out == 0 {
+        return ""
+    }
+    str_builder_append(out, a)
+    str_builder_append(out, b)
+    var result = str_builder_to_str(out)
+    str_builder_free(out)
+    return result
+}
+
+// Replace every "{}" placeholder in template with value. No format specs,
+// escaping, or positional arguments: use concat for multi-value assembly.
+func format(template: str, value: str): str {
+    var out = str_builder_new()
+    if out == 0 {
+        return ""
+    }
+    var n = str_len(template)
+    var i = 0
+    while (i < n) {
+        if (str_byte(template, i) == 123) & (i + 1 < n) & (str_byte(template, i + 1) == 125) {
+            str_builder_append(out, value)
+            i = i + 2
+        } else {
+            str_builder_append(out, str_slice(template, i, 1))
+            i = i + 1
+        }
+    }
+    var result = str_builder_to_str(out)
+    str_builder_free(out)
+    return result
+}
+
 func println(text: str): int {
     var b = str_builder_new()
     if b == 0 {

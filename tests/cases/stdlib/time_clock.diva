@@ -1,0 +1,12 @@
+import "std/time.diva"
+
+func main(): int {
+    var before = now_ns()
+    if before <= 0 { return 1 }
+    var rc = sleep_ms(10)
+    if rc != 0 { return 2 }
+    var after = now_ns()
+    if after - before < 1000000 { return 3 }
+    if sleep_ms(0) != 0 { return 4 }
+    return 42
+}

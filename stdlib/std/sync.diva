@@ -1,0 +1,34 @@
+// Issue #127: minimal spinlock built on the atomic_cas language builtin.
+//
+// Scope: a lock is one caller-owned 64-bit word. Pass the same word to all three
+// functions; do not copy it while the lock is held. `atomic_*` requires `unsafe`,
+// which is contained inside this module.
+//
+// Limitations: Diva has no thread scheduler or condvar yet. These operations
+// are correct for single-threaded sequencing and for callers that supply the
+// shared word themselves; lock_acquire spins forever if the word is already
+// held by a thread that cannot make progress. No fairness, recursion, timeout,
+// or deadlock detection is provided.
+
+func lock_init(lock: *int): void {
+    unsafe {
+        atomic_store(lock, 0)
+    }
+}
+
+func lock_acquire(lock: *int): void {
+    var done = 0
+    while (done == 0) {
+        unsafe {
+            if atomic_cas(lock, 0, 1) == 1 {
+                done = 1
+            }
+        }
+    }
+}
+
+func lock_release(lock: *int): void {
+    unsafe {
+        atomic_store(lock, 0)
+    }
+}

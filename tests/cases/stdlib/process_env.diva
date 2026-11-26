@@ -1,0 +1,10 @@
+import "std/process.diva"
+
+func main(): int {
+    var value = getenv("DIVA_STDLIB_TEST_ENV")
+    if str_eq(value, "diva-stdlib-ok") != 1 { return 1 }
+    var missing = getenv("DIVA_STDLIB_MISSING_XYZ")
+    if str_len(missing) != 0 { return 2 }
+    process_exit(42)
+    return 0
+}
