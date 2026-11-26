@@ -1,0 +1,10 @@
+import "std/fmt.diva"
+
+func main(): int {
+    if str_eq(itoa(-42), "-42") != 1 { return 1 }
+    if str_eq(itoa(0), "0") != 1 { return 2 }
+    if str_eq(concat("ab", "cd"), "abcd") != 1 { return 3 }
+    if str_eq(format("x={} y={}", itoa(7)), "x=7 y=7") != 1 { return 4 }
+    if str_eq(format("no slot", "z"), "no slot") != 1 { return 5 }
+    return 42
+}

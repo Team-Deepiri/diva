@@ -639,6 +639,8 @@ func pure_builtin_extern_id_hi_host(nm: str): int {
     if str_eq(nm, "host_argv") == 1 { return 25 }
     if str_eq(nm, "host_getenv") == 1 { return 26 }
     if str_eq(nm, "host_system") == 1 { return 27 }
+    if str_eq(nm, "host_now_ns") == 1 { return 44 }
+    if str_eq(nm, "host_sleep_ms") == 1 { return 45 }
     return 0
 }
 
@@ -682,6 +684,33 @@ func pure_builtin_extern_id_hi(nm: str): int {
 }
 
 // Dispatch high builtin ids — see docs/seed-codegen-workarounds.md §2.
+func emit_pure_host_now_ns(out: int): int {
+    // clock_gettime(CLOCK_MONOTONIC, &timespec) syscall; rax = sec*1e9 + nsec (or -1 on error).
+    // Inlined: NO ret. Uses only syscall-clobbered registers; r15 (environ anchor) is untouched.
+    int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 236) int_vec_push(out, 16) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 199) int_vec_push(out, 1) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 230) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 228) int_vec_push(out, 0) int_vec_push(out, 0)
+    int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 192) int_vec_push(out, 120) int_vec_push(out, 22) int_vec_push(out, 72) int_vec_push(out, 139)
+    int_vec_push(out, 4) int_vec_push(out, 36) int_vec_push(out, 72) int_vec_push(out, 105) int_vec_push(out, 192) int_vec_push(out, 0) int_vec_push(out, 202) int_vec_push(out, 154) int_vec_push(out, 59) int_vec_push(out, 72)
+    int_vec_push(out, 3) int_vec_push(out, 68) int_vec_push(out, 36) int_vec_push(out, 8) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 196) int_vec_push(out, 16) int_vec_push(out, 235) int_vec_push(out, 11)
+    int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 196) int_vec_push(out, 16) int_vec_push(out, 72) int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 255) int_vec_push(out, 255) int_vec_push(out, 255)
+    int_vec_push(out, 255)
+    return 61
+}
+
+func emit_pure_host_sleep_ms(out: int): int {
+    // nanosleep syscall; rdi = ms. EINTR retries the original request; rax = 0 (or -1 on error).
+    // Inlined: NO ret. Uses only syscall-clobbered registers; r15 (environ anchor) is untouched.
+    int_vec_push(out, 72) int_vec_push(out, 133) int_vec_push(out, 255) int_vec_push(out, 127) int_vec_push(out, 4) int_vec_push(out, 49) int_vec_push(out, 192) int_vec_push(out, 235) int_vec_push(out, 66) int_vec_push(out, 72)
+    int_vec_push(out, 131) int_vec_push(out, 236) int_vec_push(out, 16) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 248) int_vec_push(out, 72) int_vec_push(out, 153) int_vec_push(out, 72) int_vec_push(out, 199)
+    int_vec_push(out, 193) int_vec_push(out, 232) int_vec_push(out, 3) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 72) int_vec_push(out, 247) int_vec_push(out, 249) int_vec_push(out, 72) int_vec_push(out, 137)
+    int_vec_push(out, 4) int_vec_push(out, 36) int_vec_push(out, 72) int_vec_push(out, 105) int_vec_push(out, 210) int_vec_push(out, 64) int_vec_push(out, 66) int_vec_push(out, 15) int_vec_push(out, 0) int_vec_push(out, 72)
+    int_vec_push(out, 137) int_vec_push(out, 84) int_vec_push(out, 36) int_vec_push(out, 8) int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 231) int_vec_push(out, 49) int_vec_push(out, 246) int_vec_push(out, 72)
+    int_vec_push(out, 199) int_vec_push(out, 192) int_vec_push(out, 35) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 0) int_vec_push(out, 15) int_vec_push(out, 5) int_vec_push(out, 72) int_vec_push(out, 131)
+    int_vec_push(out, 248) int_vec_push(out, 252) int_vec_push(out, 116) int_vec_push(out, 236) int_vec_push(out, 72) int_vec_push(out, 131) int_vec_push(out, 196) int_vec_push(out, 16) int_vec_push(out, 72) int_vec_push(out, 133)
+    int_vec_push(out, 192) int_vec_push(out, 120) int_vec_push(out, 2) int_vec_push(out, 49) int_vec_push(out, 192)
+    return 75
+}
+
 func emit_pure_builtin_high_vec(out: int, id: int): int {
     if id == 9 { return emit_pure_int_vec_new(out) }
     if id == 10 { return emit_pure_int_vec_push(out) }
@@ -722,6 +751,8 @@ func emit_pure_builtin_high_misc(out: int, id: int): int {
     if id == 41 { return emit_pure_text_cmp(out) }
     if id == 42 { return emit_pure_text_concat(out) }
     if id == 43 { return emit_pure_text_slice(out) }
+    if id == 44 { return emit_pure_host_now_ns(out) }
+    if id == 45 { return emit_pure_host_sleep_ms(out) }
     return 0
 }
 

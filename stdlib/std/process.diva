@@ -82,6 +82,12 @@ func exit_with(code: int): int {
     return code
 }
 
+// Issue #127: explicit process-exit wrapper. The `exit(code)` builtin itself is
+// declared by std/io.diva; re-declaring it here would collide on import.
+func process_exit(code: int): void {
+    exit(code)
+}
+
 func cmd_join(a: str, b: str): str {
     var sb = str_builder_new()
     if sb == 0 { return "" }
