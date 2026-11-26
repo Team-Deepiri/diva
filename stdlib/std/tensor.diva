@@ -1,0 +1,254 @@
+import "std/io.diva"
+
+func tensor_zeros(rows: int, cols: int): tensor<int, 2, 2> {
+    if rows != 2 { exit(1) }
+    if cols != 2 { exit(1) }
+    return tensor_fill(0, 2, 2)
+}
+
+func tensor_zeros6(n: int): tensor<int, 6> {
+    if n != 6 { exit(1) }
+    return tensor_fill(0, 6)
+}
+
+func tensor_from_array4(a: int, b: int, c: int, d: int): tensor<int, 4> {
+    var t: tensor<int, 4> = tensor_new(4)
+    tensor_set(t, 0, a)
+    tensor_set(t, 1, b)
+    tensor_set(t, 2, c)
+    tensor_set(t, 3, d)
+    return t
+}
+
+func tensor_from_array6(a: int, b: int, c: int, d: int, e: int, f: int): tensor<int, 6> {
+    var t: tensor<int, 6> = tensor_new(6)
+    tensor_set(t, 0, a)
+    tensor_set(t, 1, b)
+    tensor_set(t, 2, c)
+    tensor_set(t, 3, d)
+    tensor_set(t, 4, e)
+    tensor_set(t, 5, f)
+    return t
+}
+
+func tensor_from_array2x2(a: int, b: int, c: int, d: int): tensor<int, 2, 2> {
+    var t: tensor<int, 2, 2> = tensor_new(2, 2)
+    tensor_set(t, 0, 0, a)
+    tensor_set(t, 0, 1, b)
+    tensor_set(t, 1, 0, c)
+    tensor_set(t, 1, 1, d)
+    return t
+}
+
+func tensor_eye(n: int): tensor<int, 2, 2> {
+    if n != 2 { exit(1) }
+    var t: tensor<int, 2, 2> = tensor_fill(0, 2, 2)
+    tensor_set(t, 0, 0, 1)
+    tensor_set(t, 1, 1, 1)
+    return t
+}
+
+func tensor_transpose(a: tensor<int, 2, 2>): tensor<int, 2, 2> {
+    var out: tensor<int, 2, 2> = tensor_new(2, 2)
+    var r = 0
+    while (r < 2) {
+        var c = 0
+        while (c < 2) {
+            tensor_set(out, c, r, tensor_get(a, r, c))
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return out
+}
+
+func tensor_transpose_2x3(a: tensor<int, 2, 3>): tensor<int, 3, 2> {
+    var out: tensor<int, 3, 2> = tensor_new(3, 2)
+    var r = 0
+    while (r < 2) {
+        var c = 0
+        while (c < 3) {
+            tensor_set(out, c, r, tensor_get(a, r, c))
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return out
+}
+
+func vec4_add_lane6(a: tensor<int, 6>, b: tensor<int, 6>, i: int, lane: int): int {
+    return vec4_get(vec4_load(tensor_get(a, i), tensor_get(a, i + 1), tensor_get(a, i + 2), tensor_get(a, i + 3)) + vec4_load(tensor_get(b, i), tensor_get(b, i + 1), tensor_get(b, i + 2), tensor_get(b, i + 3)), lane)
+}
+
+func vec4_mul_lane4(a: tensor<int, 4>, b: tensor<int, 4>, i: int, lane: int): int {
+    return vec4_get(vec4_load(tensor_get(a, i), tensor_get(a, i + 1), tensor_get(a, i + 2), tensor_get(a, i + 3)) * vec4_load(tensor_get(b, i), tensor_get(b, i + 1), tensor_get(b, i + 2), tensor_get(b, i + 3)), lane)
+}
+
+func vec4_mul_lane6(a: tensor<int, 6>, b: tensor<int, 6>, i: int, lane: int): int {
+    return vec4_get(vec4_load(tensor_get(a, i), tensor_get(a, i + 1), tensor_get(a, i + 2), tensor_get(a, i + 3)) * vec4_load(tensor_get(b, i), tensor_get(b, i + 1), tensor_get(b, i + 2), tensor_get(b, i + 3)), lane)
+}
+
+func vec4_sum4(a: tensor<int, 4>, i: int): int {
+    return vec4_sum(vec4_load(tensor_get(a, i), tensor_get(a, i + 1), tensor_get(a, i + 2), tensor_get(a, i + 3)))
+}
+
+func vec4_sum6(a: tensor<int, 6>, i: int): int {
+    return vec4_sum(vec4_load(tensor_get(a, i), tensor_get(a, i + 1), tensor_get(a, i + 2), tensor_get(a, i + 3)))
+}
+
+func tensor_add4(a: tensor<int, 4>, b: tensor<int, 4>): tensor<int, 4> {
+    return tensor_add(a, b)
+}
+
+func tensor_add6(a: tensor<int, 6>, b: tensor<int, 6>): tensor<int, 6> {
+    var out: tensor<int, 6> = tensor_new(6)
+    var i = 0
+    while (i + 3 < 6) {
+        tensor_set(out, i, vec4_add_lane6(a, b, i, 0))
+        tensor_set(out, i + 1, vec4_add_lane6(a, b, i, 1))
+        tensor_set(out, i + 2, vec4_add_lane6(a, b, i, 2))
+        tensor_set(out, i + 3, vec4_add_lane6(a, b, i, 3))
+        i = i + 4
+    }
+    while (i < 6) {
+        tensor_set(out, i, tensor_get(a, i) + tensor_get(b, i))
+        i = i + 1
+    }
+    return out
+}
+
+func tensor_add_2x2(a: tensor<int, 2, 2>, b: tensor<int, 2, 2>): tensor<int, 2, 2> {
+    var out: tensor<int, 2, 2> = tensor_new(2, 2)
+    var r = 0
+    while (r < 2) {
+        var c = 0
+        while (c < 2) {
+            tensor_set(out, r, c, tensor_get(a, r, c) + tensor_get(b, r, c))
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return out
+}
+
+func tensor_sub(a: tensor<int, 4>, b: tensor<int, 4>): tensor<int, 4> {
+    var out: tensor<int, 4> = tensor_new(4)
+    var i = 0
+    while (i < 4) {
+        tensor_set(out, i, tensor_get(a, i) - tensor_get(b, i))
+        i = i + 1
+    }
+    return out
+}
+
+func tensor_sub6(a: tensor<int, 6>, b: tensor<int, 6>): tensor<int, 6> {
+    var out: tensor<int, 6> = tensor_new(6)
+    var i = 0
+    while (i < 6) {
+        tensor_set(out, i, tensor_get(a, i) - tensor_get(b, i))
+        i = i + 1
+    }
+    return out
+}
+
+func tensor_sub_2x2(a: tensor<int, 2, 2>, b: tensor<int, 2, 2>): tensor<int, 2, 2> {
+    var out: tensor<int, 2, 2> = tensor_new(2, 2)
+    var r = 0
+    while (r < 2) {
+        var c = 0
+        while (c < 2) {
+            tensor_set(out, r, c, tensor_get(a, r, c) - tensor_get(b, r, c))
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return out
+}
+
+func tensor_mul_elementwise(a: tensor<int, 4>, b: tensor<int, 4>): tensor<int, 4> {
+    var out: tensor<int, 4> = tensor_new(4)
+    var i = 0
+    while (i + 3 < 4) {
+        tensor_set(out, i, vec4_mul_lane4(a, b, i, 0))
+        tensor_set(out, i + 1, vec4_mul_lane4(a, b, i, 1))
+        tensor_set(out, i + 2, vec4_mul_lane4(a, b, i, 2))
+        tensor_set(out, i + 3, vec4_mul_lane4(a, b, i, 3))
+        i = i + 4
+    }
+    while (i < 4) {
+        tensor_set(out, i, tensor_get(a, i) * tensor_get(b, i))
+        i = i + 1
+    }
+    return out
+}
+
+func tensor_mul_elementwise6(a: tensor<int, 6>, b: tensor<int, 6>): tensor<int, 6> {
+    var out: tensor<int, 6> = tensor_new(6)
+    var i = 0
+    while (i + 3 < 6) {
+        tensor_set(out, i, vec4_mul_lane6(a, b, i, 0))
+        tensor_set(out, i + 1, vec4_mul_lane6(a, b, i, 1))
+        tensor_set(out, i + 2, vec4_mul_lane6(a, b, i, 2))
+        tensor_set(out, i + 3, vec4_mul_lane6(a, b, i, 3))
+        i = i + 4
+    }
+    while (i < 6) {
+        tensor_set(out, i, tensor_get(a, i) * tensor_get(b, i))
+        i = i + 1
+    }
+    return out
+}
+
+func tensor_mul_elementwise_2x2(a: tensor<int, 2, 2>, b: tensor<int, 2, 2>): tensor<int, 2, 2> {
+    var out: tensor<int, 2, 2> = tensor_new(2, 2)
+    var r = 0
+    while (r < 2) {
+        var c = 0
+        while (c < 2) {
+            tensor_set(out, r, c, tensor_get(a, r, c) * tensor_get(b, r, c))
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return out
+}
+
+func tensor_matmul_2x2(a: tensor<int, 2, 2>, b: tensor<int, 2, 2>): tensor<int, 2, 2> {
+    return tensor_matmul(a, b)
+}
+
+func tensor_matmul_2x3(a: tensor<int, 2, 3>, b: tensor<int, 3, 2>): tensor<int, 2, 2> {
+    return tensor_matmul(a, b)
+}
+
+func tensor_reduce_sum(a: tensor<int, 4>): int {
+    return vec4_sum4(a, 0)
+}
+
+func tensor_reduce_sum6(a: tensor<int, 6>): int {
+    var total = 0
+    var i = 0
+    while (i + 3 < 6) {
+        total = total + vec4_sum6(a, i)
+        i = i + 4
+    }
+    while (i < 6) {
+        total = total + tensor_get(a, i)
+        i = i + 1
+    }
+    return total
+}
+
+func tensor_reduce_sum_2x2(a: tensor<int, 2, 2>): int {
+    var total = 0
+    var r = 0
+    while (r < 2) {
+        var c = 0
+        while (c < 2) {
+            total = total + tensor_get(a, r, c)
+            c = c + 1
+        }
+        r = r + 1
+    }
+    return total
+}
