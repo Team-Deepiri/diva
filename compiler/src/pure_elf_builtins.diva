@@ -605,6 +605,16 @@ func emit_pure_text_slice(out: int): int {
     return 102
 }
 
+func emit_pure_host_syscall(out: int): int {
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 248)
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 247)
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 214)
+    int_vec_push(out, 72) int_vec_push(out, 137) int_vec_push(out, 202)
+    int_vec_push(out, 77) int_vec_push(out, 137) int_vec_push(out, 194)
+    int_vec_push(out, 15) int_vec_push(out, 5)
+    return 17
+}
+
 // Second-stage extern name match (ids 9..36). Split from codegen_x86.diva — see docs/seed-codegen-workarounds.md §1.
 func pure_builtin_extern_id_hi_vec(nm: str): int {
     if str_eq(nm, "int_vec_new") == 1 { return 9 }
@@ -663,6 +673,11 @@ func pure_builtin_extern_id_hi_text(nm: str): int {
     return 0
 }
 
+func pure_builtin_extern_id_hi_sys(nm: str): int {
+    if str_eq(nm, "host_syscall") == 1 { return 46 }
+    return 0
+}
+
 func pure_builtin_extern_id_hi(nm: str): int {
     var v = pure_builtin_extern_id_hi_vec(nm)
     if (v != 0) {
@@ -680,7 +695,11 @@ func pure_builtin_extern_id_hi(nm: str): int {
     if (v != 0) {
         return v
     }
-    return pure_builtin_extern_id_hi_text(nm)
+    v = pure_builtin_extern_id_hi_text(nm)
+    if (v != 0) {
+        return v
+    }
+    return pure_builtin_extern_id_hi_sys(nm)
 }
 
 // Dispatch high builtin ids — see docs/seed-codegen-workarounds.md §2.
@@ -753,6 +772,7 @@ func emit_pure_builtin_high_misc(out: int, id: int): int {
     if id == 43 { return emit_pure_text_slice(out) }
     if id == 44 { return emit_pure_host_now_ns(out) }
     if id == 45 { return emit_pure_host_sleep_ms(out) }
+    if id == 46 { return emit_pure_host_syscall(out) }
     return 0
 }
 

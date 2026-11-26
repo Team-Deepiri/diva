@@ -1,0 +1,108 @@
+import "std/mem.diva"
+
+extern func host_syscall(nr: int, a1: int, a2: int, a3: int, a4: int): int
+extern func text_len(t: text): int
+extern func text_byte(t: text, index: int): int
+
+func socket(domain: int, kind: int, protocol: int): int {
+    return host_syscall(41, domain, kind, protocol, 0)
+}
+
+func bind(fd: int, addr: int, addrlen: int): int {
+    return host_syscall(49, fd, addr, addrlen, 0)
+}
+
+func listen(fd: int, backlog: int): int {
+    return host_syscall(50, fd, backlog, 0, 0)
+}
+
+func accept(fd: int, addr: int, addrlen: int): int {
+    return host_syscall(43, fd, addr, addrlen, 0)
+}
+
+func recv(fd: int, buf: int, count: int, flags: int): int {
+    return host_syscall(45, fd, buf, count, flags)
+}
+
+func send(fd: int, buf: int, count: int, flags: int): int {
+    return host_syscall(44, fd, buf, count, flags)
+}
+
+func close(fd: int): int {
+    return host_syscall(3, fd, 0, 0, 0)
+}
+
+func getsockname(fd: int, addr: int, addrlen: int): int {
+    return host_syscall(51, fd, addr, addrlen, 0)
+}
+
+func net_port_to_network(port: int): int {
+    var hi = port / 256
+    var lo = port - hi * 256
+    return lo * 256 + hi
+}
+
+func net_port_from_network(netport: int): int {
+    var hi = netport / 256
+    var lo = netport - hi * 256
+    return lo * 256 + hi
+}
+
+func sockaddr_any(port: int): int {
+    var p = mem_alloc(16)
+    if p == 0 {
+        return 0
+    }
+    var np = net_port_to_network(port)
+    mem_set(p, 0, 2 + np * 65536)
+    mem_set(p, 1, 0)
+    return p
+}
+
+func sockaddr_port(p: int): int {
+    var w = mem_get(p, 0)
+    return net_port_from_network((w / 65536) & 65535)
+}
+
+func bound_port(fd: int): int {
+    var p = mem_alloc(16)
+    var l = mem_alloc(8)
+    if (p == 0) | (l == 0) {
+        return 0
+    }
+    mem_set(l, 0, 16)
+    var rc = getsockname(fd, p, l)
+    if rc < 0 {
+        mem_free(p)
+        mem_free(l)
+        return 0
+    }
+    var port = sockaddr_port(p)
+    mem_free(p)
+    mem_free(l)
+    return port
+}
+
+func net_text_len(desc: int): int {
+    return text_len(desc)
+}
+
+func net_text_byte(desc: int, index: int): int {
+    return text_byte(desc, index)
+}
+
+func recv_text(fd: int, capacity: int): int {
+    var d = mem_alloc(capacity + 24)
+    if d == 0 {
+        return 0
+    }
+    var n = recv(fd, d + 24, capacity, 0)
+    if n < 1 {
+        mem_free(d)
+        return 0
+    }
+    mem_set(d, 0, 24)
+    mem_set(d, 1, n)
+    mem_set(d, 2, n)
+    return d
+}
