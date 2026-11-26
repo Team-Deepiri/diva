@@ -1,0 +1,24 @@
+// Issue #127: wall-independent monotonic time via Linux host builtins.
+//
+// `host_now_ns` / `host_sleep_ms` are implemented as pure-ELF builtins in
+// compiler/src/pure_elf_builtins.diva (clock_gettime / nanosleep syscalls), so
+// DIVA_NO_EXTERNAL=1 builds need no libc. Other runtime targets must provide
+// these two symbols or the build fails with an unresolved-extern diagnostic.
+
+extern func host_now_ns(): int
+extern func host_sleep_ms(ms: int): int
+
+func now_ns(): int {
+    return host_now_ns()
+}
+
+func sleep_ms(ms: int): int {
+    return host_sleep_ms(ms)
+}
+
+func sleep_seconds(seconds: int): int {
+    if seconds <= 0 {
+        return 0
+    }
+    return sleep_ms(seconds * 1000)
+}

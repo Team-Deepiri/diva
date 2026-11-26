@@ -8,6 +8,16 @@ func fs_read_text(path: str): str {
     return read_file(path)
 }
 
+// Issue #127: short names for the hosted file helpers. file_write returns 0 on
+// success and 1 on failure; file_read returns "" when the file cannot be read.
+func file_read(path: str): str {
+    return read_file(path)
+}
+
+func file_write(path: str, data: str): int {
+    return write_text_file(path, data)
+}
+
 func write_text_str(path: str, data: str): int {
     return write_text_file(path, data)
 }

@@ -1,0 +1,21 @@
+import "std/sync.diva"
+
+func main(): int {
+    var lock = 0
+    lock_init(&lock)
+    lock_acquire(&lock)
+    var held = 0
+    unsafe {
+        held = atomic_load(&lock)
+    }
+    lock_release(&lock)
+    if held != 1 { return 1 }
+    var after = 0
+    unsafe {
+        after = atomic_load(&lock)
+    }
+    if after != 0 { return 2 }
+    lock_acquire(&lock)
+    lock_release(&lock)
+    return 42
+}

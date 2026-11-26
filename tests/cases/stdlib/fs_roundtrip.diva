@@ -1,0 +1,13 @@
+import "std/fs.diva"
+import "std/process.diva"
+
+func main(): int {
+    var path = argv(1)
+    if str_len(path) < 1 { return 1 }
+    var rc = file_write(path, "alpha\nbeta")
+    if rc != 0 { return 2 }
+    var text = file_read(path)
+    if str_eq(text, "alpha\nbeta") != 1 { return 3 }
+    if file_len(path) != 10 { return 4 }
+    return 42
+}

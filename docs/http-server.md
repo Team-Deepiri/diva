@@ -23,7 +23,7 @@ HTTP/1.1 request/response round-trip using only Diva source and Linux syscalls.
   ephemeral port, sends requests with curl (or bash `/dev/tcp`), checks status
   and body for 200 and 404, then waits for shutdown. All external operations
   use `timeout`.
-- New pure-ELF builtin `host_syscall(nr, a1, a2, a3, a4)` (id 44 in
+- New pure-ELF   builtin `host_syscall(nr, a1, a2, a3, a4)` (id 46 in
   `compiler/src/pure_elf_builtins.diva`, declared in `stdlib/std/net.diva`).
   It emits 17 inline bytes: `mov %rdi,%rax; mov %rsi,%rdi; mov %rdx,%rsi;
   mov %rcx,%rdx; mov %r8,%r10; syscall`. Pointers may be passed as `int`

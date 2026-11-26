@@ -103,6 +103,8 @@ func asm_runtime_label(src: str, toks: int, name_tok: int): str {
     if str_eq(nm, "host_getenv") == 1 { return "di_runtime_getenv" }
     if str_eq(nm, "system") == 1 { return "di_runtime_system" }
     if str_eq(nm, "host_system") == 1 { return "di_runtime_system" }
+    if str_eq(nm, "host_now_ns") == 1 { return "di_runtime_now_ns" }
+    if str_eq(nm, "host_sleep_ms") == 1 { return "di_runtime_sleep_ms" }
     if str_eq(nm, "file_size") == 1 { return "di_runtime_file_size" }
     if str_eq(nm, "read_file") == 1 { return "di_runtime_read_file" }
     if str_eq(nm, "str_len") == 1 { return "di_runtime_str_len" }
@@ -916,7 +918,9 @@ func pure_builtin_call_size_hi_misc(id: int): int {
     if id == 41 { return 96 }
     if id == 42 { return 187 }
     if id == 43 { return 102 }
-    if id == 44 { return 17 }
+    if id == 44 { return 61 }
+    if id == 45 { return 75 }
+    if id == 46 { return 17 }
     return 5
 }
 
@@ -1036,7 +1040,7 @@ func emit_pure_builtin_call(out: int, id: int): int {
         }
     }
     if (!(id < 9)) {
-        if (!(id > 44)) {
+        if (!(id > 46)) {
             return emit_pure_builtin_high(out, id)
         }
     }
